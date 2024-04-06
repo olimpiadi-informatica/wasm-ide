@@ -1,0 +1,5 @@
+/target
+*.swp
+compilers
+dist
+node_modules

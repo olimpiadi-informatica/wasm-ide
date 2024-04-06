@@ -1,0 +1,43 @@
+[package]
+name = "worker"
+version = "0.1.0"
+authors = ["Luca Versari <veluca93@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1.0.81"
+brotli = "4.0.0"
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+futures-util = "0.3.30"
+js-sys = "0.3.69"
+common = { path = "../common" }
+log = { version = "0.4.21", features = ["release_max_level_info"] }
+reqwest = "0.12.3"
+send_wrapper = "0.6.0"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_derive = "1.0.197"
+tar = "0.4.40"
+url = "2.5.0"
+wasm-bindgen = "0.2.92"
+wasm-bindgen-futures = "0.4.42"
+wasm-encoder = { version = "0.203.0", features = ["wasmparser"] }
+wasmer = { version = "4.2.6", features = ["js-default"], default-features = false }
+wasmer-types = "4.2.6"
+wasmparser = "0.203.0"
+web-sys = { version = "0.3.69", features = ["DedicatedWorkerGlobalScope", "WorkerOptions", "WorkerType"] }
+web-time = "1.1.0"
+async-channel = "2.2.1"
+serde-wasm-bindgen = "0.6.5"
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+tracing = { version = "0.1.40", features = ["release_max_level_info"] }
+tracing-subscriber = "0.3.18"
+tracing-web = "0.1.3"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

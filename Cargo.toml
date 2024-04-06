@@ -1,0 +1,16 @@
+[workspace]
+members = ["worker", "frontend", "common"]
+resolver = "2"
+
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+debug = 0
+strip = true
+codegen-units = 1
