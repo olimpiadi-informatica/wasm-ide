@@ -290,6 +290,7 @@ pub async fn start_language_server(language: Language, interface: LSInterface) -
 -I/include/c++/15.0.0/
 -I/include/c++/15.0.0/wasm32-wasi/
 -resource-dir=/lib/clang/19
+-std=c++20
 "#
                     .to_vec(),
                 ),

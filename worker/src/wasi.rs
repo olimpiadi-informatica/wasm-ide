@@ -7,7 +7,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use async_channel::{unbounded, Sender};
 use js_sys::{Array, WebAssembly};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 use wasm_bindgen::JsValue;
 use wasmer::{
     vm::VMMemory, Engine, Exports, ExternType, Function, FunctionEnv, FunctionEnvMut, Global,
