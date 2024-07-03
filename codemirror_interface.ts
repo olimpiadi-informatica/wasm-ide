@@ -1,4 +1,4 @@
-import { basicSetup } from "codemirror";
+import {basicSetup} from "codemirror";
 import {
   EditorView,
   keymap,
@@ -8,13 +8,14 @@ import {
   hoverTooltip,
   Tooltip,
 } from "@codemirror/view";
-import { setDiagnostics } from "@codemirror/lint";
-import { Compartment, Prec, EditorState, Facet, Text } from "@codemirror/state";
-import { cpp } from "@codemirror/lang-cpp";
-import { python } from "@codemirror/lang-python";
-import { emacs } from "@replit/codemirror-emacs";
-import { vim } from "@replit/codemirror-vim";
-import { solarizedLight, solarizedDark } from "@uiw/codemirror-theme-solarized";
+import {setDiagnostics} from "@codemirror/lint";
+import {Compartment, Prec, EditorState, Facet, Text} from "@codemirror/state";
+import {cpp} from "@codemirror/lang-cpp";
+import {python} from "@codemirror/lang-python";
+import {emacs} from "@replit/codemirror-emacs";
+import {vim} from "@replit/codemirror-vim";
+import {indentWithTab} from "@codemirror/commands"
+import {solarizedLight, solarizedDark} from "@uiw/codemirror-theme-solarized";
 import {
   autocompletion,
   Completion,
@@ -105,9 +106,9 @@ export class LSEventHandler {
 
   onDiagnostics(diagnostics: Object) {
     const diag = (
-      diagnostics as Array<{ range: Range; message: string; severity: number }>
+      diagnostics as Array<{range: Range; message: string; severity: number}>
     )
-      .map(({ range, message, severity }) => ({
+      .map(({range, message, severity}) => ({
         from: this.mapPos(range.start)!,
         to: this.mapPos(range.end)!,
         severity: (
@@ -121,7 +122,7 @@ export class LSEventHandler {
         message,
       }))
       .filter(
-        ({ from, to }) =>
+        ({from, to}) =>
           from !== null &&
           to !== null &&
           from !== undefined &&
@@ -192,12 +193,12 @@ export class LSEventHandler {
 }
 
 const useLast = (values: readonly any[]) => values.reduce((_, v) => v, "");
-const languageId = Facet.define<string, string>({ combine: useLast });
+const languageId = Facet.define<string, string>({combine: useLast});
 const lsEventHandler = Facet.define<LSEventHandler, LSEventHandler>({
   combine: useLast,
 });
 
-const languageToExtension = { cpp: "cpp", c: "c", python: "py" };
+const languageToExtension = {cpp: "cpp", c: "c", python: "py"};
 
 const URI = "file:///solution.";
 
@@ -244,7 +245,7 @@ function prefixMatch(options: Completion[]) {
   const first = new Set<string>();
   const rest = new Set<string>();
 
-  for (const { apply } of options) {
+  for (const {apply} of options) {
     const [initial, ...restStr] = Array.from(apply as string);
     first.add(initial);
     for (const char of restStr) {
@@ -368,7 +369,7 @@ class LSPlugin implements PluginValue {
     }
     if (!eventHandler.isReady) return;
     if (!upd.docChanged && wasSynced) return;
-    let contentChanges: { range?: Range; text: string }[] = [
+    let contentChanges: {range?: Range; text: string}[] = [
       {
         text: this.view.state.doc.toString(),
       },
@@ -411,13 +412,13 @@ class LSPlugin implements PluginValue {
   ): Promise<Tooltip | null> {
     const eventHandler = view.state.facet(lsEventHandler);
     if (!eventHandler.isReady) return;
-    let { line, character } = eventHandler.mapOffset(pos);
+    let {line, character} = eventHandler.mapOffset(pos);
     const result = await eventHandler.request("textDocument/hover", {
-      textDocument: { uri: this.uri() },
-      position: { line, character },
+      textDocument: {uri: this.uri()},
+      position: {line, character},
     });
     if (!result) return null;
-    const { contents, range } = result as { contents: string; range: any };
+    const {contents, range} = result as {contents: string; range: any};
     let end: number;
     if (range) {
       pos = eventHandler.mapPos(range.start)!;
@@ -427,7 +428,7 @@ class LSPlugin implements PluginValue {
     return {
       pos,
       end,
-      create: () => ({ dom: documentationToDom(contents) }),
+      create: () => ({dom: documentationToDom(contents)}),
       above: true,
     };
   }
@@ -445,11 +446,11 @@ class LSPlugin implements PluginValue {
   ): Promise<CompletionResult | null> {
     const eventHandler = this.view.state.facet(lsEventHandler);
     if (!eventHandler.isReady) return;
-    let { line, character } = eventHandler.mapOffset(pos);
+    let {line, character} = eventHandler.mapOffset(pos);
 
     const result = await eventHandler.request("textDocument/completion", {
-      textDocument: { uri: this.uri() },
-      position: { line, character },
+      textDocument: {uri: this.uri()},
+      position: {line, character},
       context: {
         triggerKind,
         triggerCharacter,
@@ -507,8 +508,8 @@ class LSPlugin implements PluginValue {
       const word = token.text.toLowerCase();
       if (/^\w+$/.test(word)) {
         options = options
-          .filter(({ filterText }) => filterText.toLowerCase().startsWith(word))
-          .sort(({ apply: a }, { apply: b }) => {
+          .filter(({filterText}) => filterText.toLowerCase().startsWith(word))
+          .sort(({apply: a}, {apply: b}) => {
             switch (true) {
               case a.startsWith(token.text) && !b.startsWith(token.text):
                 return -1;
@@ -561,6 +562,7 @@ export class CM6Editor {
     this.view = new EditorView({
       extensions: [
         lsEventHandler.of(new LSEventHandler((_) => {})),
+        keymap.of([indentWithTab]),
         this.keymap.of([]),
         this.execKeyBinding,
         basicSetup,
@@ -581,7 +583,7 @@ export class CM6Editor {
             async (context) => {
               if (plugin == null) return null;
 
-              const { state, pos, explicit } = context;
+              const {state, pos, explicit} = context;
               const line = state.doc.lineAt(pos);
               const eventHandler = plugin.view.state.facet(lsEventHandler);
               let trigKind: CompletionTriggerKind =
@@ -648,11 +650,11 @@ export class CM6Editor {
 
   setKeymap(keymap: string) {
     if (keymap === "vim") {
-      this.view.dispatch({ effects: this.keymap.reconfigure(vim()) });
+      this.view.dispatch({effects: this.keymap.reconfigure(vim())});
     } else if (keymap === "emacs") {
-      this.view.dispatch({ effects: this.keymap.reconfigure(emacs()) });
+      this.view.dispatch({effects: this.keymap.reconfigure(emacs())});
     } else {
-      this.view.dispatch({ effects: this.keymap.reconfigure([]) });
+      this.view.dispatch({effects: this.keymap.reconfigure([])});
     }
   }
 
