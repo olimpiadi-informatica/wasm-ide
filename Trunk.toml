@@ -1,6 +1,6 @@
 [[hooks]]
 stage = "build"
-command = "sh"
+command = "bash"
 command_arguments = ["-c", """
   WASM_BINDGEN_THREADS_STACK_SIZE=16777216 wasm-pack build --no-pack \
                   --$(echo $TRUNK_PROFILE | sed s/debug/dev/) \
@@ -19,7 +19,7 @@ command_arguments = ["-c", """
 
 [[hooks]]
 stage = "build"
-command = "sh"
+command = "bash"
 command_arguments = ["-c", """
   npm install && \
   node_modules/.bin/rollup codemirror_interface.ts -f es \
