@@ -1,14 +1,14 @@
 use std::{borrow::Cow, collections::HashSet, time::Duration};
 
 use async_channel::{unbounded, Sender};
-use common::{ClientMessage, KeyboardMode, Language, WorkerMessage};
+use common::{ClientMessage, InputMode, KeyboardMode, Language, WorkerMessage};
 use gloo_timers::future::sleep;
 use icondata::Icon;
 use leptos::*;
 use leptos_use::signal_throttled;
 use thaw::{
     use_rw_theme, Alert, AlertVariant, Button, ButtonColor, ButtonVariant, Divider, GlobalStyle,
-    Grid, GridItem, Icon, Layout, LayoutHeader, Popover, PopoverTrigger, Scrollbar, Select,
+    Grid, GridItem, Icon, Input, Layout, LayoutHeader, Popover, PopoverTrigger, Scrollbar, Select,
     SelectOption, Space, SpaceAlign, Text, Theme, ThemeProvider, Upload,
 };
 use wasm_bindgen::prelude::*;
@@ -155,10 +155,13 @@ fn StorageErrorView() -> impl IntoView {
                 view! {}.into_view()
             } else {
                 view! {
-                    <div class="storage-error-view" >
-                        <Alert variant=AlertVariant::Warning>"Alcuni file sono troppo grandi e non possono essere salvati."</Alert>
+                    <div class="storage-error-view">
+                        <Alert variant=AlertVariant::Warning>
+                            "Alcuni file sono troppo grandi e non possono essere salvati."
+                        </Alert>
                     </div>
-                }.into_view()
+                }
+                .into_view()
             }
         })
     }
@@ -626,6 +629,9 @@ fn App() -> impl IntoView {
         })
         .collect();
 
+    let input_mode = load("input_mode").unwrap_or(InputMode::Batch);
+    let input_mode = create_rw_signal(Some(input_mode));
+
     let do_run = {
         let send_worker_message = send_worker_message.clone();
         move || {
@@ -638,12 +644,22 @@ fn App() -> impl IntoView {
                 let input = stdin.with_untracked(|x| x.text().clone());
                 let window = web_sys::window().expect("no window available");
                 let base_url = window.location().href().expect("could not get href");
+                let (input, addn_msg) =
+                    if input_mode.get_untracked().unwrap() == InputMode::Interactive {
+                        (None, Some(ClientMessage::StdinChunk(input.into_bytes())))
+                    } else {
+                        (Some(input.into_bytes()), None)
+                    };
+
                 send_worker_message(ClientMessage::Compile {
                     base_url,
                     source: code,
                     language: lang.get_untracked().unwrap_or(Language::CPP),
-                    input: input.into_bytes(),
+                    input,
                 });
+                if let Some(addn_msg) = addn_msg {
+                    send_worker_message(addn_msg);
+                }
             });
         }
     };
@@ -696,6 +712,16 @@ fn App() -> impl IntoView {
     .collect();
 
     create_effect(move |_| save("kb_mode", &kb_mode.get().unwrap_or(KeyboardMode::Standard)));
+
+    let input_modes: Vec<_> = [InputMode::Batch, InputMode::Interactive]
+        .into_iter()
+        .map(|x| SelectOption {
+            value: x,
+            label: x.into(),
+        })
+        .collect();
+
+    create_effect(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
 
     let navbar = {
         let do_run = do_run.clone();
@@ -772,8 +798,62 @@ fn App() -> impl IntoView {
                     color=ButtonColor::Warning
                 />
                 <Select value=kb_mode options=kb_modes class="kb-selector"/>
+                <Select value=input_mode options=input_modes class="kb-selector"/>
             </Space>
         }
+    };
+
+    let additional_input = create_rw_signal(String::from(""));
+
+    let add_input = {
+        let additional_input = additional_input.clone();
+        let stdin = stdin.clone();
+        let send_worker_message = send_worker_message.clone();
+        move |_| {
+            let mut extra = additional_input.get_untracked();
+            if extra.is_empty() {
+                return;
+            }
+            additional_input.set(String::new());
+            let cur_stdin = stdin.with_untracked(|x| x.text().clone());
+            if !cur_stdin.ends_with("\n") {
+                extra = format!("\n{extra}");
+            }
+            if !extra.ends_with("\n") {
+                extra = format!("{extra}\n");
+            }
+            stdin.set(EditorText::from_str(&(cur_stdin + &extra)));
+            send_worker_message(ClientMessage::StdinChunk(extra.into_bytes()));
+        }
+    };
+
+    let additional_input_line = view! {
+        <div
+            class="additional-input"
+            style=move || {
+                if input_mode.get().unwrap() == InputMode::Interactive {
+                    ""
+                } else {
+                    "display: none;"
+                }
+            }
+        >
+
+            <div style="display: flex; flex-direction: row; height: 100%;">
+                <Input
+                    value=additional_input
+                    disabled=disable_stop
+                    placeholder="input aggiuntivo..."
+                />
+                <Button
+                    disabled=disable_stop
+                    color=ButtonColor::Success
+                    variant=ButtonVariant::Primary
+                    icon=icondata::AiSendOutlined
+                    on_click=add_input
+                />
+            </div>
+        </div>
     };
 
     let body = {
@@ -781,7 +861,7 @@ fn App() -> impl IntoView {
         let do_run2 = do_run.clone();
         view! {
             <StatusView state/>
-            <StorageErrorView />
+            <StorageErrorView/>
             <div style="display: flex; flex-direction: column; height: calc(100vh - 65px);">
                 <div style="flex-grow: 1;">
                     <Grid cols=4 x_gap=8 class="textarea-grid">
@@ -793,19 +873,29 @@ fn App() -> impl IntoView {
                                 readonly=disable_start
                                 ctrl_enter=do_run.clone()
                                 kb_mode=kb_mode
-                                ls_interface=Some((receiver, Box::new(move |s| send_worker_message(ClientMessage::LSMessage(s)))))
+                                ls_interface=Some((
+                                    receiver,
+                                    Box::new(move |s| send_worker_message(
+                                        ClientMessage::LSMessage(s),
+                                    )),
+                                ))
                             />
+
                         </GridItem>
                         <GridItem>
-                            <Editor
-                                contents=stdin
-                                cache_key="stdin"
-                                syntax=None
-                                readonly=disable_start
-                                ctrl_enter=do_run2
-                                kb_mode=kb_mode
-                                ls_interface=None
-                            />
+                            <div style="display: flex; flex-direction: column; height: calc(75vh);">
+                                {additional_input_line} <div style="flex-grow: 1; flex-shrink: 1;">
+                                    <Editor
+                                        contents=stdin
+                                        cache_key="stdin"
+                                        syntax=None
+                                        readonly=disable_start
+                                        ctrl_enter=do_run2
+                                        kb_mode=kb_mode
+                                        ls_interface=None
+                                    />
+                                </div>
+                            </div>
                         </GridItem>
                     </Grid>
                 </div>

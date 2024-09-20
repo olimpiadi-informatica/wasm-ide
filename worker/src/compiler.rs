@@ -23,6 +23,7 @@ pub struct ExecutionOutcome {
 
 pub struct RunnerInterface {
     pub should_stop: fn() -> bool,
+    pub recv_stdin: Option<fn(&mut [u8]) -> usize>,
     pub send_stdout: fn(&[u8]),
     pub send_stderr: fn(&[u8]),
     pub send_compiler_message: fn(&[u8]),
@@ -243,7 +244,7 @@ async fn compile_one_inner(
         .run(
             input,
             interface.should_stop,
-            None,
+            interface.recv_stdin,
             Some(interface.send_stdout),
             Some(interface.send_stderr),
             None,

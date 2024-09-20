@@ -5,9 +5,10 @@ pub enum ClientMessage {
     Compile {
         source: String,
         language: Language,
-        input: Vec<u8>,
+        input: Option<Vec<u8>>,
         base_url: String,
     },
+    StdinChunk(Vec<u8>),
     Cancel,
     StartLS(String, Language),
     LSMessage(String),
@@ -70,6 +71,28 @@ impl Into<&'static str> for KeyboardMode {
 }
 
 impl Into<String> for KeyboardMode {
+    fn into(self) -> String {
+        Into::<&'static str>::into(self).to_owned()
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
+pub enum InputMode {
+    Batch,
+    Interactive,
+}
+
+
+impl Into<&'static str> for InputMode {
+    fn into(self) -> &'static str {
+        match self {
+            InputMode::Batch => "Input fisso",
+            InputMode::Interactive => "Input interattivo",
+        }
+    }
+}
+
+impl Into<String> for InputMode {
     fn into(self) -> String {
         Into::<&'static str>::into(self).to_owned()
     }

@@ -247,7 +247,7 @@ pub fn Editor(
     });
 
     view! {
-        <div id=id style="height: 100%; width: 100%; font-size: 1.2em;">
+        <div id=id style="height: 100%; width: 100%; max-height: 75vh; font-size: 1.2em;">
         </div>
     }
 }

@@ -31,6 +31,8 @@ struct WorkerState {
     cache: Mutex<HashMap<Language, Fs>>,
     send_msg: Sender<WorkerMessage>,
     cancelled: AtomicBool,
+    stdin_buffer: Mutex<VecDeque<u8>>,
+    stdin_notify: Condvar,
     ls_cancelled: AtomicBool,
     ls_buffer: Mutex<VecDeque<u8>>,
     ls_notify: Condvar,
@@ -71,6 +73,8 @@ pub fn setup() {
         cache: Mutex::new(HashMap::new()),
         send_msg: s,
         cancelled: AtomicBool::new(false),
+        stdin_buffer: Mutex::new(VecDeque::new()),
+        stdin_notify: Condvar::new(),
         ls_cancelled: AtomicBool::new(false),
         ls_buffer: Mutex::new(VecDeque::new()),
         ls_notify: Condvar::new(),
@@ -136,12 +140,13 @@ pub fn handle_message(msg: JsValue) {
             .cloned()
             .context("could not get fs for language")
     };
-    let interface = RunnerInterface {
+    let mut interface = RunnerInterface {
         should_stop: || {
             debug!("should stop?");
             let state = WORKER_STATE.get().unwrap();
             state.cancelled.load(Ordering::Relaxed)
         },
+        recv_stdin: None,
         send_stdout: |data: &[u8]| {
             debug!("send_stdout: {}", String::from_utf8_lossy(data));
             send_msg(WorkerMessage::StdoutChunk(data.to_owned()));
@@ -288,15 +293,38 @@ pub fn handle_message(msg: JsValue) {
                     }
                 };
                 send_msg(WorkerMessage::CompilerFetched);
+
+                let input = if let Some(input) = input {
+                    input
+                } else {
+                    let recv_stdin = |buf: &mut [u8]| {
+                        debug!("recv stdin");
+                        let state = WORKER_STATE.get().unwrap();
+                        if state.cancelled.load(Ordering::Relaxed) {
+                            return 0;
+                        }
+                        let mut dbuf = state.stdin_buffer.lock().unwrap();
+                        let avail = dbuf.as_slices().0;
+                        let to_read = avail.len().min(buf.len());
+                        if to_read == 0 {
+                            drop(state.stdin_notify.wait(dbuf).unwrap());
+                            return 0;
+                        }
+                        debug!("{}", String::from_utf8_lossy(avail));
+                        buf[..to_read].copy_from_slice(&avail[..to_read]);
+                        dbuf.drain(0..to_read);
+                        to_read
+                    };
+                    interface.recv_stdin = Some(recv_stdin);
+                    vec![]
+                };
                 compiler::compile_one(source, language, input, interface).await;
             });
         }
         ClientMessage::Cancel => {
-            WORKER_STATE
-                .get()
-                .unwrap()
-                .cancelled
-                .store(true, Ordering::Relaxed);
+            let state = WORKER_STATE.get().unwrap();
+            state.cancelled.store(true, Ordering::Relaxed);
+            state.stdin_notify.notify_all();
         }
         ClientMessage::StartLS(base_url, language) => {
             info!("start LS for {language:?}");
@@ -342,6 +370,13 @@ pub fn handle_message(msg: JsValue) {
             dbuf.extend(format!("Content-Length: {}\r\n\r\n", message.len()).into_bytes());
             dbuf.extend(message);
             state.ls_notify.notify_all();
+        }
+        ClientMessage::StdinChunk(chunk) => {
+            debug!("{}", String::from_utf8_lossy(&chunk));
+            let state = WORKER_STATE.get().unwrap();
+            let mut dbuf = state.stdin_buffer.lock().unwrap();
+            dbuf.extend(&chunk);
+            state.stdin_notify.notify_all();
         }
     }
 }
