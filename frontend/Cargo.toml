@@ -30,4 +30,4 @@ include_optional = "1.0.1"
 
 [package.metadata.leptos-i18n]
 default = "en"
-locales = ["en", "it"]
+locales = ["en", "it", "es", "ca"]
