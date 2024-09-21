@@ -742,52 +742,38 @@ fn App() -> impl IntoView {
 
     let kb_mode = load("kb_mode").unwrap_or(KeyboardMode::Standard);
     let kb_mode = create_rw_signal(Some(kb_mode));
-    let kb_modes = {
-        let i18n = i18n.clone();
-        Signal::derive(move || -> Vec<SelectOption<KeyboardMode>> {
-            [
-                KeyboardMode::Standard,
-                KeyboardMode::Vim,
-                KeyboardMode::Emacs,
-            ]
-            .into_iter()
-            .map(|x| SelectOption {
-                value: x,
-                label: kb_mode_string(i18n.get_locale(), x),
-            })
-            .collect()
+    let kb_modes = Signal::derive(move || -> Vec<SelectOption<KeyboardMode>> {
+        [
+            KeyboardMode::Standard,
+            KeyboardMode::Vim,
+            KeyboardMode::Emacs,
+        ]
+        .into_iter()
+        .map(|x| SelectOption {
+            value: x,
+            label: kb_mode_string(i18n.get_locale(), x),
         })
-    };
+        .collect()
+    });
 
     create_effect(move |_| save("kb_mode", &kb_mode.get().unwrap_or(KeyboardMode::Standard)));
 
-    let input_modes = {
-        let i18n = i18n.clone();
-        Signal::derive(move || -> Vec<SelectOption<InputMode>> {
-            [InputMode::Batch, InputMode::Interactive]
-                .into_iter()
-                .map(|x| SelectOption {
-                    value: x,
-                    label: input_mode_string(i18n.get_locale(), x),
-                })
-                .collect()
-        })
-    };
+    let input_modes = Signal::derive(move || -> Vec<SelectOption<InputMode>> {
+        [InputMode::Batch, InputMode::Interactive]
+            .into_iter()
+            .map(|x| SelectOption {
+                value: x,
+                label: input_mode_string(i18n.get_locale(), x),
+            })
+            .collect()
+    });
 
     create_effect(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
 
-    let show_output_tooltip = {
-        let i18n = i18n.clone();
-        Signal::derive(move || t_display!(i18n, show_output).to_string())
-    };
-    let show_stderr_tooltip = {
-        let i18n = i18n.clone();
-        Signal::derive(move || t_display!(i18n, show_stderr).to_string())
-    };
-    let show_compileerr_tooltip = {
-        let i18n = i18n.clone();
-        Signal::derive(move || t_display!(i18n, show_compileerr).to_string())
-    };
+    let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
+    let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, show_stderr).to_string());
+    let show_compileerr_tooltip =
+        Signal::derive(move || t_display!(i18n, show_compileerr).to_string());
 
     let navbar = {
         let do_run = do_run.clone();
@@ -894,10 +880,8 @@ fn App() -> impl IntoView {
         }
     };
 
-    let additional_input_string = {
-        let i18n = i18n.clone();
-        Signal::derive(move || t_display!(i18n, additional_input).to_string())
-    };
+    let additional_input_string =
+        Signal::derive(move || t_display!(i18n, additional_input).to_string());
 
     let additional_input_line = view! {
         <div
