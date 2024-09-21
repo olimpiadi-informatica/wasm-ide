@@ -470,6 +470,8 @@ fn locale_name(locale: Locale) -> &'static str {
     match locale {
         Locale::en => "English",
         Locale::it => "Italiano",
+        Locale::es => "Español",
+        Locale::ca => "Català",
     }
 }
 
