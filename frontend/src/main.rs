@@ -425,7 +425,7 @@ fn handle_message(
 fn OutputControl(
     signal: RwSignal<bool>,
     icon: Icon,
-    tooltip: String,
+    tooltip: Signal<String>,
     color: ButtonColor,
 ) -> impl IntoView {
     let variant = {
@@ -776,6 +776,19 @@ fn App() -> impl IntoView {
 
     create_effect(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
 
+    let show_output_tooltip = {
+        let i18n = i18n.clone();
+        Signal::derive(move || t_display!(i18n, show_output).to_string())
+    };
+    let show_stderr_tooltip = {
+        let i18n = i18n.clone();
+        Signal::derive(move || t_display!(i18n, show_stderr).to_string())
+    };
+    let show_compileerr_tooltip = {
+        let i18n = i18n.clone();
+        Signal::derive(move || t_display!(i18n, show_compileerr).to_string())
+    };
+
     let navbar = {
         let do_run = do_run.clone();
         view! {
@@ -836,19 +849,19 @@ fn App() -> impl IntoView {
                 <OutputControl
                     signal=show_stdout
                     icon=icondata::VsOutput
-                    tooltip=t_display!(i18n, show_output).to_string()
+                    tooltip=show_output_tooltip
                     color=ButtonColor::Primary
                 />
                 <OutputControl
                     signal=show_stderr
                     icon=icondata::BiErrorSolid
-                    tooltip=t_display!(i18n, show_stderr).to_string()
+                    tooltip=show_stderr_tooltip
                     color=ButtonColor::Warning
                 />
                 <OutputControl
                     signal=show_compilation
                     icon=icondata::BiCommentErrorSolid
-                    tooltip=t_display!(i18n, show_compileerr).to_string()
+                    tooltip=show_compileerr_tooltip
                     color=ButtonColor::Warning
                 />
                 <Select value=kb_mode options=kb_modes class="kb-selector"/>
@@ -881,6 +894,11 @@ fn App() -> impl IntoView {
         }
     };
 
+    let additional_input_string = {
+        let i18n = i18n.clone();
+        Signal::derive(move || t_display!(i18n, additional_input).to_string())
+    };
+
     let additional_input_line = view! {
         <div
             class="additional-input"
@@ -897,7 +915,7 @@ fn App() -> impl IntoView {
                 <Input
                     value=additional_input
                     disabled=disable_stop
-                    placeholder=t_display!(i18n, additional_input).to_string()
+                    placeholder=additional_input_string
                 />
                 <Button
                     disabled=disable_stop
