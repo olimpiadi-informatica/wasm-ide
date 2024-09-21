@@ -864,7 +864,7 @@ fn App() -> impl IntoView {
         let additional_input = additional_input.clone();
         let stdin = stdin.clone();
         let send_worker_message = send_worker_message.clone();
-        move |_| {
+        move || {
             let mut extra = additional_input.get_untracked();
             if extra.is_empty() {
                 return;
@@ -885,33 +885,44 @@ fn App() -> impl IntoView {
     let additional_input_string =
         Signal::derive(move || t_display!(i18n, additional_input).to_string());
 
-    let additional_input_line = view! {
-        <div
-            class="additional-input"
-            style=move || {
-                if input_mode.get().unwrap() == InputMode::Interactive {
-                    ""
-                } else {
-                    "display: none;"
+    let additional_input_line = {
+        let add_input2 = add_input.clone();
+        view! {
+            <div
+                class="additional-input"
+                style=move || {
+                    if input_mode.get().unwrap() == InputMode::Interactive {
+                        ""
+                    } else {
+                        "display: none;"
+                    }
                 }
-            }
-        >
+            >
 
-            <div style="display: flex; flex-direction: row; height: 100%;">
-                <Input
-                    value=additional_input
-                    disabled=disable_stop
-                    placeholder=additional_input_string
-                />
-                <Button
-                    disabled=disable_stop
-                    color=ButtonColor::Success
-                    variant=ButtonVariant::Primary
-                    icon=icondata::AiSendOutlined
-                    on_click=add_input
-                />
+                <div style="display: flex; flex-direction: row; height: 100%;">
+                    <form
+                        on:submit=move |ev| {
+                            ev.prevent_default();
+                            add_input()
+                        }
+                        style="width: 100%;"
+                    >
+                        <Input
+                            value=additional_input
+                            disabled=disable_stop
+                            placeholder=additional_input_string
+                        />
+                    </form>
+                    <Button
+                        disabled=disable_stop
+                        color=ButtonColor::Success
+                        variant=ButtonVariant::Primary
+                        icon=icondata::AiSendOutlined
+                        on_click=move |_| add_input2()
+                    />
+                </div>
             </div>
-        </div>
+        }
     };
 
     let body = {
