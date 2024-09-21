@@ -1,0 +1,14 @@
+#include <stdio.h>
+#include <cmath>
+int main() {
+  long long n = 1000;
+  long long variable_that_is_not_used = 1;
+  printf("Hello world, computation started...\n");
+  long long i = 0;
+  for (size_t j = 0; j < n; j++) {
+    if (std::sin(j) < 0.5) {
+      i++;
+    }
+  }
+  printf("Hello world %lld\n", i);
+}"

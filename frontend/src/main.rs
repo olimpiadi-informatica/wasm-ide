@@ -1,9 +1,12 @@
+leptos_i18n::load_locales!();
+
 use std::{borrow::Cow, collections::HashSet, time::Duration};
 
 use async_channel::{unbounded, Sender};
 use common::{ClientMessage, InputMode, KeyboardMode, Language, WorkerMessage};
 use gloo_timers::future::sleep;
 use icondata::Icon;
+use include_optional::include_str_optional;
 use leptos::*;
 use leptos_use::signal_throttled;
 use thaw::{
@@ -19,6 +22,8 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     FileList, HtmlAnchorElement, MessageEvent, MouseEvent, Worker, WorkerOptions, WorkerType,
 };
+
+use i18n::*;
 
 mod editor;
 
@@ -148,6 +153,7 @@ pub fn SelectOption(is: &'static str, value: ReadSignal<String>) -> impl IntoVie
 
 #[component]
 fn StorageErrorView() -> impl IntoView {
+    let i18n = use_i18n();
     let large_files = expect_context::<RwSignal<LargeFileSet>>();
     move || {
         large_files.with(|lf| {
@@ -156,9 +162,7 @@ fn StorageErrorView() -> impl IntoView {
             } else {
                 view! {
                     <div class="storage-error-view">
-                        <Alert variant=AlertVariant::Warning>
-                            "Alcuni file sono troppo grandi e non possono essere salvati."
-                        </Alert>
+                        <Alert variant=AlertVariant::Warning>{t!(i18n, files_too_big)}</Alert>
                     </div>
                 }
                 .into_view()
@@ -169,37 +173,35 @@ fn StorageErrorView() -> impl IntoView {
 
 #[component]
 fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
+    let i18n = use_i18n();
     let state2 = state.clone();
-    let state_to_view = move |state: &RunState| {
-        match state {
+    let state_to_view = move |state: &RunState| match state {
         RunState::Complete(_) => {
-            view! { <Alert variant=AlertVariant::Success>"Esecuzione completata!"</Alert> }
+            view! { <Alert variant=AlertVariant::Success>{t!(i18n, execution_completed)}</Alert> }
                 .into_view()
         }
         RunState::CompilationInProgress(_, true) => {
-            view! { <Alert variant=AlertVariant::Success>"Compilazione in corso..."</Alert> }
-                .into_view()
+            view! { <Alert variant=AlertVariant::Success>{t!(i18n, compiling)}</Alert> }.into_view()
         }
         RunState::InProgress(_, true) => {
-            view! { <Alert variant=AlertVariant::Success>"Esecuzione in corso..."</Alert> }
-                .into_view()
+            view! { <Alert variant=AlertVariant::Success>{t!(i18n, executing)}</Alert> }.into_view()
         }
         RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => {
-            view! { <Alert variant=AlertVariant::Warning>"Interruzione dell'esecuzione in corso..."</Alert> }
+            view! { <Alert variant=AlertVariant::Warning>{t!(i18n, stopping_execution)}</Alert> }
                 .into_view()
         }
         RunState::Error(err, _) => {
             let err = err.clone();
             if err.is_empty() {
                 view! {
-                    <Alert variant=AlertVariant::Error title="Error">
+                    <Alert variant=AlertVariant::Error title=t_display!(i18n, error).to_string()>
                         ""
                     </Alert>
                 }
                 .into_view()
             } else {
                 view! {
-                    <Alert variant=AlertVariant::Error title="Error">
+                    <Alert variant=AlertVariant::Error title=t_display!(i18n, error).to_string()>
                         <pre>{err}</pre>
                         <Button
                             color=ButtonColor::Error
@@ -215,7 +217,7 @@ fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
 
                             block=true
                         >
-                            "Nascondi errore"
+                            {t!(i18n, hide_error)}
                         </Button>
                     </Alert>
                 }
@@ -223,17 +225,16 @@ fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
             }
         }
         RunState::NotStarted => {
-            view! { <Alert variant=AlertVariant::Success>"Clicca \"Esegui\" per eseguire"</Alert> }
+            view! { <Alert variant=AlertVariant::Success>{t!(i18n, click_to_run)}</Alert> }
                 .into_view()
         }
         RunState::Loading => {
-            view! { <Alert variant=AlertVariant::Success>"Loading..."</Alert> }.into_view()
+            view! { <Alert variant=AlertVariant::Success>{t!(i18n, loading)}</Alert> }.into_view()
         }
         RunState::FetchingCompiler | RunState::MessageSent => {
-            view! { <Alert variant=AlertVariant::Success>"Downloading runtime..."</Alert> }
+            view! { <Alert variant=AlertVariant::Success>{t!(i18n, downloading_runtime)}</Alert> }
                 .into_view()
         }
-    }
     };
 
     view! { <div class="status-view">{move || state.with(state_to_view)}</div> }
@@ -256,6 +257,7 @@ fn OutDiv(
     get_data: fn(&Outcome) -> &Vec<u8>,
     icon: Icon,
 ) -> impl IntoView {
+    let i18n = use_i18n();
     move || {
         if !display.get() {
             view! {}.into_view()
@@ -263,9 +265,9 @@ fn OutDiv(
             state.with(move |s| {
                 let (additional_style, txt) = match s {
                     RunState::InProgress(o, _) | RunState::Error(_, o) | RunState::Complete(o) => {
-                        ("", output_for_display(get_data(o)))
+                        ("", output_for_display(get_data(o)).into_view())
                     }
-                    _ => ("color: #888;", "programma non ancora eseguito".to_string()),
+                    _ => ("color: #888;", t!(i18n, not_yet_executed).into_view()),
                 };
 
                 let pre_style = format!("width: 100%; text-align: left; {}", additional_style,);
@@ -423,7 +425,7 @@ fn handle_message(
 fn OutputControl(
     signal: RwSignal<bool>,
     icon: Icon,
-    tooltip: &'static str,
+    tooltip: String,
     color: ButtonColor,
 ) -> impl IntoView {
     let variant = {
@@ -446,23 +448,6 @@ fn OutputControl(
     }
 }
 
-const DEFAULT_CODE: &str = r#"#include <stdio.h>
-#include <cmath>
-int main() {
-  long long n = 1000;
-  long long variable_that_is_not_used = 1;
-  printf("Hello world, computation started...\n");
-  long long i = 0;
-  for (size_t j = 0; j < n; j++) {
-    if (std::sin(j) < 0.5) {
-      i++;
-    }
-  }
-  printf("Hello world %lld\n", i);
-}"#;
-
-const DEFAULT_STDIN: &str = "inserisci qui l'input...";
-
 fn download(name: &str, data: &[u8]) {
     use base64::prelude::*;
     let b64 = BASE64_STANDARD.encode(data);
@@ -481,12 +466,63 @@ fn download(name: &str, data: &[u8]) {
     a.remove();
 }
 
+fn locale_name(locale: Locale) -> &'static str {
+    match locale {
+        Locale::en => "English",
+        Locale::it => "Italiano",
+    }
+}
+
+fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
+    match kb_mode {
+        KeyboardMode::Vim => td_display!(locale, vim_mode),
+        KeyboardMode::Emacs => td_display!(locale, emacs_mode),
+        KeyboardMode::Standard => td_display!(locale, standard_mode),
+    }
+    .into()
+}
+
+fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
+    match input_mode {
+        InputMode::Batch => td_display!(locale, batch_input),
+        InputMode::Interactive => td_display!(locale, interactive_input),
+    }
+    .into()
+}
+
 #[component]
 fn App() -> impl IntoView {
-    let mut options = WorkerOptions::default();
-    options.type_(WorkerType::Module);
+    let options = WorkerOptions::default();
+    options.set_type(WorkerType::Module);
     let worker =
         Worker::new_with_options("./start_worker.js", &options).expect("could not start worker");
+
+    let i18n = use_i18n();
+    let locales: Vec<_> = Locale::get_all()
+        .into_iter()
+        .cloned()
+        .map(|x| SelectOption {
+            value: x,
+            label: locale_name(x).to_string(),
+        })
+        .collect();
+
+    let current_locale = create_rw_signal(Some(load("locale").unwrap_or_else(|| {
+        let window = web_sys::window().expect("Missing Window");
+        let navigator = window.navigator();
+        let preferences: Vec<_> = navigator
+            .languages()
+            .into_iter()
+            .map(|x| x.as_string().unwrap())
+            .collect();
+        Locale::find_locale(&preferences)
+    })));
+
+    create_effect(move |_| {
+        let locale = current_locale.get().unwrap();
+        save("locale", &locale);
+        i18n.set_locale(locale);
+    });
 
     let theme = use_rw_theme();
 
@@ -546,9 +582,16 @@ fn App() -> impl IntoView {
         }
     };
 
-    let code = create_rw_signal(load("code").unwrap_or_else(|| EditorText::from_str(DEFAULT_CODE)));
+    let starting_code =
+        include_str_optional!("../code.txt").unwrap_or(include_str!("../default_code.txt"));
+    let code =
+        create_rw_signal(load("code").unwrap_or_else(|| EditorText::from_str(starting_code)));
+
+    let starting_stdin =
+        include_str_optional!("../stdin.txt").unwrap_or(include_str!("../default_stdin.txt"));
+
     let stdin =
-        create_rw_signal(load("stdin").unwrap_or_else(|| EditorText::from_str(DEFAULT_STDIN)));
+        create_rw_signal(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));
 
     let disable_start = {
         let state = state.clone();
@@ -699,27 +742,37 @@ fn App() -> impl IntoView {
 
     let kb_mode = load("kb_mode").unwrap_or(KeyboardMode::Standard);
     let kb_mode = create_rw_signal(Some(kb_mode));
-    let kb_modes: Vec<_> = [
-        KeyboardMode::Standard,
-        KeyboardMode::Vim,
-        KeyboardMode::Emacs,
-    ]
-    .into_iter()
-    .map(|x| SelectOption {
-        value: x,
-        label: x.into(),
-    })
-    .collect();
+    let kb_modes = {
+        let i18n = i18n.clone();
+        Signal::derive(move || -> Vec<SelectOption<KeyboardMode>> {
+            [
+                KeyboardMode::Standard,
+                KeyboardMode::Vim,
+                KeyboardMode::Emacs,
+            ]
+            .into_iter()
+            .map(|x| SelectOption {
+                value: x,
+                label: kb_mode_string(i18n.get_locale(), x),
+            })
+            .collect()
+        })
+    };
 
     create_effect(move |_| save("kb_mode", &kb_mode.get().unwrap_or(KeyboardMode::Standard)));
 
-    let input_modes: Vec<_> = [InputMode::Batch, InputMode::Interactive]
-        .into_iter()
-        .map(|x| SelectOption {
-            value: x,
-            label: x.into(),
+    let input_modes = {
+        let i18n = i18n.clone();
+        Signal::derive(move || -> Vec<SelectOption<InputMode>> {
+            [InputMode::Batch, InputMode::Interactive]
+                .into_iter()
+                .map(|x| SelectOption {
+                    value: x,
+                    label: input_mode_string(i18n.get_locale(), x),
+                })
+                .collect()
         })
-        .collect();
+    };
 
     create_effect(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
 
@@ -737,10 +790,11 @@ fn App() -> impl IntoView {
                     }}
 
                 </Button>
+                <Select value=current_locale options=locales class="locale-selector"/>
                 <Select value=lang options=languages class="language-selector"/>
                 <Upload custom_request=upload_input>
                     <Button disabled=disable_start icon=icondata::AiUploadOutlined>
-                        "Carica input"
+                        {t!(i18n, load_input)}
                     </Button>
                 </Upload>
                 <Button
@@ -750,7 +804,7 @@ fn App() -> impl IntoView {
                     icon=icondata::AiCloseOutlined
                     on_click=on_stop
                 >
-                    "Stop"
+                    {t!(i18n, stop)}
                 </Button>
                 <Button
                     disabled=disable_start
@@ -760,7 +814,7 @@ fn App() -> impl IntoView {
                     icon=icondata::AiCaretRightFilled
                     on_click=move |_| do_run()
                 >
-                    "Esegui"
+                    {t!(i18n, run)}
                 </Button>
                 <Button
                     disabled=disable_output
@@ -769,7 +823,7 @@ fn App() -> impl IntoView {
                     icon=icondata::AiDownloadOutlined
                     on_click=download_output
                 >
-                    "Scarica output"
+                    {t!(i18n, download_output)}
                 </Button>
                 <Button
                     color=ButtonColor::Success
@@ -777,28 +831,28 @@ fn App() -> impl IntoView {
                     icon=icondata::AiDownloadOutlined
                     on_click=download_code
                 >
-                    "Scarica codice"
+                    {t!(i18n, download_code)}
                 </Button>
                 <OutputControl
                     signal=show_stdout
                     icon=icondata::VsOutput
-                    tooltip="Mostra output"
+                    tooltip=t_display!(i18n, show_output).to_string()
                     color=ButtonColor::Primary
                 />
                 <OutputControl
                     signal=show_stderr
                     icon=icondata::BiErrorSolid
-                    tooltip="Mostra errori runtime"
+                    tooltip=t_display!(i18n, show_stderr).to_string()
                     color=ButtonColor::Warning
                 />
                 <OutputControl
                     signal=show_compilation
                     icon=icondata::BiCommentErrorSolid
-                    tooltip="Mostra messaggi di compilazione"
+                    tooltip=t_display!(i18n, show_compileerr).to_string()
                     color=ButtonColor::Warning
                 />
                 <Select value=kb_mode options=kb_modes class="kb-selector"/>
-                <Select value=input_mode options=input_modes class="kb-selector"/>
+                <Select value=input_mode options=input_modes class="input-selector"/>
             </Space>
         }
     };
@@ -843,7 +897,7 @@ fn App() -> impl IntoView {
                 <Input
                     value=additional_input
                     disabled=disable_stop
-                    placeholder="input aggiuntivo..."
+                    placeholder=t_display!(i18n, additional_input).to_string()
                 />
                 <Button
                     disabled=disable_stop
@@ -933,10 +987,12 @@ fn main() {
 
     mount_to_body(move || {
         view! {
-            <ThemeProvider theme>
-                <GlobalStyle/>
-                <App/>
-            </ThemeProvider>
+            <I18nContextProvider>
+                <ThemeProvider theme>
+                    <GlobalStyle/>
+                    <App/>
+                </ThemeProvider>
+            </I18nContextProvider>
         }
     })
 }

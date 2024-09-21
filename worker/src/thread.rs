@@ -37,8 +37,8 @@ where
         if let Some(w) = available_worker {
             w
         } else {
-            let mut options = WorkerOptions::default();
-            options.type_(WorkerType::Module);
+            let options = WorkerOptions::default();
+            options.set_type(WorkerType::Module);
             let worker = Worker::new_with_options("./start_worker_thread.js", &options)
                 .expect("couldn't start thread");
 

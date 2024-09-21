@@ -17,11 +17,17 @@ web-sys = { version = "0.3.69", features = ["Worker", "WorkerOptions", "WorkerTy
 wasm-bindgen-futures = "0.4.42"
 serde-wasm-bindgen = "0.6.5"
 thaw = { version = "0.3.0", features = ["csr"] }
-icondata = "0.3.0"
+icondata = "0.4.0"
 base64 = "0.22.0"
 serde_json = "1.0.116"
 serde = "1.0.198"
 wasm-bindgen = "0.2.92"
-leptos-use = "0.10.8"
+leptos-use = "0.13.5"
 async-channel = "2.2.1"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
+leptos_i18n = { version = "0.4.1", features = ["interpolate_display"] }
+include_optional = "1.0.1"
+
+[package.metadata.leptos-i18n]
+default = "en"
+locales = ["en", "it"]

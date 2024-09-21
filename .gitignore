@@ -3,3 +3,5 @@
 compilers
 dist
 node_modules
+frontend/code.txt
+frontend/stdin.txt

@@ -60,40 +60,8 @@ pub enum KeyboardMode {
     Emacs,
 }
 
-impl Into<&'static str> for KeyboardMode {
-    fn into(self) -> &'static str {
-        match self {
-            KeyboardMode::Vim => "Modalità Vim",
-            KeyboardMode::Emacs => "Modalità Emacs",
-            KeyboardMode::Standard => "Modalità standard",
-        }
-    }
-}
-
-impl Into<String> for KeyboardMode {
-    fn into(self) -> String {
-        Into::<&'static str>::into(self).to_owned()
-    }
-}
-
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum InputMode {
     Batch,
     Interactive,
-}
-
-
-impl Into<&'static str> for InputMode {
-    fn into(self) -> &'static str {
-        match self {
-            InputMode::Batch => "Input fisso",
-            InputMode::Interactive => "Input interattivo",
-        }
-    }
-}
-
-impl Into<String> for InputMode {
-    fn into(self) -> String {
-        Into::<&'static str>::into(self).to_owned()
-    }
 }

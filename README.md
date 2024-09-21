@@ -26,10 +26,13 @@ Run `trunk build --release`.
 
 ## Development
 ```
-trunk serve $(find worker frontend common -name '*.rs' -o -name Cargo.toml | xargs -n 1 echo -w) \
+trunk serve $(find worker frontend common -type f | xargs -n 1 echo -w) \
     -w Cargo.toml -w style/main.scss -w index.html -w start_worker.js -w start_worker_thread.js \
     -w codemirror_interface.ts -w Trunk.toml --release
 ```
 
 Note: you still need to add COEP and COOP headers.
 
+## Initial code and stdin
+If files `frontend/code.txt` and `frontend/stdin.txt` exist at compilation time, they will be
+used as the code/stdin shown to first-time users.
