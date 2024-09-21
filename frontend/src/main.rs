@@ -10,9 +10,10 @@ use include_optional::include_str_optional;
 use leptos::*;
 use leptos_use::signal_throttled;
 use thaw::{
-    use_rw_theme, Alert, AlertVariant, Button, ButtonColor, ButtonVariant, Divider, GlobalStyle,
-    Grid, GridItem, Icon, Input, Layout, LayoutHeader, Popover, PopoverTrigger, Scrollbar, Select,
-    SelectOption, Space, SpaceAlign, Text, Theme, ThemeProvider, Upload,
+    create_component_ref, use_rw_theme, Alert, AlertVariant, Button, ButtonColor, ButtonVariant,
+    ComponentRef, Divider, GlobalStyle, Grid, GridItem, Icon, Input, Layout, LayoutHeader, Popover,
+    PopoverTrigger, Scrollbar, ScrollbarRef, Select, SelectOption, Space, SpaceAlign, Text, Theme,
+    ThemeProvider, Upload,
 };
 use wasm_bindgen::prelude::*;
 
@@ -20,7 +21,8 @@ use anyhow::Result;
 use log::{info, warn};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    FileList, HtmlAnchorElement, MessageEvent, MouseEvent, Worker, WorkerOptions, WorkerType,
+    FileList, HtmlAnchorElement, MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions,
+    WorkerType,
 };
 
 use i18n::*;
@@ -258,32 +260,50 @@ fn OutDiv(
     icon: Icon,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    move || {
-        if !display.get() {
-            view! {}.into_view()
-        } else {
-            state.with(move |s| {
-                let (additional_style, txt) = match s {
-                    RunState::InProgress(o, _) | RunState::Error(_, o) | RunState::Complete(o) => {
-                        ("", output_for_display(get_data(o)).into_view())
-                    }
-                    _ => ("color: #888;", t!(i18n, not_yet_executed).into_view()),
-                };
+    let scrollbar: ComponentRef<ScrollbarRef> = create_component_ref();
 
-                let pre_style = format!("width: 100%; text-align: left; {}", additional_style,);
+    let style_and_text = Signal::derive(move || {
+        state.with(move |s| match s {
+            RunState::InProgress(o, _) | RunState::Error(_, o) | RunState::Complete(o) => {
+                ("", output_for_display(get_data(o)))
+            }
+            _ => (
+                "color: #888;",
+                t_display!(i18n, not_yet_executed).to_string(),
+            ),
+        })
+    });
 
-                view! {
-                    <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
-                        <Icon icon style="font-size: 1.5em"/>
-                        <Divider class="outdivider"/>
-                        <Scrollbar style="height: 18vh;">
-                            <pre style=pre_style>{txt}</pre>
-                        </Scrollbar>
-                    </div>
-                }
-                .into_view()
-            })
-        }
+    let style = {
+        let style_and_text = style_and_text.clone();
+        Signal::derive(move || format!("width: 100%; text-align: left; {}", style_and_text.get().0))
+    };
+
+    let text = Signal::derive(move || style_and_text.get().1);
+
+    {
+        let text = text.clone();
+        create_effect(move |_| {
+            text.get();
+            let scroll_options = ScrollToOptions::new();
+            scroll_options.set_top(1e10); // f64::MAX appears not to work.
+            scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
+            if let Some(scrollbar) = scrollbar.get_untracked() {
+                scrollbar.scroll_to_with_scroll_to_options(&scroll_options);
+            }
+        });
+    }
+
+    view! {
+        <Show when=move || display.get()>
+            <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
+                <Icon icon style="font-size: 1.5em"/>
+                <Divider class="outdivider"/>
+                <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
+                    <pre style=style>{text}</pre>
+                </Scrollbar>
+            </div>
+        </Show>
     }
 }
 
