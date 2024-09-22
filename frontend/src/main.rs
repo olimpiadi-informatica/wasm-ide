@@ -512,7 +512,8 @@ fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
 fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
     match input_mode {
         InputMode::Batch => td_display!(locale, batch_input),
-        InputMode::Interactive => td_display!(locale, interactive_input),
+        InputMode::MixedInteractive => td_display!(locale, mixed_interactive_input),
+        InputMode::FullInteractive => td_display!(locale, full_interactive_input),
     }
     .into()
 }
@@ -708,18 +709,22 @@ fn App() -> impl IntoView {
             state.set(RunState::MessageSent);
             let send_worker_message = send_worker_message.clone();
             spawn_local(async move {
+                if input_mode.get_untracked().unwrap() == InputMode::FullInteractive {
+                    stdin.set(EditorText::from_str(""));
+                }
                 code.with_untracked(|x| x.await_all_changes()).await;
                 stdin.with_untracked(|x| x.await_all_changes()).await;
                 let code = code.with_untracked(|x| x.text().clone());
                 let input = stdin.with_untracked(|x| x.text().clone());
                 let window = web_sys::window().expect("no window available");
                 let base_url = window.location().href().expect("could not get href");
-                let (input, addn_msg) =
-                    if input_mode.get_untracked().unwrap() == InputMode::Interactive {
+                let (input, addn_msg) = match input_mode.get_untracked().unwrap() {
+                    InputMode::MixedInteractive => {
                         (None, Some(ClientMessage::StdinChunk(input.into_bytes())))
-                    } else {
-                        (Some(input.into_bytes()), None)
-                    };
+                    }
+                    InputMode::FullInteractive => (None, None),
+                    InputMode::Batch => (Some(input.into_bytes()), None),
+                };
 
                 send_worker_message(ClientMessage::Compile {
                     base_url,
@@ -786,13 +791,17 @@ fn App() -> impl IntoView {
     create_effect(move |_| save("kb_mode", &kb_mode.get().unwrap_or(KeyboardMode::Standard)));
 
     let input_modes = Signal::derive(move || -> Vec<SelectOption<InputMode>> {
-        [InputMode::Batch, InputMode::Interactive]
-            .into_iter()
-            .map(|x| SelectOption {
-                value: x,
-                label: input_mode_string(i18n.get_locale(), x),
-            })
-            .collect()
+        [
+            InputMode::Batch,
+            InputMode::MixedInteractive,
+            InputMode::FullInteractive,
+        ]
+        .into_iter()
+        .map(|x| SelectOption {
+            value: x,
+            label: input_mode_string(i18n.get_locale(), x),
+        })
+        .collect()
     });
 
     create_effect(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
@@ -896,7 +905,7 @@ fn App() -> impl IntoView {
             }
             additional_input.set(String::new());
             let cur_stdin = stdin.with_untracked(|x| x.text().clone());
-            if !cur_stdin.ends_with("\n") {
+            if !cur_stdin.is_empty() && !cur_stdin.ends_with("\n") {
                 extra = format!("\n{extra}");
             }
             if !extra.ends_with("\n") {
@@ -916,7 +925,8 @@ fn App() -> impl IntoView {
             <div
                 class="additional-input"
                 style=move || {
-                    if input_mode.get().unwrap() == InputMode::Interactive {
+                    if input_mode.get().unwrap() != InputMode::Batch
+                    {
                         ""
                     } else {
                         "display: none;"
@@ -930,6 +940,7 @@ fn App() -> impl IntoView {
                             ev.prevent_default();
                             add_input()
                         }
+
                         style="width: 100%;"
                     >
                         <Input
@@ -948,6 +959,13 @@ fn App() -> impl IntoView {
                 </div>
             </div>
         }
+    };
+
+    let disable_input_editor = {
+        let disable_start = disable_start.clone();
+        create_memo(move |_| {
+            disable_start.get() || input_mode.get() == Some(InputMode::FullInteractive)
+        })
     };
 
     let body = {
@@ -983,7 +1001,7 @@ fn App() -> impl IntoView {
                                         contents=stdin
                                         cache_key="stdin"
                                         syntax=None
-                                        readonly=disable_start
+                                        readonly=disable_input_editor
                                         ctrl_enter=do_run2
                                         kb_mode=kb_mode
                                         ls_interface=None

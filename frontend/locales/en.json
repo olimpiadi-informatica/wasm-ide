@@ -22,6 +22,7 @@
   "emacs_mode": "Emacs mode",
   "standard_mode": "Standard mode",
   "batch_input": "Fixed input",
-  "interactive_input": "Interactive input",
+  "mixed_interactive_input": "Mixed input",
+  "full_interactive_input": "Interactive input",
   "files_too_big": "Some files are too large and cannot be saved."
 }

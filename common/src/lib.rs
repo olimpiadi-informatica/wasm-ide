@@ -63,5 +63,6 @@ pub enum KeyboardMode {
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum InputMode {
     Batch,
-    Interactive,
+    MixedInteractive,
+    FullInteractive,
 }

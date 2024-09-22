@@ -22,6 +22,7 @@
   "emacs_mode": "Mode Emacs",
   "standard_mode": "Mode estàndar",
   "batch_input": "Entrada fixe",
-  "interactive_input": "Entrada interactiva",
+  "mixed_interactive_input": "Entrada mixta",
+  "full_interactive_input": "Entrada interactiva",
   "files_too_big": "Alguns arxius són massa grans i es poden ser desats."
 }
