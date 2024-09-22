@@ -286,9 +286,14 @@ fn OutDiv(
         create_effect(move |_| {
             text.get();
             let scroll_options = ScrollToOptions::new();
-            scroll_options.set_top(1e10); // f64::MAX appears not to work.
             scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
             if let Some(scrollbar) = scrollbar.get_untracked() {
+                let height = scrollbar
+                    .content_ref
+                    .get_untracked()
+                    .map(|el| el.scroll_height())
+                    .unwrap_or(1 << 16);
+                scroll_options.set_top(height as f64);
                 scrollbar.scroll_to_with_scroll_to_options(&scroll_options);
             }
         });
