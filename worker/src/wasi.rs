@@ -70,7 +70,7 @@ impl Fs {
                     cur = fs.add_entry(cur, c, FsEntry::Dir(HashMap::new()));
                 }
             }
-            fs.add_file(cur, &components.last().unwrap(), contents);
+            fs.add_file(cur, components.last().unwrap(), contents);
         }
         fs
     }
@@ -308,7 +308,7 @@ fn ea_get(
         if !argv
             .add_offset(i as u32)
             .map(|x| -> Result<(), MemoryAccessError> {
-                Ok(x.write(&memory, argv_buf.add_offset(offs)?)?)
+                x.write(&memory, argv_buf.add_offset(offs)?)
             })
             .is_ok_and(|x| x.is_ok())
         {
@@ -319,7 +319,7 @@ fn ea_get(
         if !argv_buf
             .add_offset(offs)
             .map(|x| -> Result<(), MemoryAccessError> {
-                Ok(x.slice(&memory, arg.len() as u32)?.write_slice(&arg[..])?)
+                x.slice(&memory, arg.len() as u32)?.write_slice(&arg[..])
             })
             .is_ok_and(|x| x.is_ok())
         {
@@ -842,7 +842,7 @@ fn fd_readdir(
     {
         return ERRNO_INVAL;
     }
-    if !used.write(&memory, to_copy).is_ok() {
+    if used.write(&memory, to_copy).is_err() {
         ERRNO_INVAL
     } else {
         ERRNO_SUCCESS
@@ -966,7 +966,7 @@ fn fd_write(
         }
         // If we are streaming output, we just use `data` as a temporary buffer.
         if let Some(stream_fn) = stream_fn {
-            stream_fn(&data);
+            stream_fn(data);
             data.clear();
             *off = 0;
         }
@@ -1404,13 +1404,13 @@ fn make_imports(
     let mut tick_module = Exports::new();
     tick_module.insert(
         crate::instrument::TICK_FN,
-        Function::new_typed_with_env(store, &wasi_ctx, tick_fn),
+        Function::new_typed_with_env(store, wasi_ctx, tick_fn),
     );
     import_object.register_namespace(crate::instrument::MODULE, tick_module);
     let mut wasi_module = Exports::new();
     wasi_module.insert(
         "thread-spawn",
-        Function::new_typed_with_env(store, &wasi_ctx, wasi_thread_spawn),
+        Function::new_typed_with_env(store, wasi_ctx, wasi_thread_spawn),
     );
     import_object.register_namespace("wasi", wasi_module);
     import_object
@@ -1430,9 +1430,9 @@ async fn wasi_start_thread(
         debug!("starting thread: {:?}", arg);
         let sender_copy = sender.clone();
         'run: {
-            let array: Array = msg_arg.try_into().expect("unexpected arg");
-            let module: WebAssembly::Module = array.get(0).try_into().unwrap();
-            let memory: WebAssembly::Memory = array.get(1).try_into().unwrap();
+            let array: Array = msg_arg.into();
+            let module: WebAssembly::Module = array.get(0).into();
+            let memory: WebAssembly::Memory = array.get(1).into();
             let engine = Engine::default();
             // We need the `exe` argument as otherwise Wasmer gets confused about the types of the
             // exports in this module.
@@ -1440,7 +1440,7 @@ async fn wasi_start_thread(
             let mut store = Store::new(engine);
             let memory = VMMemory::new(memory, mem_type);
             let memory = Memory::new_from_existing(&mut store, memory);
-            let ctx = WasiCtx::new(memory.clone(), sender, shared_ctx, arg.clone());
+            let ctx = WasiCtx::new(memory.clone(), sender, shared_ctx, arg);
             let ctx = FunctionEnv::new(&mut store, ctx);
             let imports = make_imports(memory, &ctx, &mut store);
             debug!("wasi start thread {:?}: imports set up", arg);
@@ -1509,7 +1509,7 @@ impl Executable {
         Arc<Mutex<SharedWasiCtx>>,
     )> {
         // Add instrumentation to the module.
-        let exe = instrument_binary(&self.exe[..], self.well_known_binary.clone())
+        let exe = instrument_binary(&self.exe[..], self.well_known_binary)
             .context("could not add time instrumentation")?;
         let module = wasmer::Module::new(store, &exe[..]).context("Could not create module")?;
         // Create the shared memory.
@@ -1517,7 +1517,7 @@ impl Executable {
             .imports()
             .find_map(
                 |import| match (import.ty(), import.module(), import.name()) {
-                    (ExternType::Memory(m), "env", "memory") => Some(m.clone()),
+                    (ExternType::Memory(m), "env", "memory") => Some(*m),
                     _ => None,
                 },
             )
@@ -1538,7 +1538,7 @@ impl Executable {
         let mem_info: (JsValue, _) = mem.try_clone(store).unwrap().into();
         Ok((
             (module.into(), Arc::new(exe)),
-            (mem_info.0.try_into().unwrap(), mem_info.1),
+            (mem_info.0.into(), mem_info.1),
             ctx,
         ))
     }

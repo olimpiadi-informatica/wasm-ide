@@ -102,11 +102,10 @@ pub fn setup() {
                 .unwrap()
                 .cancelled
                 .load(Ordering::Relaxed)
+                && !matches!(msg, WorkerMessage::Done | WorkerMessage::Error(_))
             {
-                if !matches!(msg, WorkerMessage::Done | WorkerMessage::Error(_)) {
-                    // Skip queued output if we are quitting.
-                    continue;
-                }
+                // Skip queued output if we are quitting.
+                continue;
             }
             msg_num += 1;
             const MSG_WAIT_COUNT: usize = 1000;
@@ -195,7 +194,7 @@ pub fn handle_message(msg: JsValue) {
             debug!("{}", String::from_utf8_lossy(avail));
             buf[..to_read].copy_from_slice(&avail[..to_read]);
             dbuf.drain(0..to_read);
-            return to_read;
+            to_read
         },
         send_stdout: |data: &[u8]| {
             debug!("ls message: {:?}", &String::from_utf8_lossy(data));
@@ -228,15 +227,13 @@ pub fn handle_message(msg: JsValue) {
                     };
                 }
 
-                if line == b"\r\n" {
-                    if obuf.len() >= content_length {
-                        let mut buf = vec![0; content_length];
-                        obuf.read_exact(&mut buf).unwrap();
-                        let message = String::from_utf8_lossy(&buf);
-                        send_msg(WorkerMessage::LSMessage(message.to_string()));
-                        content_length = 0;
-                        backfill_buf.clear();
-                    }
+                if line == b"\r\n" && obuf.len() >= content_length {
+                    let mut buf = vec![0; content_length];
+                    obuf.read_exact(&mut buf).unwrap();
+                    let message = String::from_utf8_lossy(&buf);
+                    send_msg(WorkerMessage::LSMessage(message.to_string()));
+                    content_length = 0;
+                    backfill_buf.clear();
                 }
             }
 

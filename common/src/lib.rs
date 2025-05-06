@@ -37,9 +37,9 @@ pub enum Language {
     Python,
 }
 
-impl Into<&'static str> for Language {
-    fn into(self) -> &'static str {
-        match self {
+impl From<Language> for &'static str {
+    fn from(val: Language) -> Self {
+        match val {
             Language::C => "C",
             Language::CPP => "C++",
             Language::Python => "Python",
@@ -47,9 +47,9 @@ impl Into<&'static str> for Language {
     }
 }
 
-impl Into<String> for Language {
-    fn into(self) -> String {
-        Into::<&'static str>::into(self).to_owned()
+impl From<Language> for String {
+    fn from(val: Language) -> Self {
+        Into::<&'static str>::into(val).to_owned()
     }
 }
 

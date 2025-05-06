@@ -102,8 +102,7 @@ fn load<T: Stringifiable>(key: &str) -> Option<T> {
         .unwrap()
         .get(key)
         .expect("error fetching from local storage")
-        .map(|x| T::from_string(x))
-        .flatten()
+        .and_then(|x| T::from_string(x))
 }
 
 impl RunState {
@@ -414,19 +413,19 @@ fn handle_message(
                 WorkerMessage::StdoutChunk(chunk),
                 RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
             ) => {
-                cur.stdout.extend_from_slice(&chunk);
+                cur.stdout.extend_from_slice(chunk);
             }
             (
                 WorkerMessage::StderrChunk(chunk),
                 RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
             ) => {
-                cur.stderr.extend_from_slice(&chunk);
+                cur.stderr.extend_from_slice(chunk);
             }
             (
                 WorkerMessage::CompilationMessageChunk(chunk),
                 RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
             ) => {
-                cur.compile_stderr.extend_from_slice(&chunk);
+                cur.compile_stderr.extend_from_slice(chunk);
             }
             (WorkerMessage::Ready, RunState::Loading) => {
                 *state = RunState::NotStarted;
@@ -527,7 +526,7 @@ fn App() -> impl IntoView {
 
     let i18n = use_i18n();
     let locales: Vec<_> = Locale::get_all()
-        .into_iter()
+        .iter()
         .cloned()
         .map(|x| SelectOption {
             value: x,
@@ -764,11 +763,9 @@ fn App() -> impl IntoView {
                 show_stderr.set(true);
                 show_compilation.set(false);
             }
-        } else {
-            if !show_compilation.get_untracked() && show_stderr.get_untracked() {
-                show_stderr.set(false);
-                show_compilation.set(true);
-            }
+        } else if !show_compilation.get_untracked() && show_stderr.get_untracked() {
+            show_stderr.set(false);
+            show_compilation.set(true);
         }
     });
 
@@ -905,10 +902,10 @@ fn App() -> impl IntoView {
             }
             additional_input.set(String::new());
             let cur_stdin = stdin.with_untracked(|x| x.text().clone());
-            if !cur_stdin.is_empty() && !cur_stdin.ends_with("\n") {
+            if !cur_stdin.is_empty() && !cur_stdin.ends_with('\n') {
                 extra = format!("\n{extra}");
             }
-            if !extra.ends_with("\n") {
+            if !extra.ends_with('\n') {
                 extra = format!("{extra}\n");
             }
             stdin.set(EditorText::from_str(&(cur_stdin + &extra)));

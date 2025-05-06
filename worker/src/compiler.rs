@@ -222,9 +222,9 @@ pub async fn prepare_cache(
     cache: &mut HashMap<Language, Fs>,
 ) -> Result<Language> {
     info!("work started");
-    if !cache.contains_key(&language) {
+    if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(language) {
         info!("fetching compiler");
-        cache.insert(language, get_fs(language, base_url).await?);
+        e.insert(get_fs(language, base_url).await?);
     }
     Ok(language)
 }
