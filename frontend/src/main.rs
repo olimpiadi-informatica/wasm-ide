@@ -710,7 +710,7 @@ fn App() -> impl IntoView {
                     InputMode::Batch => (Some(input.into_bytes()), None),
                 };
 
-                send_worker_message(ClientMessage::Compile {
+                send_worker_message(ClientMessage::CompileAndRun {
                     base_url,
                     source: code,
                     language: lang.get_untracked().unwrap_or(Language::CPP),
@@ -1008,8 +1008,8 @@ fn App() -> impl IntoView {
 }
 
 fn main() {
+    console_log::init().expect("error initializing logger");
     console_error_panic_hook::set_once();
-    console_log::init_with_level(log::Level::Debug).unwrap();
 
     let theme = if load("theme") == Some("Light".to_owned()) {
         Theme::light()

@@ -1,4 +1,3 @@
-import init, {setup} from './worker.js';
+import init from './worker.js';
 
-await init();
-await setup();
+await init({});
