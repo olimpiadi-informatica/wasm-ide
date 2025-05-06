@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientMessage {
-    Compile {
+    CompileAndRun {
         source: String,
         language: Language,
         input: Option<Vec<u8>>,
