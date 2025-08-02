@@ -394,7 +394,7 @@ pub fn instrument_binary(
                 let mut out_memories = MemorySection::new();
                 for memory in memories {
                     let memory = memory?;
-                    out_memories.memory(memory.try_into()?);
+                    out_memories.memory(memory.into());
                 }
                 module.section(&out_memories);
             }

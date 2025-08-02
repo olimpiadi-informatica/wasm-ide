@@ -1,4 +1,7 @@
 #![feature(stdarch_wasm_atomic_wait)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::await_holding_lock)]
 
 use std::{
     collections::{HashMap, VecDeque},

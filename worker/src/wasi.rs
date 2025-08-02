@@ -338,11 +338,10 @@ fn ea_sizes_get(
 ) -> Errno {
     let (env, store) = env.data_and_store_mut();
     let memory = env.memory.view(&store);
-    if count.write(&memory, data.len() as u32).is_err() {
-        ERRNO_FAULT
-    } else if totsize
-        .write(&memory, data.iter().map(|x| x.len()).sum::<usize>() as u32)
-        .is_err()
+    if count.write(&memory, data.len() as u32).is_err()
+        || totsize
+            .write(&memory, data.iter().map(|x| x.len()).sum::<usize>() as u32)
+            .is_err()
     {
         ERRNO_FAULT
     } else {

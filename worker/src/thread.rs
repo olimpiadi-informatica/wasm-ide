@@ -42,10 +42,10 @@ where
             let worker = Worker::new_with_options("./start_worker_thread.js", &options)
                 .expect("couldn't start thread");
 
-            let mut msg = Object::new();
-            js_sys::Reflect::set(&mut msg, &"module".into(), &wasm_bindgen::module())
+            let msg = Object::new();
+            js_sys::Reflect::set(&msg, &"module".into(), &wasm_bindgen::module())
                 .expect("could not set module");
-            js_sys::Reflect::set(&mut msg, &"memory".into(), &wasm_bindgen::memory())
+            js_sys::Reflect::set(&msg, &"memory".into(), &wasm_bindgen::memory())
                 .expect("could not set memory");
             worker
                 .post_message(&msg)
@@ -62,10 +62,10 @@ where
         }
     };
 
-    let mut msg = Object::new();
-    js_sys::Reflect::set(&mut msg, &"workerIndex".into(), &JsValue::from(worker_id))
+    let msg = Object::new();
+    js_sys::Reflect::set(&msg, &"workerIndex".into(), &JsValue::from(worker_id))
         .expect("could not set worker_id");
-    js_sys::Reflect::set(&mut msg, &"arg".into(), &arg).expect("could not set arg");
+    js_sys::Reflect::set(&msg, &"arg".into(), &arg).expect("could not set arg");
 
     let mut workers = WORKER_DATA
         .get_or_init(|| Mutex::new(vec![]))

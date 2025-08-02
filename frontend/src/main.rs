@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 leptos_i18n::load_locales!();
 
 use std::{borrow::Cow, collections::HashSet, time::Duration};
@@ -175,7 +177,7 @@ fn StorageErrorView() -> impl IntoView {
 #[component]
 fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
     let i18n = use_i18n();
-    let state2 = state.clone();
+    let state2 = state;
     let state_to_view = move |state: &RunState| match state {
         RunState::Complete(_) => {
             view! { <Alert variant=AlertVariant::Success>{t!(i18n, execution_completed)}</Alert> }
@@ -274,14 +276,12 @@ fn OutDiv(
     });
 
     let style = {
-        let style_and_text = style_and_text.clone();
         Signal::derive(move || format!("width: 100%; text-align: left; {}", style_and_text.get().0))
     };
 
     let text = Signal::derive(move || style_and_text.get().1);
 
     {
-        let text = text.clone();
         create_effect(move |_| {
             text.get();
             let scroll_options = ScrollToOptions::new();
@@ -453,7 +453,6 @@ fn OutputControl(
     color: ButtonColor,
 ) -> impl IntoView {
     let variant = {
-        let signal = signal.clone();
         Signal::derive(move || {
             if signal.get() {
                 ButtonVariant::Primary
@@ -585,7 +584,6 @@ fn App() -> impl IntoView {
 
     let send_worker_message = {
         let (sender, receiver) = unbounded::<ClientMessage>();
-        let state = state.clone();
         spawn_local(async move {
             loop {
                 if !matches!(state.get_untracked(), RunState::Loading) {
@@ -620,22 +618,10 @@ fn App() -> impl IntoView {
     let stdin =
         create_rw_signal(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));
 
-    let disable_start = {
-        let state = state.clone();
-        create_memo(move |_| state.with(|s| !s.can_start()))
-    };
-    let disable_stop = {
-        let state = state.clone();
-        create_memo(move |_| state.with(|s| !s.can_stop()))
-    };
-    let is_running = {
-        let state = state.clone();
-        create_memo(move |_| state.with(|s| s.can_stop() || !s.can_start()))
-    };
-    let disable_output = {
-        let state = state.clone();
-        create_memo(move |_| state.with(|s| !s.has_output()))
-    };
+    let disable_start = create_memo(move |_| state.with(|s| !s.can_start()));
+    let disable_stop = create_memo(move |_| state.with(|s| !s.can_stop()));
+    let is_running = create_memo(move |_| state.with(|s| s.can_stop() || !s.can_start()));
+    let disable_output = create_memo(move |_| state.with(|s| !s.has_output()));
 
     let upload_input = move |files: FileList| {
         let file = files.get(0).expect("0 files?");
@@ -681,7 +667,6 @@ fn App() -> impl IntoView {
     };
 
     {
-        let lang = lang.clone();
         let send_worker_message = send_worker_message.clone();
         create_effect(move |_| {
             let lang = lang.get().unwrap();
@@ -892,8 +877,6 @@ fn App() -> impl IntoView {
     let additional_input = create_rw_signal(String::from(""));
 
     let add_input = {
-        let additional_input = additional_input.clone();
-        let stdin = stdin.clone();
         let send_worker_message = send_worker_message.clone();
         move || {
             let mut extra = additional_input.get_untracked();
@@ -959,7 +942,6 @@ fn App() -> impl IntoView {
     };
 
     let disable_input_editor = {
-        let disable_start = disable_start.clone();
         create_memo(move |_| {
             disable_start.get() || input_mode.get() == Some(InputMode::FullInteractive)
         })
