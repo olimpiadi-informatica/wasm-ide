@@ -195,7 +195,6 @@ pub fn Editor(
         });
     });
 
-    let contents = contents.clone();
     create_effect(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
