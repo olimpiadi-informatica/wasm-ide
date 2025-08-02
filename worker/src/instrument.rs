@@ -1,10 +1,11 @@
-use anyhow::Result;
-use log::info;
 use std::{
     borrow::Cow,
     collections::HashMap,
     sync::{Mutex, OnceLock},
 };
+
+use anyhow::Result;
+use tracing::info;
 use wasm_encoder::{
     CodeSection, ConstExpr, DataCountSection, DataSection, DataSegment, DataSegmentMode,
     ElementMode, ElementSection, ElementSegment, Elements, EntityType, ExportSection, Function,
