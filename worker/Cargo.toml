@@ -13,11 +13,9 @@ crate-type = ["cdylib", "rlib"]
 anyhow = "1.0.81"
 brotli = "6.0.0"
 console_error_panic_hook = "0.1.7"
-console_log = "1.0.0"
 futures-util = "0.3.30"
 js-sys = "0.3.69"
 common = { path = "../common" }
-log = { version = "0.4.21", features = ["release_max_level_info"] }
 reqwest = "0.12.3"
 send_wrapper = "0.6.0"
 serde = { version = "1.0.197", features = ["derive"] }

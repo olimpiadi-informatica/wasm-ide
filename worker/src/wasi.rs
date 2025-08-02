@@ -1,6 +1,6 @@
-use core::panic;
 use std::{
     collections::HashMap,
+    panic,
     sync::{Arc, Mutex},
 };
 

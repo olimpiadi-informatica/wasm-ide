@@ -1,8 +1,8 @@
 use std::sync::{Mutex, OnceLock};
 
 use js_sys::Object;
-use log::debug;
 use send_wrapper::SendWrapper;
+use tracing::debug;
 use wasm_bindgen::{prelude::*, JsValue};
 use web_sys::{Worker, WorkerOptions, WorkerType};
 

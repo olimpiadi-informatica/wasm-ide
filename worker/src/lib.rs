@@ -11,10 +11,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use async_channel::{unbounded, Receiver, Sender};
-
 use common::{ClientMessage, Language, WorkerMessage};
 use compiler::{LSInterface, RunnerInterface};
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use wasi::Fs;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;

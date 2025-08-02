@@ -4,8 +4,7 @@ use anyhow::{bail, Context, Result};
 use brotli::BrotliDecompress;
 use common::Language;
 use gloo_timers::future::TimeoutFuture;
-use log::info;
-use tracing::warn;
+use tracing::{info, warn};
 use url::Url;
 use wasmer::IntoBytes;
 
