@@ -20,7 +20,7 @@ pub enum LSEvent {
     Stopping,
 }
 
-#[wasm_bindgen(raw_module = "/codemirror.js")]
+#[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
     type LSEventHandler;
 
