@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_channel::{unbounded, Receiver, Sender};
-use common::{KeyboardMode, Language};
+use common::Language;
 use gloo_timers::future::TimeoutFuture;
 use leptos::*;
 use log::info;
@@ -12,7 +12,7 @@ use thaw::use_rw_theme;
 use wasm_bindgen::prelude::*;
 use web_sys::js_sys::Function;
 
-use crate::save;
+use crate::{save, KeyboardMode};
 
 pub enum LSEvent {
     Ready,

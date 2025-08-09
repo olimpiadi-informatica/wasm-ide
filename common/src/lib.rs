@@ -6,11 +6,10 @@ pub enum ClientMessage {
         source: String,
         language: Language,
         input: Option<Vec<u8>>,
-        base_url: String,
     },
     StdinChunk(Vec<u8>),
     Cancel,
-    StartLS(String, Language),
+    StartLS(Language),
     LSMessage(String),
 }
 
@@ -51,18 +50,4 @@ impl From<Language> for String {
     fn from(val: Language) -> Self {
         Into::<&'static str>::into(val).to_owned()
     }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
-pub enum KeyboardMode {
-    Standard,
-    Vim,
-    Emacs,
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
-pub enum InputMode {
-    Batch,
-    MixedInteractive,
-    FullInteractive,
 }

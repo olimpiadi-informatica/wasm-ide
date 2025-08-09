@@ -5,12 +5,13 @@ leptos_i18n::load_locales!();
 use std::{borrow::Cow, collections::HashSet, time::Duration};
 
 use async_channel::{unbounded, Sender};
-use common::{ClientMessage, InputMode, KeyboardMode, Language, WorkerMessage};
+use common::{ClientMessage, Language, WorkerMessage};
 use gloo_timers::future::sleep;
 use icondata::Icon;
 use include_optional::include_str_optional;
 use leptos::*;
 use leptos_use::signal_throttled;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thaw::{
     create_component_ref, use_rw_theme, Alert, AlertVariant, Button, ButtonColor, ButtonVariant,
     ComponentRef, Divider, GlobalStyle, Grid, GridItem, Icon, Input, Layout, LayoutHeader, Popover,
@@ -32,6 +33,20 @@ use i18n::*;
 mod editor;
 
 use editor::{Editor, EditorText, LSEvent};
+
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
+pub enum KeyboardMode {
+    Standard,
+    Vim,
+    Emacs,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
+pub enum InputMode {
+    Batch,
+    MixedInteractive,
+    FullInteractive,
+}
 
 struct LargeFileSet(HashSet<String>);
 
@@ -68,7 +83,7 @@ impl Stringifiable for EditorText {
     }
 }
 
-impl<T: serde::Serialize + for<'a> serde::Deserialize<'a>> Stringifiable for T {
+impl<T: Serialize + DeserializeOwned> Stringifiable for T {
     fn stringify(&self) -> Cow<'_, str> {
         Cow::Owned(serde_json::to_string(self).expect("serialization error"))
     }
@@ -370,7 +385,7 @@ fn handle_message(
         return Ok(());
     }
     if let WorkerMessage::LSStopping = msg {
-        info!("LS ready");
+        info!("LS stopping");
         ls_message_chan.try_send(LSEvent::Stopping)?;
         return Ok(());
     }
@@ -670,9 +685,7 @@ fn App() -> impl IntoView {
         let send_worker_message = send_worker_message.clone();
         create_effect(move |_| {
             let lang = lang.get().unwrap();
-            let window = web_sys::window().expect("no window available");
-            let base_url = window.location().href().expect("could not get href");
-            send_worker_message(ClientMessage::StartLS(base_url, lang));
+            send_worker_message(ClientMessage::StartLS(lang));
         });
     }
 
@@ -700,8 +713,6 @@ fn App() -> impl IntoView {
                 stdin.with_untracked(|x| x.await_all_changes()).await;
                 let code = code.with_untracked(|x| x.text().clone());
                 let input = stdin.with_untracked(|x| x.text().clone());
-                let window = web_sys::window().expect("no window available");
-                let base_url = window.location().href().expect("could not get href");
                 let (input, addn_msg) = match input_mode.get_untracked().unwrap() {
                     InputMode::MixedInteractive => {
                         (None, Some(ClientMessage::StdinChunk(input.into_bytes())))
@@ -711,7 +722,6 @@ fn App() -> impl IntoView {
                 };
 
                 send_worker_message(ClientMessage::CompileAndRun {
-                    base_url,
                     source: code,
                     language: lang.get_untracked().unwrap_or(Language::CPP),
                     input,

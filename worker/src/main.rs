@@ -109,7 +109,6 @@ fn handle_message(msg: JsValue) {
             source,
             language,
             input,
-            base_url: _,
         } => {
             let state = WORKER_STATE.get().unwrap();
             let pipe = Rc::new(Pipe::new());
@@ -153,7 +152,7 @@ fn handle_message(msg: JsValue) {
             state.pipe.borrow_mut().take();
         }
 
-        ClientMessage::StartLS(_, _) => {}
+        ClientMessage::StartLS(_) => {}
 
         ClientMessage::LSMessage(_) => {}
     }
