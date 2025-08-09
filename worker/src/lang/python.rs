@@ -16,8 +16,8 @@ pub async fn run(code: Vec<u8>, input: FdEntry) -> Result<()> {
 
     send_running();
     let exe = fs
-        .get_file(fs.get(fs.root(), b"bin/python3.12.wasm").unwrap())
-        .unwrap();
+        .get_file_with_path(b"bin/python3.13.wasm")
+        .context("Failed to get Python executable")?;
     let proc = ProcessHandle::builder()
         .fs(fs)
         .stdin(input)
@@ -32,7 +32,7 @@ pub async fn run(code: Vec<u8>, input: FdEntry) -> Result<()> {
         .env(b"PYTHONHOME=/".to_vec())
         .spawn(
             &exe,
-            vec![b"/bin/python3.12.wasm".to_vec(), b"/solution.py".to_vec()],
+            vec![b"/bin/python3.13.wasm".to_vec(), b"/solution.py".to_vec()],
         );
 
     let status_code = proc.proc.wait().await;

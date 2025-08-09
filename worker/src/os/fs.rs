@@ -1,5 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
+use thiserror::Error;
 use tracing::warn;
 
 pub type Inode = u64;
@@ -25,10 +26,13 @@ pub struct Fs {
     pub parent_pointers: Vec<Inode>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum FsError {
+    #[error("Not a directory")]
     NotDir,
+    #[error("Is a directory")]
     IsDir,
+    #[error("No such file or directory")]
     DoesNotExist,
 }
 
@@ -66,6 +70,13 @@ impl Fs {
 
     pub fn add_file(&mut self, parent: Inode, name: &[u8], data: Rc<Vec<u8>>) {
         self.add_entry(parent, name, FsEntry::File(data));
+    }
+
+    pub fn get_file_with_path(&self, path: &[u8]) -> Result<Rc<Vec<u8>>, FsError> {
+        let root = self.root();
+        let inode = self.get(root, path)?;
+        let data = self.get_file(inode)?;
+        Ok(data)
     }
 
     pub fn get(&self, parent: Inode, path: &[u8]) -> Result<Inode, FsError> {

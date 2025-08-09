@@ -17,8 +17,8 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
         false => &b"-std=c17"[..],
     };
     let exe = fs
-        .get_file(fs.get(fs.root(), b"/bin/clang++").unwrap())
-        .unwrap();
+        .get_file_with_path(b"/bin/llvm")
+        .context("Failed to get clang executable")?;
     let compiled = Rc::new(RefCell::new(Vec::new()));
     let compiled2 = compiled.clone();
     let proc = ProcessHandle::builder()
@@ -42,16 +42,16 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
                 b"-cc1".to_vec(),
                 b"-isysroot".to_vec(),
                 b"/".to_vec(),
-                b"-I/include/c++/15.0.0/wasm32-wasi/".to_vec(),
+                b"-I/include/c++/15.0.0/wasm32-wasip1/".to_vec(),
                 b"-I/include/c++/15.0.0/".to_vec(),
                 b"-stdlib=libstdc++".to_vec(),
                 b"-internal-isystem".to_vec(),
-                b"/lib/clang/19/include".to_vec(),
+                b"/lib/clang/20/include".to_vec(),
                 b"-internal-isystem".to_vec(),
-                b"/include/wasm32-wasi-threads".to_vec(),
+                b"/include/wasm32-wasip1-threads".to_vec(),
                 b"-I/include/".to_vec(),
                 b"-resource-dir".to_vec(),
-                b"lib/clang/19".to_vec(),
+                b"lib/clang/20".to_vec(),
                 b"-target-feature".to_vec(),
                 b"+atomics".to_vec(),
                 b"-target-feature".to_vec(),
@@ -79,8 +79,8 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
 
 async fn link(mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
     let exe = fs
-        .get_file(fs.get(fs.root(), b"/bin/wasm-ld").unwrap())
-        .unwrap();
+        .get_file_with_path(b"/bin/llvm")
+        .context("Failed to get wasm-ld executable")?;
     let linked = Rc::new(RefCell::new(Vec::new()));
     let linked2 = linked.clone();
     fs.add_file_with_path(b"source.o", Rc::new(compiled));
@@ -98,10 +98,10 @@ async fn link(mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
             &exe,
             vec![
                 b"wasm-ld".to_vec(),
-                b"-L/lib/wasm32-wasi-threads/".to_vec(),
+                b"-L/lib/wasm32-wasip1-threads/".to_vec(),
                 b"-lc".to_vec(),
-                b"/lib/clang/19/lib/wasi/libclang_rt.builtins-wasm32.a".to_vec(),
-                b"/lib/wasm32-wasi-threads/crt1.o".to_vec(),
+                b"/lib/clang/20/lib/wasm32-unknown-wasip1-threads/libclang_rt.builtins.a".to_vec(),
+                b"/lib/wasm32-wasip1-threads/crt1.o".to_vec(),
                 b"-L/lib".to_vec(),
                 b"-lstdc++".to_vec(),
                 b"-lsupc++".to_vec(),
