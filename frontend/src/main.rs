@@ -418,6 +418,9 @@ fn handle_message(
             (WorkerMessage::CompilationDone, RunState::CompilationInProgress(cur, _)) => {
                 *state = RunState::InProgress(std::mem::take(cur), true);
             }
+            (WorkerMessage::Error(s), RunState::FetchingCompiler) => {
+                *state = RunState::Error(std::mem::take(s), Outcome::default());
+            }
             (
                 WorkerMessage::Error(s),
                 RunState::InProgress(cur, _) | RunState::CompilationInProgress(cur, _),

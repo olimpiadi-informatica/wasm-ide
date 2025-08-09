@@ -3,11 +3,11 @@ use std::{cell::RefCell, rc::Rc};
 use anyhow::{Context, Result};
 
 use crate::{
-    os::{FileEntry, Fs, ProcessHandle},
+    os::{FdEntry, Fs, ProcessHandle},
     util::*,
 };
 
-async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Option<Vec<u8>> {
+async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
     let lang = match cpp {
         true => &b"c++"[..],
         false => &b"c"[..],
@@ -23,15 +23,15 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Option<Vec<u8>> {
     let compiled2 = compiled.clone();
     let proc = ProcessHandle::builder()
         .fs(fs.clone())
-        .stdin(FileEntry::Data {
+        .stdin(FdEntry::Data {
             data: code,
             offset: 0,
         })
-        .stdout(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             compiled2.borrow_mut().extend_from_slice(buf);
             buf.len()
         })))
-        .stderr(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_compiler_message(buf);
             buf.len()
         })))
@@ -71,16 +71,13 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Option<Vec<u8>> {
             ],
         );
 
-    proc.proc.wait().await;
-    if proc.proc.inner.borrow().status_code == Some(0) {
-        let compiled = std::mem::take(&mut *compiled.borrow_mut());
-        Some(compiled)
-    } else {
-        None
-    }
+    let status_code = proc.proc.wait().await;
+    status_code.check_success()?;
+    let compiled = std::mem::take(&mut *compiled.borrow_mut());
+    Ok(compiled)
 }
 
-async fn link(mut fs: Fs, compiled: Vec<u8>) -> Option<Vec<u8>> {
+async fn link(mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
     let exe = fs
         .get_file(fs.get(fs.root(), b"/bin/wasm-ld").unwrap())
         .unwrap();
@@ -89,11 +86,11 @@ async fn link(mut fs: Fs, compiled: Vec<u8>) -> Option<Vec<u8>> {
     fs.add_file_with_path(b"source.o", Rc::new(compiled));
     let proc = ProcessHandle::builder()
         .fs(fs.clone())
-        .stdout(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             linked2.borrow_mut().extend_from_slice(buf);
             buf.len()
         })))
-        .stderr(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_compiler_message(buf);
             buf.len()
         })))
@@ -121,42 +118,38 @@ async fn link(mut fs: Fs, compiled: Vec<u8>) -> Option<Vec<u8>> {
             ],
         );
 
-    proc.proc.wait().await;
-    if proc.proc.inner.borrow().status_code == Some(0) {
-        let linked = std::mem::take(&mut *linked.borrow_mut());
-        Some(linked)
-    } else {
-        None
-    }
+    let status_code = proc.proc.wait().await;
+    status_code.check_success()?;
+    let linked = std::mem::take(&mut *linked.borrow_mut());
+    Ok(linked)
 }
 
-pub async fn run(cpp: bool, code: Vec<u8>, input: FileEntry) -> Result<()> {
+pub async fn run(cpp: bool, code: Vec<u8>, input: FdEntry) -> Result<()> {
     send_fetching_compiler();
     let fs = get_fs("cpp")
         .await
-        .context("failed to get C/C++ filesystem")?;
+        .context("Failed to get C/C++ filesystem")?;
 
     send_compiling();
     let compiled = compile(cpp, fs.clone(), code)
         .await
-        .context("failed to compile code")?;
-    let linked = link(fs, compiled)
-        .await
-        .context("failed to link compiled code")?;
+        .context("Compilation failed")?;
+    let linked = link(fs, compiled).await.context("Linking failed")?;
 
     send_running();
     let proc = ProcessHandle::builder()
         .stdin(input)
-        .stdout(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_stdout(buf);
             buf.len()
         })))
-        .stderr(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_stderr(buf);
             buf.len()
         })))
         .spawn(&linked, vec![]);
 
-    proc.proc.wait().await;
+    let status_code = proc.proc.wait().await;
+    status_code.check_success().context("Execution failed")?;
     Ok(())
 }

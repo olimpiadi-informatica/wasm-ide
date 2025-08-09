@@ -3,15 +3,15 @@ use std::rc::Rc;
 use anyhow::{Context, Result};
 
 use crate::{
-    os::{FileEntry, ProcessHandle},
+    os::{FdEntry, ProcessHandle},
     util::*,
 };
 
-pub async fn run(code: Vec<u8>, input: FileEntry) -> Result<()> {
+pub async fn run(code: Vec<u8>, input: FdEntry) -> Result<()> {
     send_fetching_compiler();
     let mut fs = get_fs("python")
         .await
-        .context("failed to get Python filesystem")?;
+        .context("Failed to get Python filesystem")?;
     fs.add_file(fs.root(), b"solution.py", Rc::new(code));
 
     send_running();
@@ -21,11 +21,11 @@ pub async fn run(code: Vec<u8>, input: FileEntry) -> Result<()> {
     let proc = ProcessHandle::builder()
         .fs(fs)
         .stdin(input)
-        .stdout(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_stdout(buf);
             buf.len()
         })))
-        .stderr(FileEntry::WriteFn(Rc::new(move |buf: &[u8]| {
+        .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_stderr(buf);
             buf.len()
         })))
@@ -35,6 +35,7 @@ pub async fn run(code: Vec<u8>, input: FileEntry) -> Result<()> {
             vec![b"/bin/python3.12.wasm".to_vec(), b"/solution.py".to_vec()],
         );
 
-    proc.proc.wait().await;
+    let status_code = proc.proc.wait().await;
+    status_code.check_success()?;
     Ok(())
 }

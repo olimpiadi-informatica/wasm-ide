@@ -1,12 +1,12 @@
 use anyhow::Result;
 use common::Language;
 
-use crate::os::FileEntry;
+use crate::os::FdEntry;
 
 mod cpp;
 mod python;
 
-pub async fn run(language: Language, code: Vec<u8>, input: FileEntry) -> Result<()> {
+pub async fn run(language: Language, code: Vec<u8>, input: FdEntry) -> Result<()> {
     match language {
         Language::C => cpp::run(false, code, input).await,
         Language::CPP => cpp::run(true, code, input).await,

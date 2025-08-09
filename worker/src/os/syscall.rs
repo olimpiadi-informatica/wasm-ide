@@ -11,7 +11,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use crate::os::{FsEntry, FsError};
 
-use super::{FileEntry, Process};
+use super::{FdEntry, Process, StatusCode};
 
 type Addr = u32;
 type Size = u32;
@@ -177,8 +177,12 @@ enum WasiSyscall {
 }
 
 pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
-    let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
-    let msg = serde_wasm_bindgen::from_value::<WasiSyscall>(msg).unwrap();
+    let msg = msg
+        .dyn_into::<MessageEvent>()
+        .expect("message event expected")
+        .data();
+    let msg = serde_wasm_bindgen::from_value::<WasiSyscall>(msg)
+        .expect("failed to deserialize WASI syscall message");
 
     spawn_local(async move {
         let errno: i32 = match msg {
@@ -434,18 +438,18 @@ fn fd_fdstat_get(proc: &Process, fd: Fd, buf: Addr) -> Errno {
         fs_rights_inheriting: Rights::empty(),
     };
     match &*file_info {
-        FileEntry::WriteFn(_) => {
+        FdEntry::WriteFn(_) => {
             fdstat.fs_filetype = FileType::CharacterDevice;
             fdstat.fs_flags = 1; // ?
             fdstat.fs_rights_base = Rights::FD_WRITE;
             fdstat.fs_rights_inheriting = Rights::FD_WRITE;
         }
-        FileEntry::Data { .. } => {
+        FdEntry::Data { .. } => {
             fdstat.fs_filetype = FileType::RegularFile;
             fdstat.fs_rights_base = Rights::FD_READ | Rights::FD_WRITE | Rights::FD_SEEK;
             fdstat.fs_rights_inheriting = Rights::FD_READ | Rights::FD_WRITE | Rights::FD_SEEK;
         }
-        FileEntry::Dir(_) => {
+        FdEntry::Dir(_) => {
             fdstat.fs_filetype = FileType::Directory;
             fdstat.fs_rights_base = Rights::PATH_OPEN
                 | Rights::PATH_FILESTAT_GET
@@ -458,13 +462,13 @@ fn fd_fdstat_get(proc: &Process, fd: Fd, buf: Addr) -> Errno {
                 | Rights::FD_SEEK
                 | Rights::PATH_READDIR;
         }
-        FileEntry::File(_, _) => {
+        FdEntry::File(_, _) => {
             fdstat.fs_filetype = FileType::RegularFile;
             fdstat.fs_rights_base = Rights::FD_READ | Rights::FD_SEEK | Rights::FD_FILESTAT_GET;
             fdstat.fs_rights_inheriting =
                 Rights::FD_READ | Rights::FD_WRITE | Rights::FD_FILESTAT_GET;
         }
-        FileEntry::Pipe(_) => {
+        FdEntry::Pipe(_) => {
             fdstat.fs_filetype = FileType::CharacterDevice;
             fdstat.fs_flags = 1; // ?
             fdstat.fs_rights_base = Rights::FD_READ | Rights::FD_WRITE;
@@ -503,25 +507,25 @@ fn fd_filestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
         ctim: 0,
     };
     match &*file_info {
-        FileEntry::WriteFn(_) => {
+        FdEntry::WriteFn(_) => {
             fstat.dev = 1;
             fstat.filetype = FileType::CharacterDevice;
         }
-        FileEntry::Data { data, .. } => {
+        FdEntry::Data { data, .. } => {
             fstat.dev = 1;
             fstat.filetype = FileType::RegularFile;
             fstat.size = data.len() as FileSize;
         }
-        FileEntry::Dir(inode) => {
+        FdEntry::Dir(inode) => {
             fstat.filetype = FileType::Directory;
             fstat.inode = *inode;
         }
-        FileEntry::File(inode, _) => {
+        FdEntry::File(inode, _) => {
             fstat.filetype = FileType::RegularFile;
             fstat.inode = *inode;
             fstat.size = proc.fs.entries[*inode as usize].as_file().unwrap().len() as FileSize;
         }
-        FileEntry::Pipe(_) => {
+        FdEntry::Pipe(_) => {
             fstat.dev = 1;
             fstat.filetype = FileType::CharacterDevice;
         }
@@ -563,22 +567,22 @@ fn fd_pread(
     }
     let mut in_data = vec![0u8; iovs.iter().map(|iov| iov.buf_len).sum::<Size>() as usize];
     let read = match &mut *file_entry {
-        FileEntry::Data { data, .. } => {
+        FdEntry::Data { data, .. } => {
             let data = &data[offset as usize..];
             let read_len = data.len().min(in_data.len());
             in_data[..read_len].copy_from_slice(&data[..read_len]);
             read_len
         }
-        FileEntry::File(inode, _) => {
+        FdEntry::File(inode, _) => {
             let data = proc.fs.entries[*inode as usize].as_file().unwrap();
             let data = &data[offset as usize..];
             let read_len = data.len().min(in_data.len());
             in_data[..read_len].copy_from_slice(&data[..read_len]);
             read_len
         }
-        FileEntry::WriteFn(_) => return Errno::Badf,
-        FileEntry::Dir(_) => return Errno::Badf,
-        FileEntry::Pipe(_) => return Errno::Badf,
+        FdEntry::WriteFn(_) => return Errno::Badf,
+        FdEntry::Dir(_) => return Errno::Badf,
+        FdEntry::Pipe(_) => return Errno::Badf,
     };
     let mut pos = 0;
     for IoVecT { buf, buf_len } in iovs {
@@ -597,7 +601,7 @@ fn fd_prestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
     let Some(file_entry) = proc.get_fd_mut(fd) else {
         return Errno::Badf;
     };
-    let FileEntry::Dir(inode) = *file_entry else {
+    let FdEntry::Dir(inode) = *file_entry else {
         return Errno::Badf;
     };
     if inode != 0 {
@@ -618,7 +622,7 @@ fn fd_prestat_dir_name(proc: &Process, fd: Fd, path: Addr, _path_len: Size) -> E
     let Some(file_entry) = proc.get_fd_mut(fd) else {
         return Errno::Badf;
     };
-    let FileEntry::Dir(inode) = *file_entry else {
+    let FdEntry::Dir(inode) = *file_entry else {
         return Errno::Badf;
     };
     if inode != 0 {
@@ -653,14 +657,14 @@ async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr)
             return Errno::Badf;
         };
         match &mut *file_entry {
-            FileEntry::Data { data, offset } => {
+            FdEntry::Data { data, offset } => {
                 let data = &data[*offset..];
                 let read_len = data.len().min(in_data.len());
                 in_data[..read_len].copy_from_slice(&data[..read_len]);
                 *offset += read_len;
                 read_len
             }
-            FileEntry::File(inode, offset) => {
+            FdEntry::File(inode, offset) => {
                 let data = proc.fs.entries[*inode as usize].as_file().unwrap();
                 let data = &data[*offset..];
                 let read_len = data.len().min(in_data.len());
@@ -668,12 +672,12 @@ async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr)
                 *offset += read_len;
                 read_len
             }
-            FileEntry::Pipe(p) => {
+            FdEntry::Pipe(p) => {
                 pipe = Some(p.clone());
                 0
             }
-            FileEntry::WriteFn(_) => return Errno::Badf,
-            FileEntry::Dir(_) => return Errno::Badf,
+            FdEntry::WriteFn(_) => return Errno::Badf,
+            FdEntry::Dir(_) => return Errno::Badf,
         }
     };
     if let Some(pipe) = pipe {
@@ -715,15 +719,15 @@ fn fd_seek(proc: &Process, fd: Fd, offset: FileDelta, whence: Whence, out: Addr)
     let mut base_off: FileSize = match (whence, &*file_info) {
         (Whence::Set, _) => 0,
         (Whence::Cur, _) => 0,
-        (Whence::End, FileEntry::Data { data, .. }) => data.len() as FileSize,
+        (Whence::End, FdEntry::Data { data, .. }) => data.len() as FileSize,
         _ => return Errno::Inval,
     };
     let foff = match &mut *file_info {
-        FileEntry::Data { offset, .. } => offset,
-        FileEntry::File(_, offset) => offset,
-        FileEntry::WriteFn(_) => return Errno::Badf,
-        FileEntry::Dir(_) => return Errno::Badf,
-        FileEntry::Pipe(_) => return Errno::Badf,
+        FdEntry::Data { offset, .. } => offset,
+        FdEntry::File(_, offset) => offset,
+        FdEntry::WriteFn(_) => return Errno::Badf,
+        FdEntry::Dir(_) => return Errno::Badf,
+        FdEntry::Pipe(_) => return Errno::Badf,
     };
     if whence == Whence::Set {
         base_off = *foff as FileSize;
@@ -761,20 +765,20 @@ fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Add
         pos += buf_len as usize;
     }
     let written = match &mut *file_info {
-        FileEntry::WriteFn(ref f) => f(&in_data),
-        FileEntry::Data { data, offset } => {
+        FdEntry::WriteFn(ref f) => f(&in_data),
+        FdEntry::Data { data, offset } => {
             let buf = &mut data[*offset..];
             let write_len = buf.len().min(in_data.len());
             buf[..write_len].copy_from_slice(&in_data[..write_len]);
             *offset += write_len;
             write_len
         }
-        FileEntry::Pipe(pipe) => {
+        FdEntry::Pipe(pipe) => {
             pipe.write(&in_data);
             in_data.len()
         }
-        FileEntry::File(_, _) => return Errno::Perm,
-        FileEntry::Dir(_) => return Errno::Badf,
+        FdEntry::File(_, _) => return Errno::Perm,
+        FdEntry::Dir(_) => return Errno::Badf,
     };
     if let Err(e) = write_to_mem(proc, result, &written) {
         return e;
@@ -797,7 +801,7 @@ fn path_filestat_get(
     let Some(file_entry) = proc.get_fd_mut(fd) else {
         return Errno::Badf;
     };
-    let FileEntry::Dir(base_inode) = *file_entry else {
+    let FdEntry::Dir(base_inode) = *file_entry else {
         return Errno::Badf;
     };
     let mut path = vec![0; path_len as usize];
@@ -879,7 +883,7 @@ fn path_open(
         let Some(file_entry) = proc.get_fd_mut(dirfd) else {
             return Errno::Badf;
         };
-        let FileEntry::Dir(base_inode) = *file_entry else {
+        let FdEntry::Dir(base_inode) = *file_entry else {
             return Errno::Badf;
         };
         base_inode
@@ -898,8 +902,8 @@ fn path_open(
         return Errno::NotDir;
     };
     let file_entry = match proc.fs.entries[inode as usize] {
-        FsEntry::Dir(_) => FileEntry::Dir(inode),
-        FsEntry::File(_) => FileEntry::File(inode, 0),
+        FsEntry::Dir(_) => FdEntry::Dir(inode),
+        FsEntry::File(_) => FdEntry::File(inode, 0),
     };
     let fd = proc.add_fd(file_entry);
     if let Err(e) = write_to_mem(proc, out, &fd) {
@@ -951,7 +955,7 @@ fn path_unlink_file(_proc: &Process, _fd: Fd, _path: Addr, _path_len: Size) -> E
 }
 
 fn proc_exit(proc: &Process, code: ExitCode) {
-    proc.inner.borrow_mut().status_code = Some(code);
+    proc.inner.borrow_mut().status_code = StatusCode::Exited(code);
     proc.kill();
 }
 

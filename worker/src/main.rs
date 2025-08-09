@@ -1,5 +1,3 @@
-#![feature(stdarch_wasm_atomic_wait)]
-
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::OnceLock};
 
 use common::{ClientMessage, WorkerMessage};
@@ -10,7 +8,7 @@ use futures::{
     },
     select, FutureExt, StreamExt,
 };
-use os::{FileEntry, Fs, Pipe};
+use os::{FdEntry, Fs, Pipe};
 use send_wrapper::SendWrapper;
 use tracing::{info, warn};
 use tracing_subscriber::fmt::format::Pretty;
@@ -32,6 +30,10 @@ struct WorkerState {
 }
 
 static WORKER_STATE: OnceLock<SendWrapper<WorkerState>> = OnceLock::new();
+
+fn worker_state() -> &'static WorkerState {
+    WORKER_STATE.get().expect("worker state not initialized")
+}
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -76,7 +78,7 @@ fn main() {
     spawn_local(async move {
         let mut msg_num = 0;
         loop {
-            let msg = r.next().await.unwrap();
+            let msg = r.next().await.expect("worker died?");
             msg_num += 1;
             const MSG_WAIT_COUNT: usize = 1000;
             if msg_num > MSG_WAIT_COUNT {
@@ -92,17 +94,24 @@ fn main() {
 }
 
 fn send_msg(msg: WorkerMessage) {
-    WORKER_STATE
-        .get()
-        .unwrap()
+    worker_state()
         .send_msg
         .unbounded_send(msg)
         .expect("failed to send message");
 }
 
 fn handle_message(msg: JsValue) {
-    let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
-    let msg = serde_wasm_bindgen::from_value(msg).unwrap();
+    let msg = msg
+        .dyn_into::<MessageEvent>()
+        .expect("message event expected")
+        .data();
+    let msg = match serde_wasm_bindgen::from_value::<ClientMessage>(msg) {
+        Ok(msg) => msg,
+        Err(e) => {
+            warn!("Received invalid message: {e:?}");
+            return;
+        }
+    };
 
     match msg {
         ClientMessage::CompileAndRun {
@@ -110,26 +119,25 @@ fn handle_message(msg: JsValue) {
             language,
             input,
         } => {
-            let state = WORKER_STATE.get().unwrap();
             let pipe = Rc::new(Pipe::new());
             if let Some(input) = input {
                 pipe.write(&input);
             }
-            state.pipe.borrow_mut().replace(pipe.clone());
+            worker_state().pipe.borrow_mut().replace(pipe.clone());
             let (sender, mut receiver) = channel();
-            state.stop.borrow_mut().replace(sender);
+            worker_state().stop.borrow_mut().replace(sender);
             spawn_local(async move {
-                let running = lang::run(language, source.into_bytes(), FileEntry::Pipe(pipe));
+                let running = lang::run(language, source.into_bytes(), FdEntry::Pipe(pipe));
                 select! {
                     _ = receiver => {
                         info!("Received stop command, cancelling execution");
-                        send_msg(WorkerMessage::Error("Execution cancelled".to_string()));
+                        send_msg(WorkerMessage::Error("Execution cancelled by user".to_string()));
                     }
                     res = running.fuse() => {
                         info!("Execution finished");
                         match res {
                             Ok(()) => send_msg(WorkerMessage::Done),
-                            Err(e) => send_msg(WorkerMessage::Error(e.to_string())),
+                            Err(e) => send_msg(WorkerMessage::Error(format!("{e:?}"))),
                         }
                     }
                 };
@@ -137,7 +145,7 @@ fn handle_message(msg: JsValue) {
         }
 
         ClientMessage::StdinChunk(chunk) => {
-            if let Some(pipe) = &*WORKER_STATE.get().unwrap().pipe.borrow_mut() {
+            if let Some(pipe) = &*worker_state().pipe.borrow_mut() {
                 pipe.write(&chunk);
             } else {
                 warn!("Received stdin chunk but no pipe is set");
@@ -145,11 +153,14 @@ fn handle_message(msg: JsValue) {
         }
 
         ClientMessage::Cancel => {
-            let state = WORKER_STATE.get().unwrap();
-            if let Some(s) = state.stop.borrow_mut().take() {
+            if let Some(s) = worker_state().stop.borrow_mut().take() {
                 let _ = s.send(());
+            } else {
+                warn!("Received cancel message but no execution is running");
             }
-            state.pipe.borrow_mut().take();
+            if worker_state().pipe.borrow_mut().take().is_some() {
+                // TODO(virv): send EOF to the pipe
+            }
         }
 
         ClientMessage::StartLS(_) => {}

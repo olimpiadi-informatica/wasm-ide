@@ -3,6 +3,7 @@ use std::{
     rc::Rc,
 };
 
+use anyhow::{anyhow, Result};
 use futures::{
     channel::oneshot::{channel, Receiver, Sender},
     lock::Mutex,
@@ -20,7 +21,7 @@ use super::{syscall, Fs, Inode, Pipe};
 type WriteFn = Rc<dyn Fn(&[u8]) -> usize>;
 
 #[derive(Clone)]
-pub enum FileEntry {
+pub enum FdEntry {
     WriteFn(WriteFn),
     Data { data: Vec<u8>, offset: usize },
     Dir(Inode),
@@ -46,8 +47,8 @@ impl Drop for Process {
 }
 
 pub struct ProcessInner {
-    pub fds: Vec<Option<FileEntry>>,
-    pub status_code: Option<u32>,
+    pub fds: Vec<Option<FdEntry>>,
+    pub status_code: StatusCode,
     pub threads: Vec<(Worker, SharedArrayBuffer)>,
     pub termination_recv: Receiver<()>,
 }
@@ -61,19 +62,20 @@ impl Process {
         inner.termination_recv.close();
     }
 
-    pub async fn wait(&self) {
+    pub async fn wait(&self) -> StatusCode {
         let mut l = self.termiation_send.lock().await;
         l.cancellation().await;
+        self.inner.borrow().status_code
     }
 
-    pub fn get_fd_mut(&self, fd: u32) -> Option<RefMut<FileEntry>> {
+    pub fn get_fd_mut(&self, fd: u32) -> Option<RefMut<FdEntry>> {
         RefMut::filter_map(self.inner.borrow_mut(), |x| {
             x.fds.get_mut(fd as usize).and_then(|x| x.as_mut())
         })
         .ok()
     }
 
-    pub fn add_fd(&self, entry: FileEntry) -> u32 {
+    pub fn add_fd(&self, entry: FdEntry) -> u32 {
         let mut inner = self.inner.borrow_mut();
         for fd in 0..inner.fds.len() {
             if inner.fds[fd].is_none() {
@@ -132,9 +134,9 @@ pub struct ProcessHandle {
 #[derive(Default)]
 pub struct Builder {
     fs: Option<Fs>,
-    stdin: Option<FileEntry>,
-    stdout: Option<FileEntry>,
-    stderr: Option<FileEntry>,
+    stdin: Option<FdEntry>,
+    stdout: Option<FdEntry>,
+    stderr: Option<FdEntry>,
     env: Vec<Vec<u8>>,
 }
 
@@ -144,17 +146,17 @@ impl Builder {
         self
     }
 
-    pub fn stdin(mut self, stdin: FileEntry) -> Self {
+    pub fn stdin(mut self, stdin: FdEntry) -> Self {
         self.stdin = Some(stdin);
         self
     }
 
-    pub fn stdout(mut self, stdout: FileEntry) -> Self {
+    pub fn stdout(mut self, stdout: FdEntry) -> Self {
         self.stdout = Some(stdout);
         self
     }
 
-    pub fn stderr(mut self, stderr: FileEntry) -> Self {
+    pub fn stderr(mut self, stderr: FdEntry) -> Self {
         self.stderr = Some(stderr);
         self
     }
@@ -195,14 +197,14 @@ impl Builder {
             self.stdin,
             self.stdout,
             self.stderr,
-            Some(FileEntry::Dir(fs.root())),
+            Some(FdEntry::Dir(fs.root())),
         ];
 
         let (termination_send, termination_recv) = channel();
 
         let inner = ProcessInner {
             fds,
-            status_code: None,
+            status_code: StatusCode::Signaled,
             threads: vec![],
             termination_recv,
         };
@@ -227,5 +229,22 @@ impl Builder {
 impl ProcessHandle {
     pub fn builder() -> Builder {
         Builder::default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub enum StatusCode {
+    Signaled,
+    Exited(u32),
+}
+
+impl StatusCode {
+    pub fn check_success(&self) -> Result<()> {
+        match self {
+            StatusCode::Exited(0) => Ok(()),
+            StatusCode::Exited(code) => Err(anyhow!("Process exited with non-zero code: {}", code)),
+            StatusCode::Signaled => Err(anyhow!("Process was killed by a signal")),
+        }
     }
 }
