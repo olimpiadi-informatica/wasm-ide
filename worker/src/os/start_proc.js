@@ -77,10 +77,14 @@ self.onmessage = (msg) => {
     };
     channel = msg.data.channel;
     let wasm = new WebAssembly.Instance(msg.data.module, imports);
-    if (msg.data.tid !== undefined) {
-        wasm.exports.wasi_thread_start(msg.data.tid, msg.data.arg);
-    } else {
-        wasm.exports._start();
+    try {
+        if (msg.data.tid !== undefined) {
+            wasm.exports.wasi_thread_start(msg.data.tid, msg.data.arg);
+        } else {
+            wasm.exports._start();
+            postMessage({ type: 'proc_exit', args: 0 });
+        }
+    } catch (e) {
+        postMessage({ type: 'runtime_error', args: e.message });
     }
-    wasip1.proc_exit(0);
 };

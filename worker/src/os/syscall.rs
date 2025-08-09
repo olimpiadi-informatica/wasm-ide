@@ -116,7 +116,7 @@ enum FileType {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "args")]
-enum WasiSyscall {
+enum ProcMsg {
     ArgsGet(Addr, Addr),
     ArgsSizesGet(Addr, Addr),
     EnvironGet(Addr, Addr),
@@ -174,6 +174,7 @@ enum WasiSyscall {
     SockShutdown(Fd, u8),
     PollOneoff(Fd, Addr, Size, Addr, Addr),
     ThreadSpawn(i32),
+    RuntimeError(String),
 }
 
 pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
@@ -181,75 +182,73 @@ pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
         .dyn_into::<MessageEvent>()
         .expect("message event expected")
         .data();
-    let msg = serde_wasm_bindgen::from_value::<WasiSyscall>(msg)
+    let msg = serde_wasm_bindgen::from_value::<ProcMsg>(msg)
         .expect("failed to deserialize WASI syscall message");
 
     spawn_local(async move {
         let errno: i32 = match msg {
-            WasiSyscall::ArgsGet(a, b) => args_get(&proc, a, b) as i32,
-            WasiSyscall::ArgsSizesGet(a, b) => args_sizes_get(&proc, a, b) as i32,
-            WasiSyscall::EnvironGet(a, b) => environ_get(&proc, a, b) as i32,
-            WasiSyscall::EnvironSizesGet(a, b) => environ_sizes_get(&proc, a, b) as i32,
-            WasiSyscall::ClockResGet(a, b) => clock_res_get(&proc, a, b) as i32,
-            WasiSyscall::ClockTimeGet(a, b, c) => clock_time_get(&proc, a, b, c) as i32,
-            WasiSyscall::FdAdvise(a, b, c, d) => fd_advise(&proc, a, b, c, d) as i32,
-            WasiSyscall::FdAllocate(a, b, c) => fd_allocate(&proc, a, b, c) as i32,
-            WasiSyscall::FdClose(a) => fd_close(&proc, a) as i32,
-            WasiSyscall::FdDatasync(a) => fd_datasync(&proc, a) as i32,
-            WasiSyscall::FdFdstatGet(a, b) => fd_fdstat_get(&proc, a, b) as i32,
-            WasiSyscall::FdFdstatSetFlags(a, b) => fd_fdstat_set_flags(&proc, a, b) as i32,
-            WasiSyscall::FdFdstatSetRights(a, b, c) => fd_fdstat_set_rights(&proc, a, b, c) as i32,
-            WasiSyscall::FdFilestatGet(a, b) => fd_filestat_get(&proc, a, b) as i32,
-            WasiSyscall::FdFilestatSetSize(a, b) => fd_filestat_set_size(&proc, a, b) as i32,
-            WasiSyscall::FdFilestatSetTimes(a, b, c, d) => {
+            ProcMsg::ArgsGet(a, b) => args_get(&proc, a, b) as i32,
+            ProcMsg::ArgsSizesGet(a, b) => args_sizes_get(&proc, a, b) as i32,
+            ProcMsg::EnvironGet(a, b) => environ_get(&proc, a, b) as i32,
+            ProcMsg::EnvironSizesGet(a, b) => environ_sizes_get(&proc, a, b) as i32,
+            ProcMsg::ClockResGet(a, b) => clock_res_get(&proc, a, b) as i32,
+            ProcMsg::ClockTimeGet(a, b, c) => clock_time_get(&proc, a, b, c) as i32,
+            ProcMsg::FdAdvise(a, b, c, d) => fd_advise(&proc, a, b, c, d) as i32,
+            ProcMsg::FdAllocate(a, b, c) => fd_allocate(&proc, a, b, c) as i32,
+            ProcMsg::FdClose(a) => fd_close(&proc, a) as i32,
+            ProcMsg::FdDatasync(a) => fd_datasync(&proc, a) as i32,
+            ProcMsg::FdFdstatGet(a, b) => fd_fdstat_get(&proc, a, b) as i32,
+            ProcMsg::FdFdstatSetFlags(a, b) => fd_fdstat_set_flags(&proc, a, b) as i32,
+            ProcMsg::FdFdstatSetRights(a, b, c) => fd_fdstat_set_rights(&proc, a, b, c) as i32,
+            ProcMsg::FdFilestatGet(a, b) => fd_filestat_get(&proc, a, b) as i32,
+            ProcMsg::FdFilestatSetSize(a, b) => fd_filestat_set_size(&proc, a, b) as i32,
+            ProcMsg::FdFilestatSetTimes(a, b, c, d) => {
                 fd_filestat_set_times(&proc, a, b, c, d) as i32
             }
-            WasiSyscall::FdPread(a, b, c, d, e) => fd_pread(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::FdPrestatGet(a, b) => fd_prestat_get(&proc, a, b) as i32,
-            WasiSyscall::FdPrestatDirName(a, b, c) => fd_prestat_dir_name(&proc, a, b, c) as i32,
-            WasiSyscall::FdPwrite(a, b, c, d, e) => fd_pwrite(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::FdRead(a, b, c, d) => fd_read(&proc, a, b, c, d).await as i32,
-            WasiSyscall::FdReaddir(a, b, c, d, e) => fd_readdir(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::FdRenumber(a, b) => fd_renumber(&proc, a, b) as i32,
-            WasiSyscall::FdSeek(a, b, c, d) => fd_seek(&proc, a, b, c, d) as i32,
-            WasiSyscall::FdSync(a) => fd_sync(&proc, a) as i32,
-            WasiSyscall::FdTell(a, b) => fd_tell(&proc, a, b) as i32,
-            WasiSyscall::FdWrite(a, b, c, d) => fd_write(&proc, a, b, c, d) as i32,
-            WasiSyscall::PathCreateDirectory(a, b, c) => {
-                path_create_directory(&proc, a, b, c) as i32
-            }
-            WasiSyscall::PathFilestatGet(a, b, c, d, e) => {
+            ProcMsg::FdPread(a, b, c, d, e) => fd_pread(&proc, a, b, c, d, e) as i32,
+            ProcMsg::FdPrestatGet(a, b) => fd_prestat_get(&proc, a, b) as i32,
+            ProcMsg::FdPrestatDirName(a, b, c) => fd_prestat_dir_name(&proc, a, b, c) as i32,
+            ProcMsg::FdPwrite(a, b, c, d, e) => fd_pwrite(&proc, a, b, c, d, e) as i32,
+            ProcMsg::FdRead(a, b, c, d) => fd_read(&proc, a, b, c, d).await as i32,
+            ProcMsg::FdReaddir(a, b, c, d, e) => fd_readdir(&proc, a, b, c, d, e) as i32,
+            ProcMsg::FdRenumber(a, b) => fd_renumber(&proc, a, b) as i32,
+            ProcMsg::FdSeek(a, b, c, d) => fd_seek(&proc, a, b, c, d) as i32,
+            ProcMsg::FdSync(a) => fd_sync(&proc, a) as i32,
+            ProcMsg::FdTell(a, b) => fd_tell(&proc, a, b) as i32,
+            ProcMsg::FdWrite(a, b, c, d) => fd_write(&proc, a, b, c, d) as i32,
+            ProcMsg::PathCreateDirectory(a, b, c) => path_create_directory(&proc, a, b, c) as i32,
+            ProcMsg::PathFilestatGet(a, b, c, d, e) => {
                 path_filestat_get(&proc, a, b, c, d, e) as i32
             }
-            WasiSyscall::PathFilestatSetTimes(a, b, c, d, e, f, g) => {
+            ProcMsg::PathFilestatSetTimes(a, b, c, d, e, f, g) => {
                 path_filestat_set_times(&proc, a, b, c, d, e, f, g) as i32
             }
-            WasiSyscall::PathLink(a, b, c, d, e, f) => path_link(&proc, a, b, c, d, e, f) as i32,
-            WasiSyscall::PathOpen(a, b, c, d, e, f, g, h, i) => {
+            ProcMsg::PathLink(a, b, c, d, e, f) => path_link(&proc, a, b, c, d, e, f) as i32,
+            ProcMsg::PathOpen(a, b, c, d, e, f, g, h, i) => {
                 path_open(&proc, a, b, c, d, e, f, g, h, i) as i32
             }
-            WasiSyscall::PathReadlink(a, b, c, d, e) => path_readlink(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::PathRemoveDirectory(a, b, c) => {
-                path_remove_directory(&proc, a, b, c) as i32
-            }
-            WasiSyscall::PathRename(a, b, c, d, e, f) => {
-                path_rename(&proc, a, b, c, d, e, f) as i32
-            }
-            WasiSyscall::PathSymlink(a, b, c, d, e) => path_symlink(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::PathUnlinkFile(a, b, c) => path_unlink_file(&proc, a, b, c) as i32,
-            WasiSyscall::ProcExit(a) => {
+            ProcMsg::PathReadlink(a, b, c, d, e) => path_readlink(&proc, a, b, c, d, e) as i32,
+            ProcMsg::PathRemoveDirectory(a, b, c) => path_remove_directory(&proc, a, b, c) as i32,
+            ProcMsg::PathRename(a, b, c, d, e, f) => path_rename(&proc, a, b, c, d, e, f) as i32,
+            ProcMsg::PathSymlink(a, b, c, d, e) => path_symlink(&proc, a, b, c, d, e) as i32,
+            ProcMsg::PathUnlinkFile(a, b, c) => path_unlink_file(&proc, a, b, c) as i32,
+            ProcMsg::ProcExit(a) => {
                 proc_exit(&proc, a);
                 return;
             }
-            WasiSyscall::ProcRaise(a) => proc_raise(&proc, a) as i32,
-            WasiSyscall::RandomGet(a, b) => random_get(&proc, a, b) as i32,
-            WasiSyscall::SchedYield => sched_yield(&proc) as i32,
-            WasiSyscall::SockAccept(a, b, c) => sock_accept(&proc, a, b, c) as i32,
-            WasiSyscall::SockRecv(a, b, c, d, e) => sock_recv(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::SockSend(a, b, c, d, e) => sock_send(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::SockShutdown(a, b) => sock_shutdown(&proc, a, b) as i32,
-            WasiSyscall::PollOneoff(a, b, c, d, e) => poll_oneoff(&proc, a, b, c, d, e) as i32,
-            WasiSyscall::ThreadSpawn(a) => thread_spawn(&proc, a),
+            ProcMsg::ProcRaise(a) => proc_raise(&proc, a) as i32,
+            ProcMsg::RandomGet(a, b) => random_get(&proc, a, b) as i32,
+            ProcMsg::SchedYield => sched_yield(&proc) as i32,
+            ProcMsg::SockAccept(a, b, c) => sock_accept(&proc, a, b, c) as i32,
+            ProcMsg::SockRecv(a, b, c, d, e) => sock_recv(&proc, a, b, c, d, e) as i32,
+            ProcMsg::SockSend(a, b, c, d, e) => sock_send(&proc, a, b, c, d, e) as i32,
+            ProcMsg::SockShutdown(a, b) => sock_shutdown(&proc, a, b) as i32,
+            ProcMsg::PollOneoff(a, b, c, d, e) => poll_oneoff(&proc, a, b, c, d, e) as i32,
+            ProcMsg::ThreadSpawn(a) => thread_spawn(&proc, a),
+            ProcMsg::RuntimeError(e) => {
+                proc.kill(StatusCode::RuntimeError(e));
+                return;
+            }
         };
 
         let channel = proc.inner.borrow().threads[tid as usize - 1].1.clone();
@@ -955,8 +954,7 @@ fn path_unlink_file(_proc: &Process, _fd: Fd, _path: Addr, _path_len: Size) -> E
 }
 
 fn proc_exit(proc: &Process, code: ExitCode) {
-    proc.inner.borrow_mut().status_code = StatusCode::Exited(code);
-    proc.kill();
+    proc.kill(StatusCode::Exited(code));
 }
 
 fn proc_raise(_proc: &Process, _code: Signal) -> Errno {

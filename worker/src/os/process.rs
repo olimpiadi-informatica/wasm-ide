@@ -42,7 +42,7 @@ pub struct Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
-        self.kill();
+        self.kill(StatusCode::Signaled);
     }
 }
 
@@ -54,8 +54,9 @@ pub struct ProcessInner {
 }
 
 impl Process {
-    pub fn kill(&self) {
+    pub fn kill(&self, status_code: StatusCode) {
         let mut inner = self.inner.borrow_mut();
+        inner.status_code = status_code;
         for (worker, _) in inner.threads.drain(..) {
             worker.terminate();
         }
@@ -65,7 +66,7 @@ impl Process {
     pub async fn wait(&self) -> StatusCode {
         let mut l = self.termiation_send.lock().await;
         l.cancellation().await;
-        self.inner.borrow().status_code
+        self.inner.borrow().status_code.clone()
     }
 
     pub fn get_fd_mut(&self, fd: u32) -> Option<RefMut<FdEntry>> {
@@ -232,11 +233,12 @@ impl ProcessHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum StatusCode {
-    Signaled,
     Exited(u32),
+    Signaled,
+    RuntimeError(String),
 }
 
 impl StatusCode {
@@ -245,6 +247,9 @@ impl StatusCode {
             StatusCode::Exited(0) => Ok(()),
             StatusCode::Exited(code) => Err(anyhow!("Process exited with non-zero code: {}", code)),
             StatusCode::Signaled => Err(anyhow!("Process was killed by a signal")),
+            StatusCode::RuntimeError(msg) => {
+                Err(anyhow!("Process encountered a runtime error: {}", msg))
+            }
         }
     }
 }
