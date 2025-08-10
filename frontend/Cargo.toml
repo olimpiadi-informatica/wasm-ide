@@ -7,9 +7,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.82"
 console_error_panic_hook = "0.1.7"
-console_log = "1.0.0"
 leptos = { version = "0.6.11", features = ["csr"] }
-log = { version = "0.4.21", features = ["release_max_level_warn"] }
 common = { path = "../common" }
 web-sys = { version = "0.3.69", features = ["Worker", "WorkerOptions", "WorkerType", "Storage"] }
 wasm-bindgen-futures = "0.4.42"
@@ -25,6 +23,7 @@ async-channel = "2.2.1"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 leptos_i18n = { version = "0.4.1", features = ["interpolate_display"] }
 include_optional = "1.0.1"
+tracing = { version = "0.1.40" }
 
 [package.metadata.leptos-i18n]
 default = "en"

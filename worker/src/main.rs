@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::OnceLock};
 
-use common::{ClientMessage, WorkerMessage};
+use common::{init_logging, ClientMessage, WorkerMessage};
 use futures::{
     channel::{
         mpsc::{unbounded, UnboundedSender},
@@ -10,10 +10,7 @@ use futures::{
 };
 use os::{FdEntry, Fs, Pipe};
 use send_wrapper::SendWrapper;
-use tracing::{error, info, warn};
-use tracing_subscriber::fmt::format::Pretty;
-use tracing_subscriber::prelude::*;
-use tracing_web::{performance_layer, MakeWebConsoleWriter};
+use tracing::{debug, error, info, warn};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent};
@@ -40,20 +37,9 @@ fn worker_state() -> &'static WorkerState {
 }
 
 fn main() {
-    console_error_panic_hook::set_once();
+    init_logging();
 
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false) // Only partially supported across browsers
-        .without_time() // std::time is not available in browsers, see note below
-        .with_writer(MakeWebConsoleWriter::new()); // write events to the console
-    let perf_layer = performance_layer().with_details_from_fields(Pretty::default());
-
-    tracing_subscriber::registry()
-        .with(fmt_layer)
-        .with(perf_layer)
-        .init(); // Install these as subscribers to tracing events
-
-    info!("worker started");
+    info!("Worker started");
 
     let (s, mut r) = unbounded();
 
@@ -125,6 +111,8 @@ fn handle_message(msg: JsValue) {
             language,
             input,
         } => {
+            info!("Starting execution of {:?} code", language);
+
             let stdin = Rc::new(Pipe::new());
             if let Some(input) = input {
                 stdin.write(&input);
@@ -174,6 +162,8 @@ fn handle_message(msg: JsValue) {
             if let Some(s) = worker_state().ls_stop.borrow_mut().take() {
                 let _ = s.send(());
             }
+
+            info!("Starting LS for {:?}", lang);
 
             let stdin = Rc::new(Pipe::new());
             worker_state().ls_stdin.borrow_mut().replace(stdin.clone());
@@ -244,14 +234,14 @@ fn handle_message(msg: JsValue) {
                         continue;
                     }
                     let msg = String::from_utf8_lossy(&line[..line.len() - 1]);
-                    info!("LS stderr: {}", msg);
+                    debug!("LS stderr: {}", msg);
                 }
             });
         }
 
         ClientMessage::LSMessage(msg) => {
             if let Some(stdin) = &*worker_state().ls_stdin.borrow_mut() {
-                info!("Sending LS message: {}", msg);
+                debug!("Sending LS message: {}", msg);
                 stdin.write(format!("Content-Length: {}\r\n\r\n", msg.len()).as_bytes());
                 stdin.write(msg.as_bytes());
             } else {

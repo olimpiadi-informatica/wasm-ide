@@ -7,7 +7,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.81"
 brotli-decompressor = "5.0.0"
-console_error_panic_hook = "0.1.7"
 futures = "0.3.30"
 js-sys = "0.3.69"
 common = { path = "../common" }
@@ -23,9 +22,7 @@ wasm-bindgen-futures = "0.4.42"
 web-sys = { version = "0.3.69", features = ["DedicatedWorkerGlobalScope", "WorkerLocation", "MessageEvent", "Worker", "WorkerOptions", "WorkerType"] }
 web-time = "1.1.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-tracing = { version = "0.1.40", features = ["release_max_level_info"] }
-tracing-subscriber = "0.3.18"
-tracing-web = "0.1.3"
+tracing = { version = "0.1.40" }
 zerocopy = { version = "0.8.26", features = ["derive"] }
 bitflags = "2.9.1"
 bytes = "1.10.1"

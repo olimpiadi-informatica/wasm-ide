@@ -4,7 +4,6 @@ use bitflags::bitflags;
 use js_sys::{Atomics, Int32Array, Uint8Array};
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
-use tracing::debug;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::MessageEvent;
@@ -185,8 +184,6 @@ pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
         .data();
     let msg = serde_wasm_bindgen::from_value::<ProcMsg>(msg)
         .expect("failed to deserialize WASI syscall message");
-
-    debug!("Handling message: {:?}", msg);
 
     spawn_local(async move {
         let errno: i32 = match msg {

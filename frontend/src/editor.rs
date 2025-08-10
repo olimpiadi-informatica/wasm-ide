@@ -7,8 +7,8 @@ use async_channel::{unbounded, Receiver, Sender};
 use common::Language;
 use gloo_timers::future::TimeoutFuture;
 use leptos::*;
-use log::info;
 use thaw::use_rw_theme;
+use tracing::debug;
 use wasm_bindgen::prelude::*;
 use web_sys::js_sys::Function;
 
@@ -137,7 +137,7 @@ pub fn Editor(
                 let data = cm6.get_text();
                 contents.update_untracked(|val| {
                     val.data = data;
-                    info!("onchange: {cache_key} {}", val.data.len());
+                    debug!("onchange: {cache_key} {}", val.data.len());
                     save(cache_key, val);
                 })
             });

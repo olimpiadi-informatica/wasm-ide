@@ -3,7 +3,7 @@ use std::{io::Read, rc::Rc};
 use anyhow::{Context, Result};
 use brotli_decompressor::BrotliDecompress;
 use bytes::Bytes;
-use tracing::debug;
+use tracing::{debug, info};
 use url::Url;
 use wasm_bindgen::JsCast;
 use web_sys::DedicatedWorkerGlobalScope;
@@ -23,6 +23,7 @@ async fn fetch_tarbr(name: &str) -> Result<Bytes> {
 }
 
 async fn get_fs_inner(name: &str) -> Result<Fs> {
+    info!("Fetching {name}.tar.br");
     let body = fetch_tarbr(name)
         .await
         .with_context(|| format!("Failed to fetch compiler tarball for {name}"))?;

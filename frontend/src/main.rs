@@ -5,7 +5,7 @@ leptos_i18n::load_locales!();
 use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
 
 use async_channel::{unbounded, Sender};
-use common::{ClientMessage, Language, WorkerMessage};
+use common::{init_logging, ClientMessage, Language, WorkerMessage};
 use gloo_timers::future::sleep;
 use icondata::Icon;
 use include_optional::include_str_optional;
@@ -21,7 +21,7 @@ use thaw::{
 use wasm_bindgen::prelude::*;
 
 use anyhow::{bail, ensure, Result};
-use log::{info, warn};
+use tracing::{debug, info, warn};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     FileList, HtmlAnchorElement, MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions,
@@ -466,19 +466,16 @@ fn handle_message(
             return Ok(());
         }
     };
-    info!("{msg:?}");
+    debug!("{msg:?}");
     if let WorkerMessage::LSReady = msg {
-        info!("LS ready");
         ls_message_chan.try_send(LSEvent::Ready)?;
         return Ok(());
     }
     if let WorkerMessage::LSStopping = msg {
-        info!("LS stopping");
         ls_message_chan.try_send(LSEvent::Stopping)?;
         return Ok(());
     }
     if let WorkerMessage::LSMessage(msg) = msg {
-        info!("LS message received");
         ls_message_chan.try_send(LSEvent::Message(msg))?;
         return Ok(());
     }
@@ -699,7 +696,7 @@ fn App() -> impl IntoView {
             }
             loop {
                 let msg = receiver.recv().await.expect("frontend died?");
-                info!("send to worker: {:?}", msg);
+                debug!("send to worker: {:?}", msg);
                 worker
                     .post_message(
                         &serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker"),
@@ -776,6 +773,7 @@ fn App() -> impl IntoView {
         let send_worker_message = send_worker_message.clone();
         create_effect(move |_| {
             let lang = lang.get().unwrap();
+            info!("Requesting language server for {lang:?}");
             send_worker_message(ClientMessage::StartLS(lang));
         });
     }
@@ -812,6 +810,7 @@ fn App() -> impl IntoView {
                     InputMode::Batch => (Some(input.into_bytes()), None),
                 };
 
+                info!("Requesting execution");
                 send_worker_message(ClientMessage::CompileAndRun {
                     source: code,
                     language: lang.get_untracked().unwrap_or(Language::CPP),
@@ -828,12 +827,15 @@ fn App() -> impl IntoView {
         let send_worker_message = send_worker_message.clone();
         move |_: MouseEvent| {
             state.update(|x| {
-                if let RunState::InProgress(_, accept) = x {
+                if let RunState::CompilationInProgress(_, accept)
+                | RunState::InProgress(_, accept) = x
+                {
                     *accept = false;
                 } else {
                     warn!("asked to stop while not running");
                 }
             });
+            info!("Stopping execution");
             send_worker_message(ClientMessage::Cancel);
         }
     };
@@ -1109,8 +1111,7 @@ fn App() -> impl IntoView {
 }
 
 fn main() {
-    console_log::init().expect("error initializing logger");
-    console_error_panic_hook::set_once();
+    init_logging();
 
     let theme = if load("theme") == Some("Light".to_owned()) {
         Theme::light()
