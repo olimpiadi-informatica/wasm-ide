@@ -59,6 +59,7 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
                 b"-target-feature".to_vec(),
                 b"+mutable-globals".to_vec(),
                 b"-I.".to_vec(),
+                b"-fcolor-diagnostics".to_vec(),
                 b"-x".to_vec(),
                 lang.to_vec(),
                 b"-O2".to_vec(),
