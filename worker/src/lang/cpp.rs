@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use anyhow::{Context, Result};
 
 use crate::{
-    os::{FdEntry, Fs, ProcessHandle},
+    os::{FdEntry, Fs, Pipe, ProcessHandle},
     util::*,
 };
 
@@ -151,5 +151,49 @@ pub async fn run(cpp: bool, code: Vec<u8>, input: FdEntry) -> Result<()> {
 
     let status_code = proc.proc.wait().await;
     status_code.check_success().context("Execution failed")?;
+    Ok(())
+}
+
+pub async fn run_ls(cpp: bool, stdin: Rc<Pipe>, stdout: Rc<Pipe>, stderr: Rc<Pipe>) -> Result<()> {
+    let std = match cpp {
+        true => "-std=c++20",
+        false => "-std=c17",
+    };
+
+    let mut fs = get_fs("cpp")
+        .await
+        .context("Failed to get C/C++ filesystem")?;
+    let clangd = fs
+        .get_file_with_path(b"bin/clangd")
+        .context("Failed to get clangd executable")?;
+    fs.add_file_with_path(
+        b"compile_flags.txt",
+        Rc::new(
+            format!(
+                r#"
+-Wall
+-O2
+-I/include/c++/15.0.0/
+-I/include/c++/15.0.0/wasm32-wasip1/
+-resource-dir=/lib/clang/20
+{std}
+"#,
+            )
+            .into_bytes(),
+        ),
+    );
+    let proc = ProcessHandle::builder()
+        .fs(fs)
+        .stdin(FdEntry::Pipe(stdin))
+        .stdout(FdEntry::Pipe(stdout))
+        .stderr(FdEntry::Pipe(stderr))
+        .spawn(
+            &clangd,
+            vec![b"clangd".to_vec(), b"--pch-storage=memory".to_vec()],
+        );
+
+    crate::send_msg(common::WorkerMessage::LSReady);
+    let status_code = proc.proc.wait().await;
+    status_code.check_success().expect("LS process failed");
     Ok(())
 }

@@ -4,6 +4,7 @@ use bitflags::bitflags;
 use js_sys::{Atomics, Int32Array, Uint8Array};
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
+use tracing::debug;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::MessageEvent;
@@ -138,7 +139,7 @@ enum ProcMsg {
     FdPrestatDirName(Fd, Addr, Size),
     FdPwrite(Fd, Addr, Size, FileSize, Addr),
     FdRead(Fd, Addr, Size, Addr),
-    FdReaddir(Fd, Addr, Size, Addr, Addr),
+    FdReaddir(Fd, Addr, Size, u64, Addr),
     FdRenumber(Fd, Fd),
     FdSeek(Fd, FileDelta, Whence, Addr),
     FdSync(Fd),
@@ -184,6 +185,8 @@ pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
         .data();
     let msg = serde_wasm_bindgen::from_value::<ProcMsg>(msg)
         .expect("failed to deserialize WASI syscall message");
+
+    debug!("Handling message: {:?}", msg);
 
     spawn_local(async move {
         let errno: i32 = match msg {
@@ -360,8 +363,20 @@ fn args_sizes_get(proc: &Process, argc: Addr, totarg: Addr) -> Errno {
     Errno::Success
 }
 
-fn environ_get(_proc: &Process, _env: Addr, _env_buf: Addr) -> Errno {
-    todo!()
+fn environ_get(proc: &Process, env: Addr, env_buf: Addr) -> Errno {
+    let mut env_vec = vec![0; proc.env.len()];
+    let mut offset = 0;
+    for (i, e) in proc.env.iter().enumerate() {
+        if let Err(e) = write_to_mem(proc, env_buf + offset, &e[..]) {
+            return e;
+        }
+        env_vec[i] = env_buf + offset;
+        offset += e.len() as Size;
+    }
+    if let Err(e) = write_to_mem(proc, env, &env_vec[..]) {
+        return e;
+    }
+    Errno::Success
 }
 
 fn environ_sizes_get(proc: &Process, envc: Addr, totenv: Addr) -> Errno {
@@ -384,7 +399,7 @@ fn clock_res_get(_proc: &Process, _clock_id: ClockId, _resolution: Addr) -> Errn
 
 fn clock_time_get(proc: &Process, clock_id: ClockId, _precision: Timestamp, time: Addr) -> Errno {
     let val = match clock_id {
-        ClockId::Monotonic => todo!(),
+        ClockId::Monotonic => web_time::UNIX_EPOCH.elapsed().unwrap().as_nanos() as Timestamp,
         ClockId::Realtime => proc.start_instant.elapsed().as_nanos() as Timestamp,
         ClockId::ProcessCpu => todo!(),
         ClockId::ThreadCpu => todo!(),
@@ -696,14 +711,43 @@ async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr)
 }
 
 fn fd_readdir(
-    _proc: &Process,
-    _fd: Fd,
-    _buf: Addr,
-    _buf_len: Size,
-    _cookie: Addr,
-    _result: Addr,
+    proc: &Process,
+    fd: Fd,
+    buf_addr: Addr,
+    buf_len: Size,
+    cookie: u64,
+    out: Addr,
 ) -> Errno {
-    todo!()
+    let Some(fd_entry) = proc.get_fd_mut(fd) else {
+        return Errno::Badf;
+    };
+    let FdEntry::Dir(dir_inode) = *fd_entry else {
+        return Errno::Badf;
+    };
+    let mut buf = Vec::new();
+    let entries = proc.fs.entries[dir_inode as usize].as_dir().unwrap();
+    for (idx, (name, inode)) in entries.iter().enumerate().skip(cookie as usize) {
+        if buf.len() >= buf_len as usize {
+            break;
+        }
+        buf.extend_from_slice(&(idx as u64 + 1).to_le_bytes());
+        buf.extend_from_slice(&inode.to_le_bytes());
+        buf.extend_from_slice(&(name.len() as u32).to_le_bytes());
+        let file_type = match proc.fs.entries[*inode as usize] {
+            FsEntry::File(_) => FileType::RegularFile,
+            FsEntry::Dir(_) => FileType::Directory,
+        };
+        buf.extend_from_slice(&(file_type as u32).to_le_bytes());
+        buf.extend_from_slice(name);
+    }
+    let len = buf.len().min(buf_len as usize);
+    if let Err(e) = write_to_mem(proc, buf_addr, &buf[..len]) {
+        return e;
+    }
+    if let Err(e) = write_to_mem(proc, out, &(len as Size)) {
+        return e;
+    }
+    Errno::Success
 }
 
 fn fd_renumber(_proc: &Process, _fd: Fd, _to_fd: Fd) -> Errno {
@@ -728,7 +772,7 @@ fn fd_seek(proc: &Process, fd: Fd, offset: FileDelta, whence: Whence, out: Addr)
         FdEntry::Dir(_) => return Errno::Badf,
         FdEntry::Pipe(_) => return Errno::Badf,
     };
-    if whence == Whence::Set {
+    if whence == Whence::Cur {
         base_off = *foff as FileSize;
     }
     *foff = (base_off as usize).saturating_add_signed(offset as isize);
@@ -742,8 +786,8 @@ fn fd_sync(_proc: &Process, _fd: Fd) -> Errno {
     Errno::Success
 }
 
-fn fd_tell(_proc: &Process, _fd: Fd, _result: Addr) -> Errno {
-    todo!()
+fn fd_tell(proc: &Process, fd: Fd, out: Addr) -> Errno {
+    fd_seek(proc, fd, 0, Whence::Cur, out)
 }
 
 fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Addr) -> Errno {

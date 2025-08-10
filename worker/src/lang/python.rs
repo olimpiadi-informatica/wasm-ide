@@ -14,6 +14,7 @@ pub async fn run(code: Vec<u8>, input: FdEntry) -> Result<()> {
         .context("Failed to get Python filesystem")?;
     fs.add_file(fs.root(), b"solution.py", Rc::new(code));
 
+    send_compiling();
     send_running();
     let exe = fs
         .get_file_with_path(b"bin/python3.13.wasm")
@@ -32,7 +33,7 @@ pub async fn run(code: Vec<u8>, input: FdEntry) -> Result<()> {
         .env(b"PYTHONHOME=/".to_vec())
         .spawn(
             &exe,
-            vec![b"/bin/python3.13.wasm".to_vec(), b"/solution.py".to_vec()],
+            vec![b"/bin/python3.13.wasm".to_vec(), b"solution.py".to_vec()],
         );
 
     let status_code = proc.proc.wait().await;

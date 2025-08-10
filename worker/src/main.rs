@@ -10,7 +10,7 @@ use futures::{
 };
 use os::{FdEntry, Fs, Pipe};
 use send_wrapper::SendWrapper;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::fmt::format::Pretty;
 use tracing_subscriber::prelude::*;
 use tracing_web::{performance_layer, MakeWebConsoleWriter};
@@ -24,9 +24,13 @@ mod util;
 
 struct WorkerState {
     send_msg: UnboundedSender<WorkerMessage>,
-    pipe: RefCell<Option<Rc<Pipe>>>,
-    stop: RefCell<Option<Sender<()>>>,
     fs_cache: RefCell<HashMap<String, Fs>>,
+
+    stdin: RefCell<Option<Rc<Pipe>>>,
+    stop: RefCell<Option<Sender<()>>>,
+
+    ls_stdin: RefCell<Option<Rc<Pipe>>>,
+    ls_stop: RefCell<Option<Sender<()>>>,
 }
 
 static WORKER_STATE: OnceLock<SendWrapper<WorkerState>> = OnceLock::new();
@@ -56,8 +60,10 @@ fn main() {
     WORKER_STATE.get_or_init(|| {
         SendWrapper::new(WorkerState {
             send_msg: s,
-            pipe: RefCell::new(None),
+            stdin: RefCell::new(None),
             stop: RefCell::new(None),
+            ls_stdin: RefCell::new(None),
+            ls_stop: RefCell::new(None),
             fs_cache: RefCell::new(HashMap::new()),
         })
     });
@@ -119,15 +125,15 @@ fn handle_message(msg: JsValue) {
             language,
             input,
         } => {
-            let pipe = Rc::new(Pipe::new());
+            let stdin = Rc::new(Pipe::new());
             if let Some(input) = input {
-                pipe.write(&input);
+                stdin.write(&input);
             }
-            worker_state().pipe.borrow_mut().replace(pipe.clone());
+            worker_state().stdin.borrow_mut().replace(stdin.clone());
             let (sender, mut receiver) = channel();
             worker_state().stop.borrow_mut().replace(sender);
             spawn_local(async move {
-                let running = lang::run(language, source.into_bytes(), FdEntry::Pipe(pipe));
+                let running = lang::run(language, source.into_bytes(), FdEntry::Pipe(stdin));
                 select! {
                     _ = receiver => {
                         info!("Received stop command, cancelling execution");
@@ -145,8 +151,8 @@ fn handle_message(msg: JsValue) {
         }
 
         ClientMessage::StdinChunk(chunk) => {
-            if let Some(pipe) = &*worker_state().pipe.borrow_mut() {
-                pipe.write(&chunk);
+            if let Some(stdin) = &*worker_state().stdin.borrow_mut() {
+                stdin.write(&chunk);
             } else {
                 warn!("Received stdin chunk but no pipe is set");
             }
@@ -158,13 +164,99 @@ fn handle_message(msg: JsValue) {
             } else {
                 warn!("Received cancel message but no execution is running");
             }
-            if worker_state().pipe.borrow_mut().take().is_some() {
+            if worker_state().stdin.borrow_mut().take().is_some() {
                 // TODO(virv): send EOF to the pipe
             }
         }
 
-        ClientMessage::StartLS(_) => {}
+        ClientMessage::StartLS(lang) => {
+            send_msg(WorkerMessage::LSStopping);
+            if let Some(s) = worker_state().ls_stop.borrow_mut().take() {
+                let _ = s.send(());
+            }
 
-        ClientMessage::LSMessage(_) => {}
+            let stdin = Rc::new(Pipe::new());
+            worker_state().ls_stdin.borrow_mut().replace(stdin.clone());
+            let stdout = Rc::new(Pipe::new());
+            let stderr = Rc::new(Pipe::new());
+            let (sender, mut receiver) = channel();
+            worker_state().ls_stop.borrow_mut().replace(sender);
+
+            spawn_local({
+                let stdout = stdout.clone();
+                let stderr = stderr.clone();
+                async move {
+                    let running = lang::run_ls(lang, stdin, stdout, stderr);
+                    select! {
+                        _ = receiver => {
+                            info!("Received stop command, stopping LS");
+                        }
+                        res = running.fuse() => {
+                            info!("LS finished");
+                            match res {
+                                Ok(()) => {}
+                                Err(e) => error!("LS error: {e:?}"),
+                            }
+                        }
+                    }
+                }
+            });
+
+            spawn_local(async move {
+                let mut content_length = 0usize;
+                let mut line = Vec::new();
+                loop {
+                    stdout.read_until(b'\n', &mut line).await;
+                    if line.is_empty() {
+                        break;
+                    }
+                    if line.last() != Some(&b'\n') {
+                        warn!("Partial message from LS");
+                        continue;
+                    }
+                    if line.starts_with(b"Content-Length: ") {
+                        content_length = std::str::from_utf8(&line[16..line.len() - 2])
+                            .ok()
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .expect("Invalid Content-Length");
+                    }
+                    if line == b"\r\n" {
+                        line.resize(content_length, 0);
+                        if stdout.read_exact(&mut line).await.is_err() {
+                            warn!("Partial message from LS");
+                            break;
+                        }
+                        let msg = String::from_utf8(line.clone()).unwrap();
+                        send_msg(WorkerMessage::LSMessage(msg));
+                    }
+                }
+            });
+
+            spawn_local(async move {
+                let mut line = Vec::new();
+                loop {
+                    stderr.read_until(b'\n', &mut line).await;
+                    if line.is_empty() {
+                        break;
+                    }
+                    if line.last() != Some(&b'\n') {
+                        warn!("Partial line from LS stderr");
+                        continue;
+                    }
+                    let msg = String::from_utf8_lossy(&line[..line.len() - 1]);
+                    info!("LS stderr: {}", msg);
+                }
+            });
+        }
+
+        ClientMessage::LSMessage(msg) => {
+            if let Some(stdin) = &*worker_state().ls_stdin.borrow_mut() {
+                info!("Sending LS message: {}", msg);
+                stdin.write(format!("Content-Length: {}\r\n\r\n", msg.len()).as_bytes());
+                stdin.write(msg.as_bytes());
+            } else {
+                warn!("Received LS message but no pipe is set");
+            }
+        }
     }
 }

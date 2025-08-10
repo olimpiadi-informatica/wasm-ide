@@ -18,6 +18,13 @@ impl FsEntry {
             _ => None,
         }
     }
+
+    pub fn as_dir(&self) -> Option<&HashMap<Vec<u8>, Inode>> {
+        match self {
+            FsEntry::Dir(dir) => Some(dir),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
