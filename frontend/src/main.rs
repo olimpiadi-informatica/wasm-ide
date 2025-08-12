@@ -352,9 +352,8 @@ fn ansi(text: &str) -> Vec<(Style, String)> {
 }
 
 #[component]
-fn OutDiv(
-    #[prop(into)] state: MaybeSignal<RunState>,
-    #[prop(into)] display: MaybeSignal<bool>,
+fn OutDivInner(
+    #[prop(into)] state: Signal<RunState>,
     get_data: fn(&Outcome) -> &Vec<u8>,
     icon: Icon,
 ) -> impl IntoView {
@@ -373,43 +372,53 @@ fn OutDiv(
         })
     });
 
-    let style = {
-        Signal::derive(move || format!("width: 100%; text-align: left; {}", style_and_text.get().0))
-    };
+    let style = Signal::derive(move || {
+        format!("width: 100%; text-align: left; {}", style_and_text.get().0)
+    });
 
     let text = Signal::derive(move || style_and_text.get().1);
     let fragments = Signal::derive(move || ansi(&text.get()));
 
-    {
-        create_effect(move |_| {
-            text.get();
-            let scroll_options = ScrollToOptions::new();
-            scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
-            if let Some(scrollbar) = scrollbar.get_untracked() {
-                let height = scrollbar
-                    .content_ref
-                    .get_untracked()
-                    .map(|el| el.scroll_height())
-                    .unwrap_or(1 << 16);
-                scroll_options.set_top(height as f64);
-                scrollbar.scroll_to_with_scroll_to_options(&scroll_options);
-            }
-        });
-    }
+    create_effect(move |_| {
+        text.get();
+        let scroll_options = ScrollToOptions::new();
+        scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
+        if let Some(scrollbar) = scrollbar.get_untracked() {
+            let height = scrollbar
+                .content_ref
+                .get_untracked()
+                .map(|el| el.scroll_height())
+                .unwrap_or(1 << 16);
+            scroll_options.set_top(height as f64);
+            scrollbar.scroll_to_with_scroll_to_options(&scroll_options);
+        }
+    });
 
     view! {
+        <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
+            <Icon icon style="font-size: 1.5em"/>
+            <Divider class="outdivider"/>
+            <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
+                <pre style=style>{
+                    move || fragments.with(|f| f.iter().map(|(style, text)| {
+                        view! { <span style=style.style_str()>{text}</span> }.into_view()
+                    }).collect::<Vec<_>>())
+                }</pre>
+            </Scrollbar>
+        </div>
+    }
+}
+
+#[component]
+fn OutDiv(
+    #[prop(into)] state: Signal<RunState>,
+    #[prop(into)] display: MaybeSignal<bool>,
+    get_data: fn(&Outcome) -> &Vec<u8>,
+    icon: Icon,
+) -> impl IntoView {
+    view! {
         <Show when=move || display.get()>
-            <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
-                <Icon icon style="font-size: 1.5em"/>
-                <Divider class="outdivider"/>
-                <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
-                    <pre style=style>{
-                        move || fragments.get().into_iter().map(|(style, text)| {
-                            view! { <span style=style.style_str()>{text}</span> }.into_view()
-                        }).collect::<Vec<_>>()
-                    }</pre>
-                </Scrollbar>
-            </div>
+            <OutDivInner state=state get_data=get_data icon=icon />
         </Show>
     }
 }
