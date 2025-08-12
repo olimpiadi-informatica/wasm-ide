@@ -6,7 +6,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.81"
-brotli-decompressor = "5.0.0"
 futures = "0.3.30"
 js-sys = "0.3.69"
 common = { path = "../common" }
