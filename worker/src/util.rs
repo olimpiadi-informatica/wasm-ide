@@ -1,7 +1,6 @@
 use std::{io::Read, rc::Rc};
 
 use anyhow::{Context, Result};
-use brotli_decompressor::BrotliDecompress;
 use bytes::Bytes;
 use tracing::{debug, info};
 use url::Url;
@@ -10,12 +9,13 @@ use web_sys::DedicatedWorkerGlobalScope;
 
 use crate::{os::Fs, send_msg, WorkerMessage, WORKER_STATE};
 
-async fn fetch_tarbr(name: &str) -> Result<Bytes> {
+async fn fetch_tar(name: &str) -> Result<Bytes> {
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .expect("not a worker");
     let base_url = worker.location().href();
-    let url = Url::parse(&base_url)?.join(&format!("./compilers/{name}.tar.br"))?;
+    // server & browser will take care of compressing & decompressing
+    let url = Url::parse(&base_url)?.join(&format!("./compilers/{name}.tar"))?;
     let res = reqwest::get(url).await?;
     let res = res.error_for_status()?;
     let body = res.bytes().await?;
@@ -23,13 +23,11 @@ async fn fetch_tarbr(name: &str) -> Result<Bytes> {
 }
 
 async fn get_fs_inner(name: &str) -> Result<Fs> {
-    info!("Fetching {name}.tar.br");
-    let body = fetch_tarbr(name)
+    info!("Fetching {name}.tar");
+    let body = fetch_tar(name)
         .await
         .with_context(|| format!("Failed to fetch compiler tarball for {name}"))?;
-    let mut dec_body = vec![];
-    BrotliDecompress(&mut &body[..], &mut dec_body).context("Error decompressing the tarball")?;
-    let mut files = tar::Archive::new(&dec_body[..]);
+    let mut files = tar::Archive::new(&body[..]);
     let mut fs = Fs::new();
     for x in files.entries()? {
         let mut x = x?;
