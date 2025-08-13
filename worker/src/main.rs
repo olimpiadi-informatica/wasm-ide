@@ -158,10 +158,11 @@ fn handle_message(msg: JsValue) {
         }
 
         ClientMessage::StartLS(lang) => {
-            send_msg(WorkerMessage::LSStopping);
             if let Some(s) = worker_state().ls_stop.borrow_mut().take() {
+                send_msg(WorkerMessage::LSStopping);
                 let _ = s.send(());
             }
+            worker_state().ls_stdin.borrow_mut().take();
 
             info!("Starting LS for {:?}", lang);
 
@@ -241,7 +242,7 @@ fn handle_message(msg: JsValue) {
 
         ClientMessage::LSMessage(msg) => {
             if let Some(stdin) = &*worker_state().ls_stdin.borrow_mut() {
-                debug!("Sending LS message: {}", msg);
+                debug!("Received LS message: {}", msg);
                 stdin.write(format!("Content-Length: {}\r\n\r\n", msg.len()).as_bytes());
                 stdin.write(msg.as_bytes());
             } else {

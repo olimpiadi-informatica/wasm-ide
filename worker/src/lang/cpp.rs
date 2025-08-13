@@ -1,13 +1,14 @@
 use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{Context, Result};
+use js_sys::WebAssembly::Module;
 
 use crate::{
     os::{FdEntry, Fs, Pipe, ProcessHandle},
     util::*,
 };
 
-async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
+async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
     let lang = match cpp {
         true => &b"c++"[..],
         false => &b"c"[..],
@@ -16,9 +17,6 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
         true => &b"-std=c++20"[..],
         false => &b"-std=c17"[..],
     };
-    let exe = fs
-        .get_file_with_path(b"/bin/llvm")
-        .context("Failed to get clang executable")?;
     let compiled = Rc::new(RefCell::new(Vec::new()));
     let compiled2 = compiled.clone();
     let proc = ProcessHandle::builder()
@@ -35,8 +33,8 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
             send_compiler_message(buf);
             buf.len()
         })))
-        .spawn(
-            &exe,
+        .spawn_with_module(
+            llvm,
             vec![
                 b"clang++".to_vec(),
                 b"-cc1".to_vec(),
@@ -78,10 +76,7 @@ async fn compile(cpp: bool, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
     Ok(compiled)
 }
 
-async fn link(mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
-    let exe = fs
-        .get_file_with_path(b"/bin/llvm")
-        .context("Failed to get wasm-ld executable")?;
+async fn link(llvm: Module, mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
     let linked = Rc::new(RefCell::new(Vec::new()));
     let linked2 = linked.clone();
     fs.add_file_with_path(b"source.o", Rc::new(compiled));
@@ -95,8 +90,8 @@ async fn link(mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
             send_compiler_message(buf);
             buf.len()
         })))
-        .spawn(
-            &exe,
+        .spawn_with_module(
+            llvm,
             vec![
                 b"wasm-ld".to_vec(),
                 b"-L/lib/wasm32-wasip1-threads/".to_vec(),
@@ -132,10 +127,19 @@ pub async fn run(cpp: bool, code: Vec<u8>, input: FdEntry) -> Result<()> {
         .context("Failed to get C/C++ filesystem")?;
 
     send_compiling();
-    let compiled = compile(cpp, fs.clone(), code)
+    let llvm_exe = fs
+        .get_file_with_path(b"/bin/llvm")
+        .context("Failed to get clang executable")?;
+    let uint8array = js_sys::Uint8Array::new_with_length(llvm_exe.len() as u32);
+    uint8array.copy_from(&llvm_exe);
+    let llvm_module = Module::new(&uint8array).expect("could not create module from wasm bytes");
+
+    let compiled = compile(cpp, llvm_module.clone(), fs.clone(), code)
         .await
         .context("Compilation failed")?;
-    let linked = link(fs, compiled).await.context("Linking failed")?;
+    let linked = link(llvm_module, fs, compiled)
+        .await
+        .context("Linking failed")?;
 
     send_running();
     let proc = ProcessHandle::builder()
@@ -195,6 +199,6 @@ pub async fn run_ls(cpp: bool, stdin: Rc<Pipe>, stdout: Rc<Pipe>, stderr: Rc<Pip
 
     crate::send_msg(common::WorkerMessage::LSReady);
     let status_code = proc.proc.wait().await;
-    status_code.check_success().expect("LS process failed");
+    status_code.check_success().context("clangd failed")?;
     Ok(())
 }

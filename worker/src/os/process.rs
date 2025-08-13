@@ -168,11 +168,7 @@ impl Builder {
         self
     }
 
-    pub fn spawn(self, code: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
-        let uint8array = js_sys::Uint8Array::new_with_length(code.len() as u32);
-        uint8array.copy_from(code);
-        let module = Module::new(&uint8array).expect("could not create module from wasm bytes");
-
+    pub fn spawn_with_module(self, module: Module, args: Vec<Vec<u8>>) -> ProcessHandle {
         let mem_opts = Object::new();
         js_sys::Reflect::set(&mem_opts, &"initial".into(), &640.into())
             .expect("could not set initial memory size");
@@ -224,6 +220,14 @@ impl Builder {
         proc.spawn_thread(None);
 
         ProcessHandle { proc }
+    }
+
+    pub fn spawn(self, code: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
+        let uint8array = js_sys::Uint8Array::new_with_length(code.len() as u32);
+        uint8array.copy_from(code);
+        let module = Module::new(&uint8array).expect("could not create module from wasm bytes");
+
+        self.spawn_with_module(module, args)
     }
 }
 

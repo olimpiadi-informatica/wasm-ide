@@ -65,7 +65,9 @@ export class LSEventHandler {
   ready() {
     (async () => {
       // TODO: add client capabilities?
-      let init = await this.request("initialize", {});
+      let init = await this.request("initialize", {
+        "capabilities": {},
+      });
       this.capabilities = init["capabilities"];
       this.notify("initialized", {});
       let language = this.plugin.view.state.facet(languageId);
