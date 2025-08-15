@@ -629,6 +629,64 @@ fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
 }
 
 #[component]
+fn ThemeSelector() -> impl IntoView {
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+    enum ThemePlus {
+        System,
+        Light,
+        Dark,
+    }
+
+    let preferred_dark = leptos_use::use_preferred_dark();
+    let theme_plus = create_rw_signal(load("theme").unwrap_or(ThemePlus::System));
+    let theme = use_rw_theme();
+
+    create_effect(move |_| {
+        let new_theme = match theme_plus.get() {
+            ThemePlus::System => match preferred_dark.get() {
+                true => Theme::dark(),
+                false => Theme::light(),
+            },
+            ThemePlus::Light => Theme::light(),
+            ThemePlus::Dark => Theme::dark(),
+        };
+        if new_theme.name != theme.get_untracked().name {
+            theme.set(new_theme);
+        }
+    });
+
+    let theme_name_and_icon = create_memo(move |_| match theme_plus.get() {
+        ThemePlus::System => match preferred_dark.get() {
+            true => ("System", icondata::BiMoonSolid),
+            false => ("System", icondata::BiSunSolid),
+        },
+        ThemePlus::Light => ("Light", icondata::BiSunSolid),
+        ThemePlus::Dark => ("Dark", icondata::BiMoonSolid),
+    });
+    let change_theme = move |_| {
+        let new_theme = match theme_plus.get_untracked() {
+            ThemePlus::System => ThemePlus::Light,
+            ThemePlus::Light => ThemePlus::Dark,
+            ThemePlus::Dark => ThemePlus::System,
+        };
+        save("theme", &new_theme);
+        theme_plus.set(new_theme);
+    };
+
+    view! {
+        <Button variant=ButtonVariant::Text on_click=change_theme>
+            {move || {
+                let (name, icon) = theme_name_and_icon.get();
+                view! {
+                    <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em"/>
+                    <Text>{name}</Text>
+                }
+            }}
+        </Button>
+    }
+}
+
+#[component]
 fn App() -> impl IntoView {
     let options = WorkerOptions::default();
     options.set_type(WorkerType::Module);
@@ -661,26 +719,6 @@ fn App() -> impl IntoView {
         save("locale", &locale);
         i18n.set_locale(locale);
     });
-
-    let theme = use_rw_theme();
-
-    let theme_name_and_icon = create_memo(move |_| {
-        theme.with(|theme: &Theme| {
-            if theme.name == *"light" {
-                ("Dark", icondata::BiMoonSolid)
-            } else {
-                ("Light", icondata::BiSunSolid)
-            }
-        })
-    });
-    let change_theme = move |_| {
-        save("theme", &theme_name_and_icon.get_untracked().0.to_string());
-        if theme_name_and_icon.get_untracked().0 == "Light" {
-            theme.set(Theme::light());
-        } else {
-            theme.set(Theme::dark());
-        }
-    };
 
     let state = create_rw_signal(RunState::Loading);
 
@@ -909,16 +947,7 @@ fn App() -> impl IntoView {
         let do_run = do_run.clone();
         view! {
             <Space align=SpaceAlign::Center>
-                <Button variant=ButtonVariant::Text on_click=change_theme>
-                    {move || {
-                        let (name, icon) = theme_name_and_icon.get();
-                        view! {
-                            <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em"/>
-                            <Text>{name}</Text>
-                        }
-                    }}
-
-                </Button>
+                <ThemeSelector />
                 <Select value=current_locale options=locales class="locale-selector"/>
                 <Select value=lang options=languages class="language-selector"/>
                 <Upload custom_request=upload_input>
@@ -1122,21 +1151,13 @@ fn App() -> impl IntoView {
 fn main() {
     init_logging();
 
-    let theme = if load("theme") == Some("Light".to_owned()) {
-        Theme::light()
-    } else {
-        Theme::dark()
-    };
-
     let large_files = create_rw_signal(LargeFileSet(HashSet::new()));
     provide_context(large_files);
-
-    let theme = create_rw_signal(theme);
 
     mount_to_body(move || {
         view! {
             <I18nContextProvider>
-                <ThemeProvider theme>
+                <ThemeProvider>
                     <GlobalStyle/>
                     <App/>
                 </ThemeProvider>

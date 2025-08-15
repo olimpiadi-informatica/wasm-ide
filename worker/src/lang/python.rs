@@ -37,6 +37,6 @@ pub async fn run(code: Vec<u8>, input: FdEntry) -> Result<()> {
         );
 
     let status_code = proc.proc.wait().await;
-    status_code.check_success()?;
+    status_code.check_success().context("Execution failed")?;
     Ok(())
 }

@@ -172,7 +172,7 @@ enum ProcMsg {
     SockRecv(Fd, Addr, Size, Addr, Addr),
     SockSend(Fd, Addr, Size, Addr, Addr),
     SockShutdown(Fd, u8),
-    PollOneoff(Fd, Addr, Size, Addr, Addr),
+    PollOneoff(Addr, Addr, Size, Addr),
     ThreadSpawn(i32),
     RuntimeError(String),
 }
@@ -243,7 +243,7 @@ pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
             ProcMsg::SockRecv(a, b, c, d, e) => sock_recv(&proc, a, b, c, d, e) as i32,
             ProcMsg::SockSend(a, b, c, d, e) => sock_send(&proc, a, b, c, d, e) as i32,
             ProcMsg::SockShutdown(a, b) => sock_shutdown(&proc, a, b) as i32,
-            ProcMsg::PollOneoff(a, b, c, d, e) => poll_oneoff(&proc, a, b, c, d, e) as i32,
+            ProcMsg::PollOneoff(a, b, c, d) => poll_oneoff(&proc, a, b, c, d) as i32,
             ProcMsg::ThreadSpawn(a) => thread_spawn(&proc, a),
             ProcMsg::RuntimeError(e) => {
                 proc.kill(StatusCode::RuntimeError(e));
@@ -1049,11 +1049,10 @@ fn sock_shutdown(_proc: &Process, _fd: Fd, _how: u8) -> Errno {
 
 fn poll_oneoff(
     _proc: &Process,
-    _fd: Fd,
-    _in_: Addr,
-    _nsubscriptions: Size,
-    _out_: Addr,
-    _nresults: Addr,
+    _subs_addr: Addr,
+    _events_addr: Addr,
+    _num_subs: Size,
+    _out: Addr,
 ) -> Errno {
     Errno::Perm
 }
