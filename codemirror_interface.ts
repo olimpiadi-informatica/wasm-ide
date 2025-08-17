@@ -84,6 +84,30 @@ export class LSEventHandler {
     })();
   }
 
+  async format() {
+    const res = await this.request("textDocument/formatting", {
+      "textDocument": {
+        "uri": this.getUri(),
+      },
+      "options": {
+      },
+    });
+    if (res instanceof Array) {
+      const changes = res.map(edit => {
+        const start = this.mapPos(edit.range.start);
+        const end = this.mapPos(edit.range.end);
+        return {
+          from: start,
+          to: end,
+          insert: edit.newText,
+        };
+      });
+      this.plugin.view.dispatch({
+        changes,
+      });
+    }
+  }
+
   stopping() {
     this.isReady = false;
   }
@@ -378,10 +402,15 @@ class LSPlugin implements PluginValue {
     ];
     let fullSync = true;
     const maxFullSyncInterval: number = 256;
+    let num_changes = 0;
+    upd.changes.iterChanges((_fromA, _toA, _fromB, _toB, _text) => num_changes += 1);
     if (
       wasSynced &&
       eventHandler.capabilities["textDocumentSync"]?.change === 2 &&
-      this.documentVersion <= this.lastFullSync + maxFullSyncInterval
+      this.documentVersion <= this.lastFullSync + maxFullSyncInterval &&
+      // TODO: LS expect ranges to be referring to the partially updated document
+      // see https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#didChangeTextDocumentParams
+      num_changes == 1
     ) {
       contentChanges = [];
       upd.changes.iterChanges((fromA, toA, _fromB, _toB, text) => {
@@ -551,6 +580,13 @@ export class CM6Editor {
           return true;
         },
       },
+      {
+        key: "Mod-f",
+        run: () => {
+          this.format();
+          return true;
+        },
+      },
     ]),
   );
   view: EditorView;
@@ -616,6 +652,11 @@ export class CM6Editor {
       ],
       parent: element,
     });
+  }
+
+  format() {
+    let eventHandler = this.view.state.facet(lsEventHandler);
+    eventHandler.format();
   }
 
   setLanguage(lang: string) {
