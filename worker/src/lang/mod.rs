@@ -3,16 +3,21 @@ use std::rc::Rc;
 use anyhow::{bail, Result};
 use common::Language;
 
-use crate::os::{FdEntry, Pipe};
+use crate::os::Pipe;
 
 mod cpp;
 mod python;
 
-pub async fn run(language: Language, code: Vec<u8>, input: FdEntry) -> Result<()> {
+pub async fn run(
+    language: Language,
+    code: Vec<u8>,
+    stdin: Rc<Pipe>,
+    stdout: Rc<Pipe>,
+) -> Result<()> {
     match language {
-        Language::C => cpp::run(false, code, input).await,
-        Language::CPP => cpp::run(true, code, input).await,
-        Language::Python => python::run(code, input).await,
+        Language::C => cpp::run(false, code, stdin, stdout).await,
+        Language::CPP => cpp::run(true, code, stdin, stdout).await,
+        Language::Python => python::run(code, stdin, stdout).await,
     }
 }
 

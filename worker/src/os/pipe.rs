@@ -10,6 +10,7 @@ use futures::lock::Mutex;
 
 struct Inner {
     buf: VecDeque<u8>,
+    closed: bool,
     reader: Option<Waker>,
 }
 
@@ -22,6 +23,7 @@ impl Pipe {
     pub fn new() -> Self {
         let inner = Inner {
             buf: VecDeque::new(),
+            closed: false,
             reader: None,
         };
 
@@ -37,8 +39,15 @@ impl Pipe {
         poll_fn(|cx| {
             let mut inner = self.inner.borrow_mut();
             if !inner.buf.is_empty() {
-                let read = (cb.take().unwrap())(inner.buf.as_slices().0);
+                let slice = inner.buf.as_slices().0;
+                let read = (cb.take().unwrap())(slice);
+                assert!(read <= slice.len());
                 inner.buf.drain(..read);
+                return Poll::Ready(read);
+            }
+            if inner.closed {
+                let read = (cb.take().unwrap())(&[]);
+                assert_eq!(read, 0);
                 return Poll::Ready(read);
             }
 
@@ -55,6 +64,9 @@ impl Pipe {
             if !inner.buf.is_empty() {
                 return Poll::Ready(inner.buf.read(buf).expect("read failed"));
             }
+            if inner.closed {
+                return Poll::Ready(0);
+            }
 
             inner.reader = Some(cx.waker().clone());
             Poll::Pending
@@ -64,7 +76,16 @@ impl Pipe {
 
     pub fn write(&self, buf: &[u8]) {
         let mut inner = self.inner.borrow_mut();
+        assert!(!inner.closed, "write to closed pipe");
         inner.buf.write_all(buf).expect("write failed");
+        if let Some(reader) = inner.reader.take() {
+            reader.wake();
+        }
+    }
+
+    pub fn close(&self) {
+        let mut inner = self.inner.borrow_mut();
+        inner.closed = true;
         if let Some(reader) = inner.reader.take() {
             reader.wake();
         }

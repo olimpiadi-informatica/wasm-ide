@@ -653,7 +653,7 @@ fn fd_pwrite(
     _offset: FileSize,
     _result: Addr,
 ) -> Errno {
-    Errno::Perm
+    todo!()
 }
 
 async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr) -> Errno {
@@ -733,6 +733,7 @@ fn fd_readdir(
         let file_type = match proc.fs.entries[*inode as usize] {
             FsEntry::File(_) => FileType::RegularFile,
             FsEntry::Dir(_) => FileType::Directory,
+            FsEntry::Pipe(_) => FileType::CharacterDevice,
         };
         buf.extend_from_slice(&(file_type as u32).to_le_bytes());
         buf.extend_from_slice(name);
@@ -807,11 +808,13 @@ fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Add
     let written = match &mut *file_info {
         FdEntry::WriteFn(ref f) => f(&in_data),
         FdEntry::Data { data, offset } => {
-            let buf = &mut data[*offset..];
-            let write_len = buf.len().min(in_data.len());
-            buf[..write_len].copy_from_slice(&in_data[..write_len]);
-            *offset += write_len;
-            write_len
+            let end = *offset + in_data.len();
+            if end > data.len() {
+                data.resize(end, 0);
+            }
+            data[*offset..end].copy_from_slice(&in_data);
+            *offset = end;
+            in_data.len()
         }
         FdEntry::Pipe(pipe) => {
             pipe.write(&in_data);
@@ -872,6 +875,9 @@ fn path_filestat_get(
         FsEntry::File(ref file) => {
             fstat.filetype = FileType::RegularFile;
             fstat.size = file.len() as FileSize;
+        }
+        FsEntry::Pipe(_) => {
+            fstat.filetype = FileType::CharacterDevice;
         }
     }
     if let Err(e) = write_to_mem(proc, filestat, &fstat) {
@@ -944,6 +950,7 @@ fn path_open(
     let file_entry = match proc.fs.entries[inode as usize] {
         FsEntry::Dir(_) => FdEntry::Dir(inode),
         FsEntry::File(_) => FdEntry::File(inode, 0),
+        FsEntry::Pipe(ref p) => FdEntry::Pipe(p.clone()),
     };
     let fd = proc.add_fd(file_entry);
     if let Err(e) = write_to_mem(proc, out, &fd) {

@@ -20,7 +20,6 @@ use super::{syscall, Fs, Inode, Pipe};
 
 type WriteFn = Rc<dyn Fn(&[u8]) -> usize>;
 
-#[derive(Clone)]
 pub enum FdEntry {
     WriteFn(WriteFn),
     Data { data: Vec<u8>, offset: usize },

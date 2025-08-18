@@ -3,12 +3,15 @@ use std::{collections::HashMap, rc::Rc};
 use thiserror::Error;
 use tracing::warn;
 
+use super::Pipe;
+
 pub type Inode = u64;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum FsEntry {
     Dir(HashMap<Vec<u8>, Inode>),
     File(Rc<Vec<u8>>),
+    Pipe(Rc<Pipe>),
 }
 
 impl FsEntry {
@@ -56,6 +59,10 @@ impl Fs {
     }
 
     pub fn add_file_with_path(&mut self, path: &[u8], data: Rc<Vec<u8>>) {
+        self.add_entry_with_path(path, FsEntry::File(data));
+    }
+
+    pub fn add_entry_with_path(&mut self, path: &[u8], entry: FsEntry) {
         let components: Vec<_> = path.split(|x| *x == b'/').map(|x| x.to_vec()).collect();
         let mut cur = self.root();
         for c in &components[..components.len() - 1] {
@@ -72,11 +79,7 @@ impl Fs {
                 cur = self.add_entry(cur, c, FsEntry::Dir(HashMap::new()));
             }
         }
-        self.add_file(cur, components.last().unwrap(), data);
-    }
-
-    pub fn add_file(&mut self, parent: Inode, name: &[u8], data: Rc<Vec<u8>>) {
-        self.add_entry(parent, name, FsEntry::File(data));
+        self.add_entry(cur, components.last().unwrap(), entry);
     }
 
     pub fn get_file_with_path(&self, path: &[u8]) -> Result<Rc<Vec<u8>>, FsError> {
@@ -109,8 +112,9 @@ impl Fs {
 
     pub fn get_file(&self, inode: Inode) -> Result<Rc<Vec<u8>>, FsError> {
         match &self.entries[inode as usize] {
-            FsEntry::Dir(_) => Err(FsError::IsDir),
             FsEntry::File(f) => Ok(f.clone()),
+            FsEntry::Dir(_) => Err(FsError::IsDir),
+            FsEntry::Pipe(_) => todo!(),
         }
     }
 

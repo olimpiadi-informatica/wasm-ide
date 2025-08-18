@@ -85,6 +85,7 @@ export class LSEventHandler {
   }
 
   async format() {
+    // TODO(virv): if this.isReady
     const res = await this.request("textDocument/formatting", {
       "textDocument": {
         "uri": this.getUri(),

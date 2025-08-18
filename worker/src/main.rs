@@ -8,7 +8,7 @@ use futures::{
     },
     select, FutureExt, StreamExt,
 };
-use os::{FdEntry, Fs, Pipe};
+use os::{Fs, Pipe};
 use send_wrapper::SendWrapper;
 use tracing::{debug, error, info, warn};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
@@ -23,11 +23,11 @@ struct WorkerState {
     send_msg: UnboundedSender<WorkerMessage>,
     fs_cache: RefCell<HashMap<String, Fs>>,
 
-    stdin: RefCell<Option<Rc<Pipe>>>,
     stop: RefCell<Option<Sender<()>>>,
+    stdin: RefCell<Option<Rc<Pipe>>>,
 
-    ls_stdin: RefCell<Option<Rc<Pipe>>>,
     ls_stop: RefCell<Option<Sender<()>>>,
+    ls_stdin: RefCell<Option<Rc<Pipe>>>,
 }
 
 static WORKER_STATE: OnceLock<SendWrapper<WorkerState>> = OnceLock::new();
@@ -46,11 +46,11 @@ fn main() {
     WORKER_STATE.get_or_init(|| {
         SendWrapper::new(WorkerState {
             send_msg: s,
-            stdin: RefCell::new(None),
-            stop: RefCell::new(None),
-            ls_stdin: RefCell::new(None),
-            ls_stop: RefCell::new(None),
             fs_cache: RefCell::new(HashMap::new()),
+            stop: RefCell::new(None),
+            stdin: RefCell::new(None),
+            ls_stop: RefCell::new(None),
+            ls_stdin: RefCell::new(None),
         })
     });
 
@@ -113,28 +113,50 @@ fn handle_message(msg: JsValue) {
         } => {
             info!("Starting execution of {:?} code", language);
 
+            let (sender, mut receiver) = channel();
+            worker_state().stop.borrow_mut().replace(sender);
             let stdin = Rc::new(Pipe::new());
             if let Some(input) = input {
                 stdin.write(&input);
+                stdin.close();
             }
             worker_state().stdin.borrow_mut().replace(stdin.clone());
-            let (sender, mut receiver) = channel();
-            worker_state().stop.borrow_mut().replace(sender);
-            spawn_local(async move {
-                let running = lang::run(language, source.into_bytes(), FdEntry::Pipe(stdin));
-                select! {
-                    _ = receiver => {
-                        info!("Received stop command, cancelling execution");
-                        send_msg(WorkerMessage::Error("Execution cancelled by user".to_string()));
-                    }
-                    res = running.fuse() => {
-                        info!("Execution finished");
-                        match res {
-                            Ok(()) => send_msg(WorkerMessage::Done),
-                            Err(e) => send_msg(WorkerMessage::Error(format!("{e:?}"))),
+            let stdout = Rc::new(Pipe::new());
+
+            spawn_local({
+                let stdout = stdout.clone();
+                async move {
+                    let running = lang::run(language, source.into_bytes(), stdin, stdout);
+                    select! {
+                        _ = receiver => {
+                            info!("Received stop command, cancelling execution");
+                            send_msg(WorkerMessage::Error("Execution cancelled by user".to_string()));
                         }
+                        res = running.fuse() => {
+                            info!("Execution finished");
+                            match res {
+                                Ok(()) => send_msg(WorkerMessage::Done),
+                                Err(e) => send_msg(WorkerMessage::Error(format!("{e:?}"))),
+                            }
+                        }
+                    };
+                }
+            });
+
+            spawn_local(async move {
+                loop {
+                    let len = stdout
+                        .fill_buf(|buf| {
+                            if !buf.is_empty() {
+                                util::send_stdout(buf);
+                            }
+                            buf.len()
+                        })
+                        .await;
+                    if len == 0 {
+                        break;
                     }
-                };
+                }
             });
         }
 
@@ -152,8 +174,8 @@ fn handle_message(msg: JsValue) {
             } else {
                 warn!("Received cancel message but no execution is running");
             }
-            if worker_state().stdin.borrow_mut().take().is_some() {
-                // TODO(virv): send EOF to the pipe
+            if let Some(stdin) = worker_state().stdin.borrow_mut().take() {
+                stdin.close();
             }
         }
 
@@ -162,16 +184,18 @@ fn handle_message(msg: JsValue) {
                 send_msg(WorkerMessage::LSStopping);
                 let _ = s.send(());
             }
-            worker_state().ls_stdin.borrow_mut().take();
+            if let Some(stdin) = worker_state().ls_stdin.borrow_mut().take() {
+                stdin.close();
+            }
 
             info!("Starting LS for {:?}", lang);
 
+            let (sender, mut receiver) = channel();
+            worker_state().ls_stop.borrow_mut().replace(sender);
             let stdin = Rc::new(Pipe::new());
             worker_state().ls_stdin.borrow_mut().replace(stdin.clone());
             let stdout = Rc::new(Pipe::new());
             let stderr = Rc::new(Pipe::new());
-            let (sender, mut receiver) = channel();
-            worker_state().ls_stop.borrow_mut().replace(sender);
 
             spawn_local({
                 let stdout = stdout.clone();

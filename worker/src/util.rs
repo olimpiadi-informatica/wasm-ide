@@ -70,7 +70,7 @@ pub fn send_compiling() {
 }
 
 pub fn send_compiler_message(data: &[u8]) {
-    debug!("send_compiler_message: {}", String::from_utf8_lossy(data));
+    debug!("send_compiler_message: {:?}", String::from_utf8_lossy(data));
     send_msg(WorkerMessage::CompilationMessageChunk(data.to_owned()));
 }
 
@@ -80,11 +80,11 @@ pub fn send_running() {
 }
 
 pub fn send_stdout(data: &[u8]) {
-    debug!("send_stdout: {}", String::from_utf8_lossy(data));
+    debug!("send_stdout: {:?}", String::from_utf8_lossy(data));
     send_msg(WorkerMessage::StdoutChunk(data.to_owned()));
 }
 
 pub fn send_stderr(data: &[u8]) {
-    debug!("send_stderr: {}", String::from_utf8_lossy(data));
+    debug!("send_stderr: {:?}", String::from_utf8_lossy(data));
     send_msg(WorkerMessage::StderrChunk(data.to_owned()));
 }

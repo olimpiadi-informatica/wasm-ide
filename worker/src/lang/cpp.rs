@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use js_sys::WebAssembly::Module;
 
 use crate::{
-    os::{FdEntry, Fs, Pipe, ProcessHandle},
+    os::{FdEntry, Fs, FsEntry, Pipe, ProcessHandle},
     util::*,
 };
 
@@ -20,7 +20,7 @@ async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u
     let compiled = Rc::new(RefCell::new(Vec::new()));
     let compiled2 = compiled.clone();
     let proc = ProcessHandle::builder()
-        .fs(fs.clone())
+        .fs(fs)
         .stdin(FdEntry::Data {
             data: code,
             offset: 0,
@@ -81,7 +81,7 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
     let linked2 = linked.clone();
     fs.add_file_with_path(b"source.o", Rc::new(compiled));
     let proc = ProcessHandle::builder()
-        .fs(fs.clone())
+        .fs(fs)
         .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             linked2.borrow_mut().extend_from_slice(buf);
             buf.len()
@@ -120,7 +120,7 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
     Ok(linked)
 }
 
-pub async fn run(cpp: bool, code: Vec<u8>, input: FdEntry) -> Result<()> {
+pub async fn run(cpp: bool, code: Vec<u8>, stdin: Rc<Pipe>, stdout: Rc<Pipe>) -> Result<()> {
     send_fetching_compiler();
     let fs = get_fs("cpp")
         .await
@@ -142,12 +142,13 @@ pub async fn run(cpp: bool, code: Vec<u8>, input: FdEntry) -> Result<()> {
         .context("Linking failed")?;
 
     send_running();
+    let mut fs = Fs::new();
+    fs.add_entry_with_path(b"input.txt", FsEntry::Pipe(stdin.clone()));
+    fs.add_entry_with_path(b"output.txt", FsEntry::Pipe(stdout.clone()));
     let proc = ProcessHandle::builder()
-        .stdin(input)
-        .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
-            send_stdout(buf);
-            buf.len()
-        })))
+        .fs(fs)
+        .stdin(FdEntry::Pipe(stdin))
+        .stdout(FdEntry::Pipe(stdout))
         .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             send_stderr(buf);
             buf.len()
