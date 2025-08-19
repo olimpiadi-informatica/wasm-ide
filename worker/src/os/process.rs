@@ -68,7 +68,7 @@ impl Process {
         self.inner.borrow().status_code.clone()
     }
 
-    pub fn get_fd_mut(&self, fd: u32) -> Option<RefMut<FdEntry>> {
+    pub fn get_fd_mut(&self, fd: u32) -> Option<RefMut<'_, FdEntry>> {
         RefMut::filter_map(self.inner.borrow_mut(), |x| {
             x.fds.get_mut(fd as usize).and_then(|x| x.as_mut())
         })
