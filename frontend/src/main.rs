@@ -8,7 +8,6 @@ use async_channel::{unbounded, Sender};
 use common::{init_logging, ClientMessage, Language, WorkerMessage};
 use gloo_timers::future::sleep;
 use icondata::Icon;
-use include_optional::include_str_optional;
 use leptos::*;
 use leptos_use::signal_throttled;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -757,13 +756,12 @@ fn App() -> impl IntoView {
         }
     };
 
-    let starting_code =
-        include_str_optional!("../code.txt").unwrap_or(include_str!("../default_code.txt"));
+    // TODO(veluca): Allow overriding the default code, possibly at runtime.
+    let starting_code = include_str!("../default_code.txt");
     let code =
         create_rw_signal(load("code").unwrap_or_else(|| EditorText::from_str(starting_code)));
 
-    let starting_stdin =
-        include_str_optional!("../stdin.txt").unwrap_or(include_str!("../default_stdin.txt"));
+    let starting_stdin = include_str!("../default_stdin.txt");
 
     let stdin =
         create_rw_signal(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));

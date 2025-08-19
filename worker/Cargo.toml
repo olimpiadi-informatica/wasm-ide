@@ -5,27 +5,27 @@ authors = ["Luca Versari <veluca93@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.81"
-futures = "0.3.30"
-js-sys = "0.3.69"
+anyhow = "1.0.99"
+futures = "0.3.31"
+js-sys = "0.3.77"
 common = { path = "../common" }
-reqwest = "0.12.3"
+reqwest = "0.12.23"
 send_wrapper = "0.6.0"
-serde = { version = "1.0.197", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 serde_repr = "0.1.20"
-tar = "0.4.40"
-url = "2.5.0"
-wasm-bindgen = "0.2.92"
-wasm-bindgen-futures = "0.4.42"
-web-sys = { version = "0.3.69", features = ["DedicatedWorkerGlobalScope", "WorkerLocation", "MessageEvent", "Worker", "WorkerOptions", "WorkerType"] }
+tar = "0.4.44"
+url = "2.5.4"
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3.77", features = ["DedicatedWorkerGlobalScope", "WorkerLocation", "MessageEvent", "Worker", "WorkerOptions", "WorkerType"] }
 web-time = "1.1.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-tracing = { version = "0.1.40" }
+tracing = { version = "0.1.41" }
 zerocopy = { version = "0.8.26", features = ["derive"] }
-bitflags = "2.9.1"
+bitflags = "2.9.2"
 bytes = "1.10.1"
-thiserror = "2.0.12"
+thiserror = "2.0.15"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

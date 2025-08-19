@@ -1,4 +1,4 @@
 [toolchain]
-channel = "nightly-2024-04-15"
+channel = "stable"
 targets = ["wasm32-unknown-unknown"]
-components = [ "llvm-tools-preview", "rustfmt", "rust-src" ]
+components = [ "rustfmt", "rust-src" ]

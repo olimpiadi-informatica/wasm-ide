@@ -8,8 +8,8 @@
     <meta charset="utf-8">
   </head>
   <body>
-    <link data-trunk rel="rust" href="frontend/Cargo.toml" data-wasm-opt="4" data-bin="frontend" data-type="main" />
-    <link data-trunk rel="rust" href="worker/Cargo.toml" data-wasm-opt="4" data-type="worker" data-bindgen-target="web" />
+    <link data-trunk rel="rust" href="frontend/Cargo.toml" data-wasm-opt="4" data-bin="frontend" data-type="main" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+    <link data-trunk rel="rust" href="worker/Cargo.toml" data-wasm-opt="4" data-type="worker" data-bindgen-target="web" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
   </body>
 </html>
 

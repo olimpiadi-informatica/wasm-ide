@@ -36,7 +36,7 @@ content-encoding.
 ## Development
 ```
 trunk serve $(find worker frontend common -type f | xargs -n 1 echo -w) \
-    -w Cargo.toml -w style/main.scss -w index.html -w start_worker.js -w start_worker_thread.js \
+    -w Cargo.toml -w style/main.scss -w index.html -w start_worker.js \
     -w codemirror_interface.ts -w Trunk.toml --release
 ```
 
