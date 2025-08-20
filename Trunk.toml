@@ -5,6 +5,7 @@ public_url = "."
 stage = "build"
 command = "bash"
 command_arguments = ["-c", """
+  cd codemirror && \
   npm install && \
   node_modules/.bin/rollup codemirror_interface.ts -f es \
       -o $TRUNK_STAGING_DIR/codemirror.js \

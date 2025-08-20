@@ -280,7 +280,7 @@ impl Style {
             parts.push("font-weight: bold".to_string());
         }
         if let Some(fg) = self.fg {
-            parts.push(format!("color: {}", fg));
+            parts.push(format!("color: {fg}"));
         }
         parts.join("; ")
     }
@@ -585,7 +585,7 @@ fn OutputControl(
 fn download(name: &str, data: &[u8]) {
     use base64::prelude::*;
     let b64 = BASE64_STANDARD.encode(data);
-    let url = format!("data:text/plain;base64,{}", b64);
+    let url = format!("data:text/plain;base64,{b64}");
     let w = window();
     let d = w.document().expect("no document");
     let a = d
