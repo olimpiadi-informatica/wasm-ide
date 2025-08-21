@@ -18,7 +18,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-          target: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown, wasm32-wasip1-threads
 
       - name: Install trunk
         uses: jetli/trunk-action@v0.5.0
@@ -26,11 +26,29 @@ jobs:
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
 
+      - name: Install WASI SDK
+        uses: konsumer/install-wasi-sdk@v1
+        with:
+          add-to-path: "true"
+
+      - name: Build testsuite
+        run: ./testsuite/build.sh
+
       - name: cargo fmt
         run: cargo fmt --check
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+
+      - name: Test on Chrome
+        run: |
+          cd worker # wasm-pack does not support workspaces but using --workspace somehow works
+          wasm-pack test --headless --chrome --workspace
+
+      - name: Test on Firefox
+        run: |
+          cd worker
+          wasm-pack test --headless --firefox --workspace
 
       - name: trunk build
         run: |

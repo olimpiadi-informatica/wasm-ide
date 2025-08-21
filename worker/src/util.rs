@@ -22,12 +22,8 @@ async fn fetch_tar(name: &str) -> Result<Bytes> {
     Ok(body)
 }
 
-async fn get_fs_inner(name: &str) -> Result<Fs> {
-    info!("Fetching {name}.tar");
-    let body = fetch_tar(name)
-        .await
-        .with_context(|| format!("Failed to fetch compiler tarball for {name}"))?;
-    let mut files = tar::Archive::new(&body[..]);
+pub fn fs_from_tar(tar: &[u8]) -> Result<Fs> {
+    let mut files = tar::Archive::new(tar);
     let mut fs = Fs::new();
     for x in files.entries()? {
         let mut x = x?;
@@ -43,6 +39,16 @@ async fn get_fs_inner(name: &str) -> Result<Fs> {
         x.read_to_end(&mut contents)?;
         fs.add_file_with_path(&path, Rc::new(contents));
     }
+    Ok(fs)
+}
+
+async fn get_fs_inner(name: &str) -> Result<Fs> {
+    info!("Fetching {name}.tar");
+    let body = fetch_tar(name)
+        .await
+        .with_context(|| format!("Failed to fetch compiler tarball for {name}"))?;
+    let fs =
+        fs_from_tar(&body).with_context(|| format!("Failed to deserialize tarball for {name}"))?;
     Ok(fs)
 }
 

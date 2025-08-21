@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{anyhow, Result};
+use enum_as_inner::EnumAsInner;
 use futures::{
     channel::oneshot::{channel, Receiver, Sender},
     lock::Mutex,
@@ -17,6 +18,7 @@ use super::{syscall, Fs, Inode, Pipe};
 
 type WriteFn = Rc<dyn Fn(&[u8]) -> usize>;
 
+#[derive(EnumAsInner)]
 pub enum FdEntry {
     WriteFn(WriteFn),
     Data {
@@ -129,6 +131,7 @@ pub struct ProcessHandle {
 #[derive(Default)]
 pub struct Builder {
     fs: Option<Fs>,
+    preopen: Option<Vec<Vec<u8>>>,
     stdin: Option<FdEntry>,
     stdout: Option<FdEntry>,
     stderr: Option<FdEntry>,
@@ -159,6 +162,15 @@ impl Builder {
     pub fn env(mut self, mut env: Vec<u8>) -> Self {
         env.push(0);
         self.env.push(env);
+        self
+    }
+
+    pub fn _envs(self, envs: impl IntoIterator<Item = Vec<u8>>) -> Self {
+        envs.into_iter().fold(self, Builder::env)
+    }
+
+    pub fn _preopens(mut self, dirs: Vec<Vec<u8>>) -> Self {
+        self.preopen = Some(dirs);
         self
     }
 
@@ -198,12 +210,16 @@ impl Builder {
 
         let fs = self.fs.unwrap_or_default();
 
-        let fds = vec![
-            self.stdin,
-            self.stdout,
-            self.stderr,
-            Some(FdEntry::Dir(fs.root())),
-        ];
+        let mut fds = vec![self.stdin, self.stdout, self.stderr];
+        if let Some(preopen) = self.preopen {
+            for path in preopen {
+                let inode = fs.get(fs.root(), &path).unwrap();
+                assert!(fs.entries[inode as usize].is_dir());
+                fds.push(Some(FdEntry::Dir(inode)));
+            }
+        } else {
+            fds.push(Some(FdEntry::Dir(fs.root())));
+        }
 
         let (termination_send, termination_recv) = channel();
 

@@ -162,6 +162,33 @@ impl Fs {
         dir.insert(name.to_vec(), new_entry);
         new_entry
     }
+
+    pub fn get_name(&self, mut inode: Inode) -> Vec<u8> {
+        let mut rev_name = Vec::new();
+        while inode > 0 {
+            let p = self.parent_pointers[inode as usize];
+            let n = self.entries[p as usize]
+                .as_dir()
+                .unwrap()
+                .iter()
+                .find(|(_, v)| **v == inode)
+                .unwrap()
+                .0;
+            rev_name.push(n);
+            inode = p;
+        }
+        let mut name = Vec::new();
+        while let Some(n) = rev_name.pop() {
+            if !name.is_empty() {
+                name.extend(b"/");
+            }
+            name.extend(n);
+        }
+        if name.is_empty() {
+            name.extend(b"/");
+        }
+        name
+    }
 }
 
 impl Default for Fs {
