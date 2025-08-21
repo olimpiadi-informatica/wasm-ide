@@ -20,6 +20,9 @@ mod lang;
 mod os;
 mod util;
 
+#[cfg(test)]
+pub mod test;
+
 struct WorkerState {
     send_msg: UnboundedSender<WorkerMessage>,
     fs_cache: Mutex<HashMap<String, Fs>>,

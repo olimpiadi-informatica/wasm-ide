@@ -125,6 +125,7 @@ enum Errno {
     IsDir = 31,
     NoEnt = 44,
     NotDir = 54,
+    NotSock = 57,
     Perm = 63,
 }
 
@@ -418,8 +419,17 @@ fn environ_sizes_get(proc: &Process, envc: Addr, totenv: Addr) -> Errno {
     Errno::Success
 }
 
-fn clock_res_get(_proc: &Process, _clock_id: ClockId, _resolution: Addr) -> Errno {
-    todo!()
+fn clock_res_get(proc: &Process, clock_id: ClockId, out: Addr) -> Errno {
+    let prec: Timestamp = match clock_id {
+        ClockId::Monotonic => 1,
+        ClockId::Realtime => 1,
+        ClockId::ProcessCpu => return Errno::Inval,
+        ClockId::ThreadCpu => return Errno::Inval,
+    };
+    if let Err(e) = write_to_mem(proc, out, &prec) {
+        return e;
+    }
+    Errno::Success
 }
 
 fn clock_time_get(proc: &Process, clock_id: ClockId, _precision: Timestamp, time: Addr) -> Errno {
@@ -649,13 +659,11 @@ fn fd_prestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
     let FdEntry::Dir(inode) = *file_entry else {
         return Errno::Badf;
     };
-    if inode != 0 {
-        return Errno::Badf;
-    }
+    let name = proc_inner.fs.get_name(inode);
     let prestat = PreStatT {
         tag: 0,
         pad: [0; 3],
-        name_len: 1,
+        name_len: name.len() as Size,
     };
     if let Err(e) = write_to_mem(proc, out, &prestat) {
         return e;
@@ -671,10 +679,8 @@ fn fd_prestat_dir_name(proc: &Process, fd: Fd, path: Addr, _path_len: Size) -> E
     let FdEntry::Dir(inode) = *file_entry else {
         return Errno::Badf;
     };
-    if inode != 0 {
-        return Errno::Badf;
-    }
-    if let Err(e) = write_to_mem(proc, path, b"/") {
+    let name = proc_inner.fs.get_name(inode);
+    if let Err(e) = write_to_mem(proc, path, name.as_slice()) {
         return e;
     }
     Errno::Success
@@ -1112,8 +1118,35 @@ fn path_symlink(
     Errno::Perm
 }
 
-fn path_unlink_file(_proc: &Process, _fd: Fd, _path: Addr, _path_len: Size) -> Errno {
-    Errno::Perm
+fn path_unlink_file(proc: &Process, fd: Fd, path_addr: Addr, path_len: Size) -> Errno {
+    // TODO: we are leaking files here
+    let mut proc_inner = proc.inner.borrow_mut();
+    let Some(Some(file_entry)) = proc_inner.fds.get_mut(fd as usize) else {
+        return Errno::Badf;
+    };
+    let FdEntry::Dir(base_inode) = *file_entry else {
+        return Errno::Badf;
+    };
+    let mut path = vec![0; path_len as usize];
+    if let Err(e) = read_from_mem(proc, path_addr, &mut path[..]) {
+        return e;
+    }
+    let inode = match proc_inner.fs.get(base_inode, &path) {
+        Ok(inode) => inode,
+        Err(FsError::DoesNotExist) => return Errno::NoEnt,
+        Err(FsError::NotDir) => return Errno::NotDir,
+        Err(FsError::IsDir) => return Errno::IsDir,
+        Err(FsError::Exist) => return Errno::Exist,
+    };
+    if inode == proc_inner.fs.root() {
+        return Errno::Perm;
+    }
+    let parent = proc_inner.fs.parent_pointers[inode as usize];
+    proc_inner.fs.entries[parent as usize]
+        .as_dir_mut()
+        .unwrap()
+        .retain(|_, c| *c != inode);
+    Errno::Success
 }
 
 fn proc_exit(proc: &Process, code: ExitCode) {
@@ -1165,8 +1198,13 @@ fn sock_send(
     Errno::Perm
 }
 
-fn sock_shutdown(_proc: &Process, _fd: Fd, _how: u8) -> Errno {
-    Errno::Perm
+fn sock_shutdown(proc: &Process, fd: Fd, _how: u8) -> Errno {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(_sock)) = proc_inner.fds.get(fd as usize) else {
+        return Errno::Badf;
+    };
+    // Sockets do not exists
+    Errno::NotSock
 }
 
 fn poll_oneoff(
