@@ -25,7 +25,6 @@ type FileDelta = i64;
 type ExitCode = u32;
 type Signal = u8;
 type LookupFlags = u32;
-type OFlags = u16;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Deserialize_repr, PartialEq, Eq)]
@@ -81,6 +80,20 @@ bitflags! {
         const POLL_FD_READWRITE = 1 << 27;
         const SOCK_SHUTDOWN = 1 << 28;
         const SOCK_ACCEPT = 1 << 29;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Immutable, IntoBytes, Deserialize)]
+#[repr(transparent)]
+#[serde(transparent)]
+struct OFlags(u16);
+
+bitflags! {
+    impl OFlags: u16 {
+        const CREAT = 1 << 0;
+        const DIRECTORY = 1 << 1;
+        const EXCL = 1 << 2;
+        const TRUNC = 1 << 3;
     }
 }
 
@@ -398,14 +411,12 @@ fn clock_time_get(proc: &Process, clock_id: ClockId, _precision: Timestamp, time
     let val = match clock_id {
         ClockId::Monotonic => web_time::UNIX_EPOCH.elapsed().unwrap().as_nanos() as Timestamp,
         ClockId::Realtime => proc.start_instant.elapsed().as_nanos() as Timestamp,
-        ClockId::ProcessCpu => todo!(),
-        ClockId::ThreadCpu => todo!(),
+        ClockId::ProcessCpu => unimplemented!(),
+        ClockId::ThreadCpu => unimplemented!(),
     };
-
     if let Err(e) = write_to_mem(proc, time, &val) {
         return e;
     }
-
     Errno::Success
 }
 
@@ -761,6 +772,9 @@ fn fd_seek(proc: &Process, fd: Fd, offset: FileDelta, whence: Whence, out: Addr)
         (Whence::Set, _) => 0,
         (Whence::Cur, _) => 0,
         (Whence::End, FdEntry::Data { data, .. }) => data.len() as FileSize,
+        (Whence::End, FdEntry::File(inode, _)) => {
+            proc.fs.entries[*inode as usize].as_file().unwrap().len() as FileSize
+        }
         _ => return Errno::Inval,
     };
     let foff = match &mut *file_info {
@@ -919,7 +933,7 @@ fn path_open(
     _dir_flags: LookupFlags,
     path_ptr: Addr,
     path_len: Size,
-    oflags: FdFlags,
+    oflags: OFlags,
     _rights_base: Rights,
     _rights_inheriting: Rights,
     _fd_flags: FdFlags,
@@ -944,7 +958,9 @@ fn path_open(
         Err(FsError::NotDir) => return Errno::NotDir,
         Err(FsError::IsDir) => return Errno::IsDir,
     };
-    if oflags & 2 != 0 && !matches!(proc.fs.entries[inode as usize], FsEntry::Dir(_)) {
+    if oflags.contains(OFlags::DIRECTORY)
+        && !matches!(proc.fs.entries[inode as usize], FsEntry::Dir(_))
+    {
         return Errno::NotDir;
     };
     let file_entry = match proc.fs.entries[inode as usize] {

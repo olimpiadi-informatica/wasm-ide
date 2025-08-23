@@ -48,14 +48,12 @@ async fn get_fs_inner(name: &str) -> Result<Fs> {
 
 pub async fn get_fs(name: &str) -> Result<Fs> {
     let state = WORKER_STATE.get().expect("worker state not initialized");
-    if let Some(fs) = state.fs_cache.borrow_mut().get(name).cloned() {
+    let mut fs_cache = state.fs_cache.lock().await;
+    if let Some(fs) = fs_cache.get(name).cloned() {
         return Ok(fs);
     }
     let fs = get_fs_inner(name).await?;
-    state
-        .fs_cache
-        .borrow_mut()
-        .insert(name.to_string(), fs.clone());
+    fs_cache.insert(name.to_string(), fs.clone());
     Ok(fs)
 }
 

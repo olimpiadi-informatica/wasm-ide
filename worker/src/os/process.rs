@@ -168,6 +168,20 @@ impl Builder {
     }
 
     pub fn spawn_with_module(self, module: Module, args: Vec<Vec<u8>>) -> ProcessHandle {
+        let imports_memory = Module::imports(&module).iter().any(|import| {
+            let kind =
+                js_sys::Reflect::get(&import, &"kind".into()).expect("could not get import kind");
+            let module = js_sys::Reflect::get(&import, &"module".into())
+                .expect("could not get import module");
+            let name =
+                js_sys::Reflect::get(&import, &"name".into()).expect("could not get import name");
+            kind.as_string() == Some("memory".to_string())
+                && module.as_string() == Some("env".to_string())
+                && name.as_string() == Some("memory".to_string())
+        });
+        assert!(imports_memory);
+
+        // TODO: get the opts from the module
         let mem_opts = Object::new();
         js_sys::Reflect::set(&mem_opts, &"initial".into(), &640.into())
             .expect("could not set initial memory size");
@@ -221,12 +235,16 @@ impl Builder {
         ProcessHandle { proc }
     }
 
-    pub fn spawn(self, code: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
+    pub fn spawn_with_code(self, code: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
         let uint8array = js_sys::Uint8Array::new_with_length(code.len() as u32);
         uint8array.copy_from(code);
         let module = Module::new(&uint8array).expect("could not create module from wasm bytes");
-
         self.spawn_with_module(module, args)
+    }
+
+    pub fn spawn_with_path(self, path: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
+        let code = self.fs.as_ref().unwrap().get_file_with_path(path).unwrap();
+        self.spawn_with_code(&code, args)
     }
 }
 

@@ -6,6 +6,7 @@ use futures::{
         mpsc::{unbounded, UnboundedSender},
         oneshot::{channel, Sender},
     },
+    lock::Mutex,
     select, FutureExt, StreamExt,
 };
 use os::{Fs, Pipe};
@@ -21,7 +22,7 @@ mod util;
 
 struct WorkerState {
     send_msg: UnboundedSender<WorkerMessage>,
-    fs_cache: RefCell<HashMap<String, Fs>>,
+    fs_cache: Mutex<HashMap<String, Fs>>,
 
     stop: RefCell<Option<Sender<()>>>,
     stdin: RefCell<Option<Rc<Pipe>>>,
@@ -46,7 +47,7 @@ fn main() {
     WORKER_STATE.get_or_init(|| {
         SendWrapper::new(WorkerState {
             send_msg: s,
-            fs_cache: RefCell::new(HashMap::new()),
+            fs_cache: Mutex::new(HashMap::new()),
             stop: RefCell::new(None),
             stdin: RefCell::new(None),
             ls_stop: RefCell::new(None),

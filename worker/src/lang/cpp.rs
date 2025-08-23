@@ -153,7 +153,7 @@ pub async fn run(cpp: bool, code: Vec<u8>, stdin: Rc<Pipe>, stdout: Rc<Pipe>) ->
             send_stderr(buf);
             buf.len()
         })))
-        .spawn(&linked, vec![]);
+        .spawn_with_code(&linked, vec![]);
 
     let status_code = proc.proc.wait().await;
     status_code.check_success().context("Execution failed")?;
@@ -193,7 +193,7 @@ pub async fn run_ls(cpp: bool, stdin: Rc<Pipe>, stdout: Rc<Pipe>, stderr: Rc<Pip
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
         .stderr(FdEntry::Pipe(stderr))
-        .spawn(
+        .spawn_with_code(
             &clangd,
             vec![b"clangd".to_vec(), b"--pch-storage=memory".to_vec()],
         );
