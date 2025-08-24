@@ -3,13 +3,13 @@
   <head>
     <title>Editor online</title>
     <link data-trunk rel="copy-dir" href="compilers" />
-    <link data-trunk rel="copy-file" href="start_worker.js" />
-    <link data-trunk rel="scss" href="style/main.scss" />
+    <link data-trunk rel="scss" href="style/main.scss" data-inline />
+    <link rel="modulepreload" href="codemirror.js" />
     <meta charset="utf-8">
   </head>
   <body>
     <link data-trunk rel="rust" href="frontend/Cargo.toml" data-wasm-opt="4" data-bin="frontend" data-type="main" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
-    <link data-trunk rel="rust" href="worker/Cargo.toml" data-wasm-opt="4" data-type="worker" data-bindgen-target="web" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+    <link data-trunk rel="rust" href="worker/Cargo.toml" data-wasm-opt="4" data-type="worker" data-bindgen-target="web" data-loader-shim data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
   </body>
 </html>
 

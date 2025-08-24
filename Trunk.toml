@@ -1,5 +1,6 @@
 [build]
 public_url = "."
+minify = "on_release"
 
 [[hooks]]
 stage = "build"
@@ -10,6 +11,7 @@ command_arguments = ["-c", """
   node_modules/.bin/rollup codemirror_interface.ts -f es \
       -o $TRUNK_STAGING_DIR/codemirror.js \
       -p @rollup/plugin-node-resolve \
-      -p @rollup/plugin-typescript
+      -p @rollup/plugin-typescript \
+      $([ "$TRUNK_PROFILE" = "release" ] && echo -p @rollup/plugin-terser)
   """]
 

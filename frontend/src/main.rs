@@ -690,7 +690,7 @@ fn App() -> impl IntoView {
     let options = WorkerOptions::default();
     options.set_type(WorkerType::Module);
     let worker =
-        Worker::new_with_options("./start_worker.js", &options).expect("could not start worker");
+        Worker::new_with_options("./worker_loader.js", &options).expect("could not start worker");
 
     let i18n = use_i18n();
     let locales: Vec<_> = Locale::get_all()
