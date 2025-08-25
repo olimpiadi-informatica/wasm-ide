@@ -9,7 +9,7 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::MessageEvent;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
-use crate::os::{FsEntry, FsError};
+use crate::os::{FsEntry, FsError, ProcessInner};
 
 use super::{FdEntry, Process, StatusCode};
 
@@ -19,7 +19,6 @@ type FileSize = u64;
 type Timestamp = u64;
 type Fd = u32;
 type Advice = u8;
-type FdFlags = u16;
 type FstFlags = u16;
 type FileDelta = i64;
 type ExitCode = u32;
@@ -86,6 +85,21 @@ bitflags! {
 #[derive(Debug, Clone, Copy, Immutable, IntoBytes, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
+struct FdFlags(u16);
+
+bitflags! {
+    impl FdFlags: u16 {
+        const APPEND = 1 << 0;
+        const DSYNC = 1 << 1;
+        const NONBLOCK = 1 << 2;
+        const RSYNC = 1 << 3;
+        const SYNC = 1 << 4;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Immutable, IntoBytes, Deserialize)]
+#[repr(transparent)]
+#[serde(transparent)]
 struct OFlags(u16);
 
 bitflags! {
@@ -105,6 +119,7 @@ enum Errno {
     Success = 0,
     Acces = 2,
     Badf = 8,
+    Exist = 20,
     Fault = 21,
     Inval = 28,
     IsDir = 31,
@@ -436,10 +451,11 @@ fn fd_allocate(_proc: &Process, _fd: Fd, _offset: FileSize, _len: FileSize) -> E
 }
 
 fn fd_close(proc: &Process, fd: Fd) -> Errno {
-    let Some(_) = proc.get_fd_mut(fd) else {
+    let mut proc_inner = proc.inner.borrow_mut();
+    let fd_entry = proc_inner.fds.get_mut(fd as usize).map(Option::take);
+    if fd_entry.flatten().is_none() {
         return Errno::Badf;
-    };
-    proc.inner.borrow_mut().fds[fd as usize] = None;
+    }
     Errno::Success
 }
 
@@ -448,21 +464,22 @@ fn fd_datasync(_proc: &Process, _fd: Fd) -> Errno {
 }
 
 fn fd_fdstat_get(proc: &Process, fd: Fd, buf: Addr) -> Errno {
-    let Some(file_info) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(file_info)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let mut fdstat = FdStatT {
         fs_filetype: FileType::Unknown,
         _pad1: [0; 1],
-        fs_flags: 0,
+        fs_flags: FdFlags::empty(),
         _pad2: [0; 4],
         fs_rights_base: Rights::empty(),
         fs_rights_inheriting: Rights::empty(),
     };
-    match &*file_info {
+    match file_info {
         FdEntry::WriteFn(_) => {
             fdstat.fs_filetype = FileType::CharacterDevice;
-            fdstat.fs_flags = 1; // ?
+            fdstat.fs_flags = FdFlags::APPEND;
             fdstat.fs_rights_base = Rights::FD_WRITE;
             fdstat.fs_rights_inheriting = Rights::FD_WRITE;
         }
@@ -484,7 +501,7 @@ fn fd_fdstat_get(proc: &Process, fd: Fd, buf: Addr) -> Errno {
                 | Rights::FD_SEEK
                 | Rights::PATH_READDIR;
         }
-        FdEntry::File(_, _) => {
+        FdEntry::File(_, _, _) => {
             fdstat.fs_filetype = FileType::RegularFile;
             fdstat.fs_rights_base = Rights::FD_READ | Rights::FD_SEEK | Rights::FD_FILESTAT_GET;
             fdstat.fs_rights_inheriting =
@@ -492,7 +509,7 @@ fn fd_fdstat_get(proc: &Process, fd: Fd, buf: Addr) -> Errno {
         }
         FdEntry::Pipe(_) => {
             fdstat.fs_filetype = FileType::CharacterDevice;
-            fdstat.fs_flags = 1; // ?
+            fdstat.fs_flags = FdFlags::APPEND;
             fdstat.fs_rights_base = Rights::FD_READ | Rights::FD_WRITE;
             fdstat.fs_rights_inheriting = Rights::FD_READ | Rights::FD_WRITE;
         }
@@ -514,7 +531,8 @@ fn fd_fdstat_set_rights(_proc: &Process, _fd: Fd, _base: Rights, _inheriting: Ri
 }
 
 fn fd_filestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
-    let Some(file_info) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(file_info)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let mut fstat = FileStatT {
@@ -528,7 +546,7 @@ fn fd_filestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
         mtim: 0,
         ctim: 0,
     };
-    match &*file_info {
+    match file_info {
         FdEntry::WriteFn(_) => {
             fstat.dev = 1;
             fstat.filetype = FileType::CharacterDevice;
@@ -542,10 +560,13 @@ fn fd_filestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
             fstat.filetype = FileType::Directory;
             fstat.inode = *inode;
         }
-        FdEntry::File(inode, _) => {
+        FdEntry::File(inode, _, _) => {
             fstat.filetype = FileType::RegularFile;
             fstat.inode = *inode;
-            fstat.size = proc.fs.entries[*inode as usize].as_file().unwrap().len() as FileSize;
+            fstat.size = proc_inner.fs.entries[*inode as usize]
+                .as_file()
+                .unwrap()
+                .len() as FileSize;
         }
         FdEntry::Pipe(_) => {
             fstat.dev = 1;
@@ -580,7 +601,8 @@ fn fd_pread(
     offset: FileSize,
     result: Addr,
 ) -> Errno {
-    let Some(mut file_entry) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(file_entry)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let mut iovs = vec![IoVecT { buf: 0, buf_len: 0 }; buf_len as usize];
@@ -588,15 +610,15 @@ fn fd_pread(
         return e;
     }
     let mut in_data = vec![0u8; iovs.iter().map(|iov| iov.buf_len).sum::<Size>() as usize];
-    let read = match &mut *file_entry {
+    let read = match file_entry {
         FdEntry::Data { data, .. } => {
             let data = &data[offset as usize..];
             let read_len = data.len().min(in_data.len());
             in_data[..read_len].copy_from_slice(&data[..read_len]);
             read_len
         }
-        FdEntry::File(inode, _) => {
-            let data = proc.fs.entries[*inode as usize].as_file().unwrap();
+        FdEntry::File(inode, _, _) => {
+            let data = proc_inner.fs.entries[*inode as usize].as_file().unwrap();
             let data = &data[offset as usize..];
             let read_len = data.len().min(in_data.len());
             in_data[..read_len].copy_from_slice(&data[..read_len]);
@@ -620,7 +642,8 @@ fn fd_pread(
 }
 
 fn fd_prestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
-    let Some(file_entry) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(file_entry)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let FdEntry::Dir(inode) = *file_entry else {
@@ -641,7 +664,8 @@ fn fd_prestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
 }
 
 fn fd_prestat_dir_name(proc: &Process, fd: Fd, path: Addr, _path_len: Size) -> Errno {
-    let Some(file_entry) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(file_entry)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let FdEntry::Dir(inode) = *file_entry else {
@@ -657,14 +681,58 @@ fn fd_prestat_dir_name(proc: &Process, fd: Fd, path: Addr, _path_len: Size) -> E
 }
 
 fn fd_pwrite(
-    _proc: &Process,
-    _fd: Fd,
-    _buf: Addr,
-    _buf_len: Size,
-    _offset: FileSize,
-    _result: Addr,
+    proc: &Process,
+    fd: Fd,
+    iovs_addr: Addr,
+    iovs_len: Size,
+    offset: FileSize,
+    out: Addr,
 ) -> Errno {
-    todo!()
+    let mut proc_inner = proc.inner.borrow_mut();
+    let ProcessInner { fds, fs, .. } = &mut *proc_inner;
+    let Some(Some(fd_entry)) = fds.get_mut(fd as usize) else {
+        return Errno::Badf;
+    };
+    let mut iovs = vec![IoVecT { buf: 0, buf_len: 0 }; iovs_len as usize];
+    if let Err(e) = read_from_mem(proc, iovs_addr, &mut iovs[..]) {
+        return e;
+    }
+    let in_data_len = iovs.iter().map(|iov| iov.buf_len).sum::<Size>();
+    let mut in_data = vec![0u8; in_data_len as usize];
+    let mut pos = 0;
+    for IoVecT { buf, buf_len } in iovs {
+        if let Err(e) = read_from_mem(proc, buf, &mut in_data[pos..pos + buf_len as usize]) {
+            return e;
+        }
+        pos += buf_len as usize;
+    }
+    let written = match fd_entry {
+        FdEntry::Data { data, .. } => {
+            let end = offset as usize + in_data.len();
+            if end > data.len() {
+                data.resize(end, 0);
+            }
+            data[offset as usize..end].copy_from_slice(&in_data);
+            in_data.len()
+        }
+        FdEntry::File(inode, _, _) => {
+            let file_entry = fs.entries[*inode as usize].as_file_mut().unwrap();
+            let data = Rc::make_mut(file_entry);
+            let end = offset as usize + in_data.len();
+            if end > data.len() {
+                data.resize(end, 0);
+            }
+            data[offset as usize..end].copy_from_slice(&in_data);
+            in_data.len()
+        }
+        FdEntry::WriteFn(_) => return Errno::Badf,
+        FdEntry::Pipe(_) => return Errno::Badf,
+        FdEntry::Dir(_) => return Errno::Badf,
+    };
+    if let Err(e) = write_to_mem(proc, out, &written) {
+        return e;
+    }
+    Errno::Success
 }
 
 async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr) -> Errno {
@@ -675,10 +743,12 @@ async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr)
     let mut in_data = vec![0u8; iovs.iter().map(|iov| iov.buf_len).sum::<Size>() as usize];
     let mut pipe = None;
     let mut read = {
-        let Some(mut file_entry) = proc.get_fd_mut(fd) else {
+        let mut proc_inner = proc.inner.borrow_mut();
+        let ProcessInner { fds, fs, .. } = &mut *proc_inner;
+        let Some(Some(file_entry)) = fds.get_mut(fd as usize) else {
             return Errno::Badf;
         };
-        match &mut *file_entry {
+        match file_entry {
             FdEntry::Data { data, offset } => {
                 let data = &data[*offset..];
                 let read_len = data.len().min(in_data.len());
@@ -686,8 +756,8 @@ async fn fd_read(proc: &Process, fd: Fd, buf: Addr, buf_len: Size, result: Addr)
                 *offset += read_len;
                 read_len
             }
-            FdEntry::File(inode, offset) => {
-                let data = proc.fs.entries[*inode as usize].as_file().unwrap();
+            FdEntry::File(inode, offset, _) => {
+                let data = fs.entries[*inode as usize].as_file().unwrap();
                 let data = &data[*offset..];
                 let read_len = data.len().min(in_data.len());
                 in_data[..read_len].copy_from_slice(&data[..read_len]);
@@ -726,14 +796,15 @@ fn fd_readdir(
     cookie: u64,
     out: Addr,
 ) -> Errno {
-    let Some(fd_entry) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(fd_entry)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let FdEntry::Dir(dir_inode) = *fd_entry else {
         return Errno::Badf;
     };
     let mut buf = Vec::new();
-    let entries = proc.fs.entries[dir_inode as usize].as_dir().unwrap();
+    let entries = proc_inner.fs.entries[dir_inode as usize].as_dir().unwrap();
     for (idx, (name, inode)) in entries.iter().enumerate().skip(cookie as usize) {
         if buf.len() >= buf_len as usize {
             break;
@@ -741,7 +812,7 @@ fn fd_readdir(
         buf.extend_from_slice(&(idx as u64 + 1).to_le_bytes());
         buf.extend_from_slice(&inode.to_le_bytes());
         buf.extend_from_slice(&(name.len() as u32).to_le_bytes());
-        let file_type = match proc.fs.entries[*inode as usize] {
+        let file_type = match proc_inner.fs.entries[*inode as usize] {
             FsEntry::File(_) => FileType::RegularFile,
             FsEntry::Dir(_) => FileType::Directory,
             FsEntry::Pipe(_) => FileType::CharacterDevice,
@@ -765,21 +836,23 @@ fn fd_renumber(_proc: &Process, _fd: Fd, _to_fd: Fd) -> Errno {
 }
 
 fn fd_seek(proc: &Process, fd: Fd, offset: FileDelta, whence: Whence, out: Addr) -> Errno {
-    let Some(mut file_info) = proc.get_fd_mut(fd) else {
+    let mut proc_inner = proc.inner.borrow_mut();
+    let ProcessInner { fds, fs, .. } = &mut *proc_inner;
+    let Some(Some(file_info)) = fds.get_mut(fd as usize) else {
         return Errno::Badf;
     };
     let mut base_off: FileSize = match (whence, &*file_info) {
         (Whence::Set, _) => 0,
         (Whence::Cur, _) => 0,
         (Whence::End, FdEntry::Data { data, .. }) => data.len() as FileSize,
-        (Whence::End, FdEntry::File(inode, _)) => {
-            proc.fs.entries[*inode as usize].as_file().unwrap().len() as FileSize
+        (Whence::End, FdEntry::File(inode, _, _)) => {
+            fs.entries[*inode as usize].as_file().unwrap().len() as FileSize
         }
         _ => return Errno::Inval,
     };
-    let foff = match &mut *file_info {
+    let foff = match file_info {
         FdEntry::Data { offset, .. } => offset,
-        FdEntry::File(_, offset) => offset,
+        FdEntry::File(_, offset, _) => offset,
         FdEntry::WriteFn(_) => return Errno::Badf,
         FdEntry::Dir(_) => return Errno::Badf,
         FdEntry::Pipe(_) => return Errno::Badf,
@@ -803,7 +876,9 @@ fn fd_tell(proc: &Process, fd: Fd, out: Addr) -> Errno {
 }
 
 fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Addr) -> Errno {
-    let Some(mut file_info) = proc.get_fd_mut(fd) else {
+    let mut proc_inner = proc.inner.borrow_mut();
+    let ProcessInner { fds, fs, .. } = &mut *proc_inner;
+    let Some(Some(fd_entry)) = fds.get_mut(fd as usize) else {
         return Errno::Badf;
     };
     let mut iovs = vec![IoVecT { buf: 0, buf_len: 0 }; iovs_len as usize];
@@ -819,8 +894,8 @@ fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Add
         }
         pos += buf_len as usize;
     }
-    let written = match &mut *file_info {
-        FdEntry::WriteFn(ref f) => f(&in_data),
+    let written = match fd_entry {
+        FdEntry::WriteFn(f) => f(&in_data),
         FdEntry::Data { data, offset } => {
             let end = *offset + in_data.len();
             if end > data.len() {
@@ -834,7 +909,20 @@ fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Add
             pipe.write(&in_data);
             in_data.len()
         }
-        FdEntry::File(_, _) => return Errno::Perm,
+        FdEntry::File(inode, offset, append) => {
+            let file_entry = fs.entries[*inode as usize].as_file_mut().unwrap();
+            let data = Rc::make_mut(file_entry);
+            if *append {
+                *offset = data.len();
+            }
+            let end = *offset + in_data.len();
+            if end > data.len() {
+                data.resize(end, 0);
+            }
+            data[*offset..end].copy_from_slice(&in_data);
+            *offset = end;
+            in_data.len()
+        }
         FdEntry::Dir(_) => return Errno::Badf,
     };
     if let Err(e) = write_to_mem(proc, result, &written) {
@@ -855,7 +943,8 @@ fn path_filestat_get(
     path_len: Size,
     filestat: Addr,
 ) -> Errno {
-    let Some(file_entry) = proc.get_fd_mut(fd) else {
+    let proc_inner = proc.inner.borrow();
+    let Some(Some(file_entry)) = proc_inner.fds.get(fd as usize) else {
         return Errno::Badf;
     };
     let FdEntry::Dir(base_inode) = *file_entry else {
@@ -865,11 +954,12 @@ fn path_filestat_get(
     if let Err(e) = read_from_mem(proc, path_addr, &mut path[..]) {
         return e;
     }
-    let inode = match proc.fs.get(base_inode, &path) {
+    let inode = match proc_inner.fs.get(base_inode, &path) {
         Ok(inode) => inode,
         Err(FsError::DoesNotExist) => return Errno::NoEnt,
         Err(FsError::NotDir) => return Errno::NotDir,
         Err(FsError::IsDir) => return Errno::IsDir,
+        Err(FsError::Exist) => return Errno::Exist,
     };
     let mut fstat = FileStatT {
         dev: 0,
@@ -882,7 +972,7 @@ fn path_filestat_get(
         mtim: 0,
         ctim: 0,
     };
-    match proc.fs.entries[inode as usize] {
+    match proc_inner.fs.entries[inode as usize] {
         FsEntry::Dir(_) => {
             fstat.filetype = FileType::Directory;
         }
@@ -936,39 +1026,48 @@ fn path_open(
     oflags: OFlags,
     _rights_base: Rights,
     _rights_inheriting: Rights,
-    _fd_flags: FdFlags,
+    fd_flags: FdFlags,
     out: Addr,
 ) -> Errno {
-    let base_inode = {
-        let Some(file_entry) = proc.get_fd_mut(dirfd) else {
-            return Errno::Badf;
-        };
-        let FdEntry::Dir(base_inode) = *file_entry else {
-            return Errno::Badf;
-        };
-        base_inode
+    let mut proc_inner = proc.inner.borrow_mut();
+    let ProcessInner { fds, fs, .. } = &mut *proc_inner;
+    let Some(Some(file_entry)) = fds.get_mut(dirfd as usize) else {
+        return Errno::Badf;
+    };
+    let FdEntry::Dir(base_inode) = *file_entry else {
+        return Errno::Badf;
     };
     let mut path = vec![0; path_len as usize];
     if let Err(e) = read_from_mem(proc, path_ptr, &mut path[..]) {
         return e;
     }
-    let inode = match proc.fs.get(base_inode, &path) {
+    let inode = match fs.open(
+        base_inode,
+        &path,
+        oflags.contains(OFlags::CREAT),
+        oflags.contains(OFlags::EXCL),
+    ) {
         Ok(inode) => inode,
         Err(FsError::DoesNotExist) => return Errno::NoEnt,
         Err(FsError::NotDir) => return Errno::NotDir,
         Err(FsError::IsDir) => return Errno::IsDir,
+        Err(FsError::Exist) => return Errno::Exist,
     };
-    if oflags.contains(OFlags::DIRECTORY)
-        && !matches!(proc.fs.entries[inode as usize], FsEntry::Dir(_))
+    if oflags.contains(OFlags::DIRECTORY) && !matches!(fs.entries[inode as usize], FsEntry::Dir(_))
     {
         return Errno::NotDir;
     };
-    let file_entry = match proc.fs.entries[inode as usize] {
+    let file_entry = match &mut fs.entries[inode as usize] {
         FsEntry::Dir(_) => FdEntry::Dir(inode),
-        FsEntry::File(_) => FdEntry::File(inode, 0),
-        FsEntry::Pipe(ref p) => FdEntry::Pipe(p.clone()),
+        FsEntry::File(data) => {
+            if oflags.contains(OFlags::TRUNC) {
+                *data = Rc::new(Vec::new());
+            }
+            FdEntry::File(inode, 0, fd_flags.contains(FdFlags::APPEND))
+        }
+        FsEntry::Pipe(p) => FdEntry::Pipe(p.clone()),
     };
-    let fd = proc.add_fd(file_entry);
+    let fd = proc_inner.add_fd(file_entry);
     if let Err(e) = write_to_mem(proc, out, &fd) {
         return e;
     }

@@ -1,7 +1,4 @@
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{anyhow, Result};
 use futures::{
@@ -22,9 +19,13 @@ type WriteFn = Rc<dyn Fn(&[u8]) -> usize>;
 
 pub enum FdEntry {
     WriteFn(WriteFn),
-    Data { data: Vec<u8>, offset: usize },
+    Data {
+        data: Vec<u8>,
+        offset: usize,
+    },
     Dir(Inode),
-    File(Inode, usize),
+    /// inode, offset, append
+    File(Inode, usize, bool),
     Pipe(Rc<Pipe>),
 }
 
@@ -34,7 +35,6 @@ pub struct Process {
     pub start_instant: Instant,
     pub args: Vec<Vec<u8>>,
     pub env: Vec<Vec<u8>>,
-    pub fs: Fs,
     pub termiation_send: Mutex<Sender<()>>,
     pub inner: RefCell<ProcessInner>,
 }
@@ -50,6 +50,20 @@ pub struct ProcessInner {
     pub status_code: StatusCode,
     pub threads: Vec<(Worker, SharedArrayBuffer)>,
     pub termination_recv: Receiver<()>,
+    pub fs: Fs,
+}
+
+impl ProcessInner {
+    pub fn add_fd(&mut self, entry: FdEntry) -> u32 {
+        for fd in 0..self.fds.len() {
+            if self.fds[fd].is_none() {
+                self.fds[fd] = Some(entry);
+                return fd as u32;
+            }
+        }
+        self.fds.push(Some(entry));
+        self.fds.len() as u32 - 1
+    }
 }
 
 impl Process {
@@ -66,25 +80,6 @@ impl Process {
         let mut l = self.termiation_send.lock().await;
         l.cancellation().await;
         self.inner.borrow().status_code.clone()
-    }
-
-    pub fn get_fd_mut(&self, fd: u32) -> Option<RefMut<'_, FdEntry>> {
-        RefMut::filter_map(self.inner.borrow_mut(), |x| {
-            x.fds.get_mut(fd as usize).and_then(|x| x.as_mut())
-        })
-        .ok()
-    }
-
-    pub fn add_fd(&self, entry: FdEntry) -> u32 {
-        let mut inner = self.inner.borrow_mut();
-        for fd in 0..inner.fds.len() {
-            if inner.fds[fd].is_none() {
-                inner.fds[fd] = Some(entry);
-                return fd as u32;
-            }
-        }
-        inner.fds.push(Some(entry));
-        inner.fds.len() as u32 - 1
     }
 
     pub fn spawn_thread(self: &Rc<Self>, arg: Option<i32>) -> u32 {
@@ -217,6 +212,7 @@ impl Builder {
             status_code: StatusCode::Signaled,
             threads: vec![],
             termination_recv,
+            fs,
         };
 
         let proc = Rc::new(Process {
@@ -225,7 +221,6 @@ impl Builder {
             start_instant,
             args,
             env: self.env,
-            fs,
             termiation_send: Mutex::new(termination_send),
             inner: RefCell::new(inner),
         });

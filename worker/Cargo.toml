@@ -26,6 +26,7 @@ zerocopy = { version = "0.8.26", features = ["derive"] }
 bitflags = "2.9.2"
 bytes = "1.10.1"
 thiserror = "2.0.15"
+enum-as-inner = "0.6.1"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

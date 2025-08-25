@@ -1,5 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
+use enum_as_inner::EnumAsInner;
 use thiserror::Error;
 use tracing::warn;
 
@@ -7,27 +8,11 @@ use super::Pipe;
 
 pub type Inode = u64;
 
-#[derive(Clone)]
+#[derive(Clone, EnumAsInner)]
 pub enum FsEntry {
     Dir(HashMap<Vec<u8>, Inode>),
     File(Rc<Vec<u8>>),
     Pipe(Rc<Pipe>),
-}
-
-impl FsEntry {
-    pub fn as_file(&self) -> Option<&Rc<Vec<u8>>> {
-        match self {
-            FsEntry::File(data) => Some(data),
-            _ => None,
-        }
-    }
-
-    pub fn as_dir(&self) -> Option<&HashMap<Vec<u8>, Inode>> {
-        match self {
-            FsEntry::Dir(dir) => Some(dir),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -44,6 +29,8 @@ pub enum FsError {
     IsDir,
     #[error("No such file or directory")]
     DoesNotExist,
+    #[error("File exists")]
+    Exist,
 }
 
 impl Fs {
@@ -87,6 +74,53 @@ impl Fs {
         let inode = self.get(root, path)?;
         let data = self.get_file(inode)?;
         Ok(data)
+    }
+
+    pub fn open(
+        &mut self,
+        mut parent: Inode,
+        path: &[u8],
+        creat: bool,
+        excl: bool,
+    ) -> Result<Inode, FsError> {
+        let mut dirs: Vec<&[u8]> = path
+            .split(|x| *x == b'/')
+            .filter(|x| !x.is_empty())
+            .collect();
+        let name = dirs.pop();
+        for cur in dirs {
+            let FsEntry::Dir(dir) = &self.entries[parent as usize] else {
+                return Err(FsError::NotDir);
+            };
+            if cur == b"." {
+            } else if cur == b".." {
+                parent = self.parent_pointers[parent as usize];
+            } else if let Some(child) = dir.get(cur) {
+                parent = *child;
+            } else {
+                return Err(FsError::DoesNotExist);
+            };
+        }
+        let Some(name) = name else {
+            return Ok(parent);
+        };
+        let FsEntry::Dir(dir) = &mut self.entries[parent as usize] else {
+            return Err(FsError::NotDir);
+        };
+        if name == b"." {
+            Ok(parent)
+        } else if name == b".." {
+            Ok(self.parent_pointers[parent as usize])
+        } else if let Some(file) = dir.get(name) {
+            if excl {
+                return Err(FsError::Exist);
+            }
+            Ok(*file)
+        } else if creat {
+            Ok(self.add_entry(parent, name, FsEntry::File(Rc::new(Vec::new()))))
+        } else {
+            Err(FsError::DoesNotExist)
+        }
     }
 
     pub fn get(&self, parent: Inode, path: &[u8]) -> Result<Inode, FsError> {
