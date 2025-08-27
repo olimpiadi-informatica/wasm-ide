@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  clippy:
-    name: Cargo Format & Clippy
+  prepare:
+    name: Build testsuite
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,11 +17,7 @@ jobs:
       - name: Install rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: rustfmt, clippy
-          target: wasm32-unknown-unknown, wasm32-wasip1-threads
-
-      - name: Install trunk
-        uses: jetli/trunk-action@v0.5.0
+          target: wasm32-wasip1-threads
 
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
@@ -34,23 +30,78 @@ jobs:
       - name: Build testsuite
         run: ./testsuite/build.sh
 
+      - name: Upload testsuite artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: testsuite
+          path: ./testsuite
+
+  clippy:
+    name: Cargo Format & Clippy
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install trunk
+        uses: jetli/trunk-action@v0.5.0
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Download testsuite artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: testsuite
+          path: ./testsuite
+
       - name: cargo fmt
         run: cargo fmt --check
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
-      - name: Test on Chrome
-        run: |
-          cd worker # wasm-pack does not support workspaces but using --workspace somehow works
-          wasm-pack test --headless --chrome --workspace
-
-      - name: Test on Firefox
-        run: |
-          cd worker
-          wasm-pack test --headless --firefox --workspace
-
       - name: trunk build
         run: |
           mkdir compilers
           trunk build
+
+  test:
+    strategy:
+      matrix:
+        runs-on: [ubuntu-latest, macos-latest]
+    name: Test
+    runs-on: ${{ matrix.runs-on }}
+    needs: prepare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Download testsuite artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: testsuite
+          path: ./testsuite
+
+      - name: Test on Chrome
+        run: CHROMEDRIVER=$(which chromedriver) cargo test --workspace --no-fail-fast
+
+      - name: Test on Firefox
+        run: GECKODRIVER=$(which geckodriver) cargo test --workspace --no-fail-fast
+
+      - name: Test on Safari
+        if: matrix.runs-on == 'macos-latest'
+        run: SAFARIDRIVER=$(which safaridriver) cargo test --workspace --no-fail-fast

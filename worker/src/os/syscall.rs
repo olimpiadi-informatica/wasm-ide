@@ -969,7 +969,7 @@ fn path_filestat_get(
     };
     let mut fstat = FileStatT {
         dev: 0,
-        inode: inode as u64,
+        inode,
         filetype: FileType::Unknown,
         pad1: [0; 7],
         nlink: 1,
