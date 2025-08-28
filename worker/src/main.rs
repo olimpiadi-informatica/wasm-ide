@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::OnceLock};
+use std::{cell::RefCell, collections::HashMap, sync::OnceLock};
 
 use common::{init_logging, ClientMessage, WorkerMessage};
 use futures::{
@@ -9,12 +9,13 @@ use futures::{
     lock::Mutex,
     select, FutureExt, StreamExt,
 };
-use os::{Fs, Pipe};
 use send_wrapper::SendWrapper;
 use tracing::{debug, error, info, warn};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent};
+
+use crate::os::{Fs, Pipe};
 
 mod lang;
 mod os;
@@ -28,10 +29,10 @@ struct WorkerState {
     fs_cache: Mutex<HashMap<String, Fs>>,
 
     stop: RefCell<Option<Sender<()>>>,
-    stdin: RefCell<Option<Rc<Pipe>>>,
+    stdin: RefCell<Option<Pipe>>,
 
     ls_stop: RefCell<Option<Sender<()>>>,
-    ls_stdin: RefCell<Option<Rc<Pipe>>>,
+    ls_stdin: RefCell<Option<Pipe>>,
 }
 
 static WORKER_STATE: OnceLock<SendWrapper<WorkerState>> = OnceLock::new();
@@ -119,13 +120,13 @@ fn handle_message(msg: JsValue) {
 
             let (sender, mut receiver) = channel();
             worker_state().stop.borrow_mut().replace(sender);
-            let stdin = Rc::new(Pipe::new());
+            let stdin = Pipe::new();
             if let Some(input) = input {
                 stdin.write(&input);
                 stdin.close();
             }
             worker_state().stdin.borrow_mut().replace(stdin.clone());
-            let stdout = Rc::new(Pipe::new());
+            let stdout = Pipe::new();
 
             spawn_local({
                 let stdout = stdout.clone();
@@ -196,10 +197,10 @@ fn handle_message(msg: JsValue) {
 
             let (sender, mut receiver) = channel();
             worker_state().ls_stop.borrow_mut().replace(sender);
-            let stdin = Rc::new(Pipe::new());
+            let stdin = Pipe::new();
             worker_state().ls_stdin.borrow_mut().replace(stdin.clone());
-            let stdout = Rc::new(Pipe::new());
-            let stderr = Rc::new(Pipe::new());
+            let stdout = Pipe::new();
+            let stderr = Pipe::new();
 
             spawn_local({
                 let stdout = stdout.clone();

@@ -28,7 +28,7 @@ pub enum FdEntry {
     Dir(Inode),
     /// inode, offset, append
     File(Inode, usize, bool),
-    Pipe(Rc<Pipe>),
+    Pipe(Pipe),
 }
 
 pub struct Process {

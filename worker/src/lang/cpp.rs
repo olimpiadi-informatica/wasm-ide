@@ -120,7 +120,7 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<u8>) -> Result<Vec<u8>> {
     Ok(linked)
 }
 
-pub async fn run(cpp: bool, code: Vec<u8>, stdin: Rc<Pipe>, stdout: Rc<Pipe>) -> Result<()> {
+pub async fn run(cpp: bool, code: Vec<u8>, stdin: Pipe, stdout: Pipe) -> Result<()> {
     send_fetching_compiler();
     let fs = get_fs("cpp")
         .await
@@ -160,7 +160,7 @@ pub async fn run(cpp: bool, code: Vec<u8>, stdin: Rc<Pipe>, stdout: Rc<Pipe>) ->
     Ok(())
 }
 
-pub async fn run_ls(cpp: bool, stdin: Rc<Pipe>, stdout: Rc<Pipe>, stderr: Rc<Pipe>) -> Result<()> {
+pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
     let std = match cpp {
         true => "-std=c++20",
         false => "-std=c17",

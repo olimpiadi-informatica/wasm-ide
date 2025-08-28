@@ -7,7 +7,7 @@ use crate::{
     util::*,
 };
 
-pub async fn run(code: Vec<u8>, stdin: Rc<Pipe>, stdout: Rc<Pipe>) -> Result<()> {
+pub async fn run(code: Vec<u8>, stdin: Pipe, stdout: Pipe) -> Result<()> {
     send_fetching_compiler();
     let mut fs = get_fs("python")
         .await

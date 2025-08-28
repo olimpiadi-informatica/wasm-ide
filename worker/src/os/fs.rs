@@ -12,7 +12,7 @@ pub type Inode = u64;
 pub enum FsEntry {
     Dir(HashMap<Vec<u8>, Inode>),
     File(Rc<Vec<u8>>),
-    Pipe(Rc<Pipe>),
+    Pipe(Pipe),
 }
 
 #[derive(Clone)]
