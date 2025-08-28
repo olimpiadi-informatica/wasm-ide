@@ -144,66 +144,10 @@ enum FileType {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "type", content = "args")]
+#[serde(untagged)]
 enum ProcMsg {
-    ArgsGet(Addr, Addr),
-    ArgsSizesGet(Addr, Addr),
-    EnvironGet(Addr, Addr),
-    EnvironSizesGet(Addr, Addr),
-    ClockResGet(ClockId, Addr),
-    ClockTimeGet(ClockId, Timestamp, Addr),
-    FdAdvise(Fd, FileSize, FileSize, Advice),
-    FdAllocate(Fd, FileSize, FileSize),
-    FdClose(Fd),
-    FdDatasync(Fd),
-    FdFdstatGet(Fd, Addr),
-    FdFdstatSetFlags(Fd, FdFlags),
-    FdFdstatSetRights(Fd, Rights, Rights),
-    FdFilestatGet(Fd, Addr),
-    FdFilestatSetSize(Fd, FileSize),
-    FdFilestatSetTimes(Fd, Timestamp, Timestamp, FstFlags),
-    FdPread(Fd, Addr, Size, FileSize, Addr),
-    FdPrestatGet(Fd, Addr),
-    FdPrestatDirName(Fd, Addr, Size),
-    FdPwrite(Fd, Addr, Size, FileSize, Addr),
-    FdRead(Fd, Addr, Size, Addr),
-    FdReaddir(Fd, Addr, Size, u64, Addr),
-    FdRenumber(Fd, Fd),
-    FdSeek(Fd, FileDelta, Whence, Addr),
-    FdSync(Fd),
-    FdTell(Fd, Addr),
-    FdWrite(Fd, Addr, Size, Addr),
-    PathCreateDirectory(Fd, Addr, Size),
-    PathFilestatGet(Fd, LookupFlags, Addr, Size, Addr),
-    PathFilestatSetTimes(Fd, LookupFlags, Addr, Size, Timestamp, Timestamp, FstFlags),
-    PathLink(Fd, Addr, Size, Fd, Addr, Size),
-    PathOpen(
-        Fd,
-        LookupFlags,
-        Addr,
-        Size,
-        OFlags,
-        Rights,
-        Rights,
-        FdFlags,
-        Addr,
-    ),
-    PathReadlink(Fd, Addr, Size, Addr, Size),
-    PathRemoveDirectory(Fd, Addr, Size),
-    PathRename(Fd, Addr, Size, Fd, Addr, Size),
-    PathSymlink(Addr, Size, Fd, Addr, Size),
-    PathUnlinkFile(Fd, Addr, Size),
-    ProcExit(ExitCode),
-    ProcRaise(Signal),
-    RandomGet(Addr, Size),
-    SchedYield,
-    SockAccept(Fd, Addr, Addr),
-    SockRecv(Fd, Addr, Size, Addr, Addr),
-    SockSend(Fd, Addr, Size, Addr, Addr),
-    SockShutdown(Fd, u8),
-    PollOneoff(Addr, Addr, Size, Addr),
-    ThreadSpawn(i32),
-    RuntimeError(String),
+    Syscall { kind: String, args: Vec<i64> },
+    RuntimeError { re: String },
 }
 
 pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
@@ -215,76 +159,193 @@ pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
         .expect("failed to deserialize WASI syscall message");
 
     spawn_local(async move {
-        let errno: i32 = match msg {
-            ProcMsg::ArgsGet(a, b) => args_get(&proc, a, b) as i32,
-            ProcMsg::ArgsSizesGet(a, b) => args_sizes_get(&proc, a, b) as i32,
-            ProcMsg::EnvironGet(a, b) => environ_get(&proc, a, b) as i32,
-            ProcMsg::EnvironSizesGet(a, b) => environ_sizes_get(&proc, a, b) as i32,
-            ProcMsg::ClockResGet(a, b) => clock_res_get(&proc, a, b) as i32,
-            ProcMsg::ClockTimeGet(a, b, c) => clock_time_get(&proc, a, b, c) as i32,
-            ProcMsg::FdAdvise(a, b, c, d) => fd_advise(&proc, a, b, c, d) as i32,
-            ProcMsg::FdAllocate(a, b, c) => fd_allocate(&proc, a, b, c) as i32,
-            ProcMsg::FdClose(a) => fd_close(&proc, a) as i32,
-            ProcMsg::FdDatasync(a) => fd_datasync(&proc, a) as i32,
-            ProcMsg::FdFdstatGet(a, b) => fd_fdstat_get(&proc, a, b) as i32,
-            ProcMsg::FdFdstatSetFlags(a, b) => fd_fdstat_set_flags(&proc, a, b) as i32,
-            ProcMsg::FdFdstatSetRights(a, b, c) => fd_fdstat_set_rights(&proc, a, b, c) as i32,
-            ProcMsg::FdFilestatGet(a, b) => fd_filestat_get(&proc, a, b) as i32,
-            ProcMsg::FdFilestatSetSize(a, b) => fd_filestat_set_size(&proc, a, b) as i32,
-            ProcMsg::FdFilestatSetTimes(a, b, c, d) => {
-                fd_filestat_set_times(&proc, a, b, c, d) as i32
+        let ret = handle_message_inner(&proc, msg).await;
+        match ret {
+            Some(Some(ret)) => {
+                let channel = proc.inner.borrow().threads[tid as usize - 1].1.clone();
+                let array = Int32Array::new(&channel);
+                Atomics::store(&array, 0, ret).expect("failed to store result in channel");
+                Atomics::notify(&array, 0).expect("failed to notify main thread about result");
             }
-            ProcMsg::FdPread(a, b, c, d, e) => fd_pread(&proc, a, b, c, d, e) as i32,
-            ProcMsg::FdPrestatGet(a, b) => fd_prestat_get(&proc, a, b) as i32,
-            ProcMsg::FdPrestatDirName(a, b, c) => fd_prestat_dir_name(&proc, a, b, c) as i32,
-            ProcMsg::FdPwrite(a, b, c, d, e) => fd_pwrite(&proc, a, b, c, d, e) as i32,
-            ProcMsg::FdRead(a, b, c, d) => fd_read(&proc, a, b, c, d).await as i32,
-            ProcMsg::FdReaddir(a, b, c, d, e) => fd_readdir(&proc, a, b, c, d, e) as i32,
-            ProcMsg::FdRenumber(a, b) => fd_renumber(&proc, a, b) as i32,
-            ProcMsg::FdSeek(a, b, c, d) => fd_seek(&proc, a, b, c, d) as i32,
-            ProcMsg::FdSync(a) => fd_sync(&proc, a) as i32,
-            ProcMsg::FdTell(a, b) => fd_tell(&proc, a, b) as i32,
-            ProcMsg::FdWrite(a, b, c, d) => fd_write(&proc, a, b, c, d) as i32,
-            ProcMsg::PathCreateDirectory(a, b, c) => path_create_directory(&proc, a, b, c) as i32,
-            ProcMsg::PathFilestatGet(a, b, c, d, e) => {
-                path_filestat_get(&proc, a, b, c, d, e) as i32
+            Some(None) => {}
+            None => {
+                proc.kill(StatusCode::RuntimeError("invalid syscall".into()));
             }
-            ProcMsg::PathFilestatSetTimes(a, b, c, d, e, f, g) => {
-                path_filestat_set_times(&proc, a, b, c, d, e, f, g) as i32
-            }
-            ProcMsg::PathLink(a, b, c, d, e, f) => path_link(&proc, a, b, c, d, e, f) as i32,
-            ProcMsg::PathOpen(a, b, c, d, e, f, g, h, i) => {
-                path_open(&proc, a, b, c, d, e, f, g, h, i) as i32
-            }
-            ProcMsg::PathReadlink(a, b, c, d, e) => path_readlink(&proc, a, b, c, d, e) as i32,
-            ProcMsg::PathRemoveDirectory(a, b, c) => path_remove_directory(&proc, a, b, c) as i32,
-            ProcMsg::PathRename(a, b, c, d, e, f) => path_rename(&proc, a, b, c, d, e, f) as i32,
-            ProcMsg::PathSymlink(a, b, c, d, e) => path_symlink(&proc, a, b, c, d, e) as i32,
-            ProcMsg::PathUnlinkFile(a, b, c) => path_unlink_file(&proc, a, b, c) as i32,
-            ProcMsg::ProcExit(a) => {
-                proc_exit(&proc, a);
-                return;
-            }
-            ProcMsg::ProcRaise(a) => proc_raise(&proc, a) as i32,
-            ProcMsg::RandomGet(a, b) => random_get(&proc, a, b) as i32,
-            ProcMsg::SchedYield => sched_yield(&proc) as i32,
-            ProcMsg::SockAccept(a, b, c) => sock_accept(&proc, a, b, c) as i32,
-            ProcMsg::SockRecv(a, b, c, d, e) => sock_recv(&proc, a, b, c, d, e) as i32,
-            ProcMsg::SockSend(a, b, c, d, e) => sock_send(&proc, a, b, c, d, e) as i32,
-            ProcMsg::SockShutdown(a, b) => sock_shutdown(&proc, a, b) as i32,
-            ProcMsg::PollOneoff(a, b, c, d) => poll_oneoff(&proc, a, b, c, d) as i32,
-            ProcMsg::ThreadSpawn(a) => thread_spawn(&proc, a),
-            ProcMsg::RuntimeError(e) => {
-                proc.kill(StatusCode::RuntimeError(e));
-                return;
-            }
-        };
-
-        let channel = proc.inner.borrow().threads[tid as usize - 1].1.clone();
-        let array = Int32Array::new(&channel);
-        Atomics::store(&array, 0, errno as i32).expect("failed to store result in channel");
-        Atomics::notify(&array, 0).expect("failed to notify main thread about result");
+        }
     });
+}
+
+async fn handle_message_inner(proc: &Rc<Process>, msg: ProcMsg) -> Option<Option<i32>> {
+    let (kind, args) = match msg {
+        ProcMsg::Syscall { kind, args } => (kind, args),
+        ProcMsg::RuntimeError { re } => {
+            proc.kill(StatusCode::RuntimeError(re));
+            return Some(None);
+        }
+    };
+
+    trait Arg<S> {
+        fn a(self) -> Option<S>;
+    }
+
+    macro_rules! impl_arg_for_int {
+        ($($t:ty),*) => {
+            $(
+                impl Arg<$t> for i64 {
+                    fn a(self) -> Option<$t> {
+                        let bytes = self.to_le_bytes();
+                        let size = std::mem::size_of::<$t>();
+                        let x = <$t>::from_le_bytes(bytes[..size].try_into().unwrap());
+                        if bytes[size..].iter().any(|&b| b != (if self < 0 { 0xFF } else { 0 })) {
+                            return None;
+                        }
+                        Some(x)
+                    }
+                }
+            )*
+        };
+    }
+
+    impl_arg_for_int!(i8, i16, i32, i64, u8, u16, u32, u64);
+
+    impl Arg<ClockId> for i64 {
+        fn a(self) -> Option<ClockId> {
+            match self {
+                0 => Some(ClockId::Monotonic),
+                1 => Some(ClockId::Realtime),
+                2 => Some(ClockId::ProcessCpu),
+                3 => Some(ClockId::ThreadCpu),
+                _ => None,
+            }
+        }
+    }
+
+    impl Arg<FdFlags> for i64 {
+        fn a(self) -> Option<FdFlags> {
+            Some(FdFlags(self.a()?))
+        }
+    }
+
+    impl Arg<Rights> for i64 {
+        fn a(self) -> Option<Rights> {
+            Some(Rights(self.a()?))
+        }
+    }
+
+    impl Arg<Whence> for i64 {
+        fn a(self) -> Option<Whence> {
+            match self {
+                0 => Some(Whence::Set),
+                1 => Some(Whence::Cur),
+                2 => Some(Whence::End),
+                _ => None,
+            }
+        }
+    }
+
+    impl Arg<OFlags> for i64 {
+        fn a(self) -> Option<OFlags> {
+            Some(OFlags(self.a()?))
+        }
+    }
+
+    Some(Some(match (kind.as_str(), args.as_slice()) {
+        ("args_get", &[a, b]) => args_get(proc, a.a()?, b.a()?) as _,
+        ("args_sizes_get", &[a, b]) => args_sizes_get(proc, a.a()?, b.a()?) as _,
+        ("environ_get", &[a, b]) => environ_get(proc, a.a()?, b.a()?) as _,
+        ("environ_sizes_get", &[a, b]) => environ_sizes_get(proc, a.a()?, b.a()?) as _,
+        ("clock_res_get", &[a, b]) => clock_res_get(proc, a.a()?, b.a()?) as _,
+        ("clock_time_get", &[a, b, c]) => clock_time_get(proc, a.a()?, b.a()?, c.a()?) as _,
+        ("fd_advise", &[a, b, c, d]) => fd_advise(proc, a.a()?, b.a()?, c.a()?, d.a()?) as _,
+        ("fd_allocate", &[a, b, c]) => fd_allocate(proc, a.a()?, b.a()?, c.a()?) as _,
+        ("fd_close", &[a]) => fd_close(proc, a.a()?) as _,
+        ("fd_datasync", &[a]) => fd_datasync(proc, a.a()?) as _,
+        ("fd_fdstat_get", &[a, b]) => fd_fdstat_get(proc, a.a()?, b.a()?) as _,
+        ("fd_fdstat_set_flags", &[a, b]) => fd_fdstat_set_flags(proc, a.a()?, b.a()?) as _,
+        ("fd_fdstat_set_rights", &[a, b, c]) => {
+            fd_fdstat_set_rights(proc, a.a()?, b.a()?, c.a()?) as _
+        }
+        ("fd_filestat_get", &[a, b]) => fd_filestat_get(proc, a.a()?, b.a()?) as _,
+        ("fd_filestat_set_size", &[a, b]) => fd_filestat_set_size(proc, a.a()?, b.a()?) as _,
+        ("fd_filestat_set_times", &[a, b, c, d]) => {
+            fd_filestat_set_times(proc, a.a()?, b.a()?, c.a()?, d.a()?) as _
+        }
+        ("fd_pread", &[a, b, c, d, e]) => {
+            fd_pread(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("fd_prestat_get", &[a, b]) => fd_prestat_get(proc, a.a()?, b.a()?) as _,
+        ("fd_prestat_dir_name", &[a, b, c]) => {
+            fd_prestat_dir_name(proc, a.a()?, b.a()?, c.a()?) as _
+        }
+        ("fd_pwrite", &[a, b, c, d, e]) => {
+            fd_pwrite(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("fd_read", &[a, b, c, d]) => fd_read(proc, a.a()?, b.a()?, c.a()?, d.a()?).await as _,
+        ("fd_readdir", &[a, b, c, d, e]) => {
+            fd_readdir(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("fd_renumber", &[a, b]) => fd_renumber(proc, a.a()?, b.a()?) as _,
+        ("fd_seek", &[a, b, c, d]) => fd_seek(proc, a.a()?, b.a()?, c.a()?, d.a()?) as _,
+        ("fd_sync", &[a]) => fd_sync(proc, a.a()?) as _,
+        ("fd_tell", &[a, b]) => fd_tell(proc, a.a()?, b.a()?) as _,
+        ("fd_write", &[a, b, c, d]) => fd_write(proc, a.a()?, b.a()?, c.a()?, d.a()?) as _,
+        ("path_create_directory", &[a, b, c]) => {
+            path_create_directory(proc, a.a()?, b.a()?, c.a()?) as _
+        }
+        ("path_filestat_get", &[a, b, c, d, e]) => {
+            path_filestat_get(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("path_filestat_set_times", &[a, b, c, d, e, f, g]) => {
+            path_filestat_set_times(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?, f.a()?, g.a()?)
+                as _
+        }
+        ("path_link", &[a, b, c, d, e, f]) => {
+            path_link(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?, f.a()?) as _
+        }
+        ("path_open", &[a, b, c, d, e, f, g, h, i]) => path_open(
+            proc,
+            a.a()?,
+            b.a()?,
+            c.a()?,
+            d.a()?,
+            e.a()?,
+            f.a()?,
+            g.a()?,
+            h.a()?,
+            i.a()?,
+        ) as _,
+        ("path_readlink", &[a, b, c, d, e, f]) => {
+            path_readlink(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?, f.a()?) as _
+        }
+        ("path_remove_directory", &[a, b, c]) => {
+            path_remove_directory(proc, a.a()?, b.a()?, c.a()?) as _
+        }
+        ("path_rename", &[a, b, c, d, e, f]) => {
+            path_rename(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?, f.a()?) as _
+        }
+        ("path_symlink", &[a, b, c, d, e]) => {
+            path_symlink(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("path_unlink_file", &[a, b, c]) => path_unlink_file(proc, a.a()?, b.a()?, c.a()?) as _,
+        ("proc_exit", &[a]) => {
+            proc_exit(proc, a.a()?);
+            return Some(None);
+        }
+        ("proc_raise", &[a]) => proc_raise(proc, a.a()?) as _,
+        ("sched_yield", &[]) => sched_yield(proc) as _,
+        ("random_get", &[a, b]) => random_get(proc, a.a()?, b.a()?) as _,
+        ("sock_accept", &[a, b, c]) => sock_accept(proc, a.a()?, b.a()?, c.a()?) as _,
+        ("sock_recv", &[a, b, c, d, e]) => {
+            sock_recv(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("sock_send", &[a, b, c, d, e]) => {
+            sock_send(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
+        }
+        ("sock_shutdown", &[a, b]) => sock_shutdown(proc, a.a()?, b.a()?) as _,
+        ("poll_oneoff", &[a, b, c, d]) => poll_oneoff(proc, a.a()?, b.a()?, c.a()?, d.a()?) as _,
+        ("thread_spawn", &[a]) => thread_spawn(proc, a.a()?),
+        _ => return None,
+    }))
 }
 
 #[repr(C)]
@@ -1087,6 +1148,7 @@ fn path_readlink(
     _path_len: Size,
     _buf: Addr,
     _buf_len: Size,
+    _out: Addr,
 ) -> Errno {
     Errno::Perm
 }

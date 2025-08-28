@@ -1,13 +1,10 @@
 let channel;
 
-function syscall(name) {
+function syscall(kind) {
     return function(...args) {
-        // TODO: Make sure bigints are passed correctly
-        args = args.map(arg => Number(arg));
-        //console.log(`syscall: ${name}(${args.join(", ")})`);
         let array = new Int32Array(channel);
         Atomics.store(array, 0, -1);
-        postMessage({ type: name, args: (args.length === 0 ? undefined : args.length === 1 ? args[0] : args) });
+        postMessage({ kind, args });
         Atomics.wait(array, 0, -1);
         const val = Atomics.load(array, 0);
         return val;
@@ -82,9 +79,9 @@ self.onmessage = (msg) => {
             wasm.exports.wasi_thread_start(msg.data.tid, msg.data.arg);
         } else {
             wasm.exports._start();
-            postMessage({ type: 'proc_exit', args: 0 });
+            postMessage({ kind: 'proc_exit', args: [0] });
         }
     } catch (e) {
-        postMessage({ type: 'runtime_error', args: e.message });
+        postMessage({ re: e.message });
     }
 };
