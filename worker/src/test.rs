@@ -97,12 +97,11 @@ async fn test(testsuite: &[u8]) {
     }
 }
 
-// TODO: enable after fixing the issues
-//#[wasm_bindgen_test]
-//async fn test_as() {
-//    const TESTSUITE_AS: &[u8] = include_bytes!("../../testsuite/as.tar");
-//    test(TESTSUITE_AS).await;
-//}
+#[wasm_bindgen_test]
+async fn test_as() {
+    const TESTSUITE_AS: &[u8] = include_bytes!("../../testsuite/as.tar");
+    test(TESTSUITE_AS).await;
+}
 
 #[wasm_bindgen_test]
 async fn test_c() {
