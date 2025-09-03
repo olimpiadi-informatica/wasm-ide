@@ -5,7 +5,7 @@ leptos_i18n::load_locales!();
 use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
 
 use async_channel::{unbounded, Sender};
-use common::{init_logging, ClientMessage, Language, WorkerMessage};
+use common::{init_logging, Language, WorkerRequest, WorkerResponse};
 use gloo_timers::future::sleep;
 use icondata::Icon;
 use leptos::*;
@@ -467,7 +467,7 @@ fn handle_message(
     ls_message_chan: &Sender<LSEvent>,
 ) -> Result<()> {
     let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
-    let mut msg = match serde_wasm_bindgen::from_value::<WorkerMessage>(msg) {
+    let mut msg = match serde_wasm_bindgen::from_value::<WorkerResponse>(msg) {
         Ok(msg) => msg,
         Err(e) => {
             warn!("invalid message from worker: {e}");
@@ -475,15 +475,15 @@ fn handle_message(
         }
     };
     debug!("{msg:?}");
-    if let WorkerMessage::LSReady = msg {
+    if let WorkerResponse::LSReady = msg {
         ls_message_chan.try_send(LSEvent::Ready)?;
         return Ok(());
     }
-    if let WorkerMessage::LSStopping = msg {
+    if let WorkerResponse::LSStopping = msg {
         ls_message_chan.try_send(LSEvent::Stopping)?;
         return Ok(());
     }
-    if let WorkerMessage::LSMessage(msg) = msg {
+    if let WorkerResponse::LSMessage(msg) = msg {
         ls_message_chan.try_send(LSEvent::Message(msg))?;
         return Ok(());
     }
@@ -493,9 +493,9 @@ fn handle_message(
         matches!(
             (&msg, s),
             (
-                WorkerMessage::StdoutChunk(_)
-                    | WorkerMessage::StderrChunk(_)
-                    | WorkerMessage::CompilationMessageChunk(_),
+                WorkerResponse::StdoutChunk(_)
+                    | WorkerResponse::StderrChunk(_)
+                    | WorkerResponse::CompilationMessageChunk(_),
                 RunState::InProgress(_, false),
             )
         )
@@ -505,46 +505,46 @@ fn handle_message(
 
     state.update(|mut state| {
         match (&mut msg, &mut state) {
-            (WorkerMessage::Done, RunState::InProgress(cur, _)) => {
+            (WorkerResponse::Done, RunState::InProgress(cur, _)) => {
                 *state = RunState::Complete(std::mem::take(cur));
             }
-            (WorkerMessage::CompilationDone, RunState::CompilationInProgress(cur, _)) => {
+            (WorkerResponse::CompilationDone, RunState::CompilationInProgress(cur, _)) => {
                 *state = RunState::InProgress(std::mem::take(cur), true);
             }
-            (WorkerMessage::Error(s), RunState::FetchingCompiler) => {
+            (WorkerResponse::Error(s), RunState::FetchingCompiler) => {
                 *state = RunState::Error(std::mem::take(s), Outcome::default());
             }
             (
-                WorkerMessage::Error(s),
+                WorkerResponse::Error(s),
                 RunState::InProgress(cur, _) | RunState::CompilationInProgress(cur, _),
             ) => {
                 *state = RunState::Error(std::mem::take(s), std::mem::take(cur));
             }
             (
-                WorkerMessage::StdoutChunk(chunk),
+                WorkerResponse::StdoutChunk(chunk),
                 RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
             ) => {
                 cur.stdout.extend_from_slice(chunk);
             }
             (
-                WorkerMessage::StderrChunk(chunk),
+                WorkerResponse::StderrChunk(chunk),
                 RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
             ) => {
                 cur.stderr.extend_from_slice(chunk);
             }
             (
-                WorkerMessage::CompilationMessageChunk(chunk),
+                WorkerResponse::CompilationMessageChunk(chunk),
                 RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
             ) => {
                 cur.compile_stderr.extend_from_slice(chunk);
             }
-            (WorkerMessage::Ready, RunState::Loading) => {
+            (WorkerResponse::Ready, RunState::Loading) => {
                 *state = RunState::NotStarted;
             }
-            (WorkerMessage::Started, RunState::MessageSent) => {
+            (WorkerResponse::Started, RunState::MessageSent) => {
                 *state = RunState::FetchingCompiler;
             }
-            (WorkerMessage::CompilerFetched, RunState::FetchingCompiler) => {
+            (WorkerResponse::CompilerFetched, RunState::FetchingCompiler) => {
                 *state = RunState::CompilationInProgress(Outcome::default(), true);
             }
             _ => {
@@ -732,7 +732,7 @@ fn App() -> impl IntoView {
     ));
 
     let send_worker_message = {
-        let (sender, receiver) = unbounded::<ClientMessage>();
+        let (sender, receiver) = unbounded::<WorkerRequest>();
         spawn_local(async move {
             loop {
                 if !matches!(state.get_untracked(), RunState::Loading) {
@@ -751,7 +751,7 @@ fn App() -> impl IntoView {
             }
         });
 
-        move |m: ClientMessage| {
+        move |m: WorkerRequest| {
             sender.try_send(m).expect("worker died?");
         }
     };
@@ -819,7 +819,7 @@ fn App() -> impl IntoView {
         create_effect(move |_| {
             let lang = lang.get().unwrap();
             info!("Requesting language server for {lang:?}");
-            send_worker_message(ClientMessage::StartLS(lang));
+            send_worker_message(WorkerRequest::StartLS(lang));
         });
     }
 
@@ -849,14 +849,14 @@ fn App() -> impl IntoView {
                 let input = stdin.with_untracked(|x| x.text().clone());
                 let (input, addn_msg) = match input_mode.get_untracked().unwrap() {
                     InputMode::MixedInteractive => {
-                        (None, Some(ClientMessage::StdinChunk(input.into_bytes())))
+                        (None, Some(WorkerRequest::StdinChunk(input.into_bytes())))
                     }
                     InputMode::FullInteractive => (None, None),
                     InputMode::Batch => (Some(input.into_bytes()), None),
                 };
 
                 info!("Requesting execution");
-                send_worker_message(ClientMessage::CompileAndRun {
+                send_worker_message(WorkerRequest::CompileAndRun {
                     source: code,
                     language: lang.get_untracked().unwrap_or(Language::CPP),
                     input,
@@ -881,7 +881,7 @@ fn App() -> impl IntoView {
                 }
             });
             info!("Stopping execution");
-            send_worker_message(ClientMessage::Cancel);
+            send_worker_message(WorkerRequest::Cancel);
         }
     };
 
@@ -1031,7 +1031,7 @@ fn App() -> impl IntoView {
                 extra = format!("{extra}\n");
             }
             stdin.set(EditorText::from_str(&(cur_stdin + &extra)));
-            send_worker_message(ClientMessage::StdinChunk(extra.into_bytes()));
+            send_worker_message(WorkerRequest::StdinChunk(extra.into_bytes()));
         }
     };
 
@@ -1106,7 +1106,7 @@ fn App() -> impl IntoView {
                                 ls_interface=Some((
                                     receiver,
                                     Box::new(move |s| send_worker_message(
-                                        ClientMessage::LSMessage(s),
+                                        WorkerRequest::LSMessage(s),
                                     )),
                                 ))
                             />

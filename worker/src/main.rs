@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, sync::OnceLock};
 
-use common::{init_logging, ClientMessage, WorkerMessage};
+use common::{init_logging, WorkerRequest, WorkerResponse};
 use futures::{
     channel::{
         mpsc::{unbounded, UnboundedSender},
@@ -25,7 +25,7 @@ mod util;
 pub mod test;
 
 struct WorkerState {
-    send_msg: UnboundedSender<WorkerMessage>,
+    send_msg: UnboundedSender<WorkerResponse>,
     fs_cache: Mutex<HashMap<String, Fs>>,
 
     stop: RefCell<Option<Sender<()>>>,
@@ -60,7 +60,7 @@ fn main() {
     });
 
     // This message will only be sent once this function returns.
-    send_msg(WorkerMessage::Ready);
+    send_msg(WorkerResponse::Ready);
 
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
@@ -90,7 +90,7 @@ fn main() {
     });
 }
 
-fn send_msg(msg: WorkerMessage) {
+fn send_msg(msg: WorkerResponse) {
     worker_state()
         .send_msg
         .unbounded_send(msg)
@@ -102,7 +102,7 @@ fn handle_message(msg: JsValue) {
         .dyn_into::<MessageEvent>()
         .expect("message event expected")
         .data();
-    let msg = match serde_wasm_bindgen::from_value::<ClientMessage>(msg) {
+    let msg = match serde_wasm_bindgen::from_value::<WorkerRequest>(msg) {
         Ok(msg) => msg,
         Err(e) => {
             warn!("Received invalid message: {e:?}");
@@ -111,7 +111,7 @@ fn handle_message(msg: JsValue) {
     };
 
     match msg {
-        ClientMessage::CompileAndRun {
+        WorkerRequest::CompileAndRun {
             source,
             language,
             input,
@@ -135,13 +135,13 @@ fn handle_message(msg: JsValue) {
                     select! {
                         _ = receiver => {
                             info!("Received stop command, cancelling execution");
-                            send_msg(WorkerMessage::Error("Execution cancelled by user".to_string()));
+                            send_msg(WorkerResponse::Error("Execution cancelled by user".to_string()));
                         }
                         res = running.fuse() => {
                             info!("Execution finished");
                             match res {
-                                Ok(()) => send_msg(WorkerMessage::Done),
-                                Err(e) => send_msg(WorkerMessage::Error(format!("{e:?}"))),
+                                Ok(()) => send_msg(WorkerResponse::Done),
+                                Err(e) => send_msg(WorkerResponse::Error(format!("{e:?}"))),
                             }
                         }
                     };
@@ -165,7 +165,7 @@ fn handle_message(msg: JsValue) {
             });
         }
 
-        ClientMessage::StdinChunk(chunk) => {
+        WorkerRequest::StdinChunk(chunk) => {
             if let Some(stdin) = &*worker_state().stdin.borrow_mut() {
                 stdin.write(&chunk);
             } else {
@@ -173,7 +173,7 @@ fn handle_message(msg: JsValue) {
             }
         }
 
-        ClientMessage::Cancel => {
+        WorkerRequest::Cancel => {
             if let Some(s) = worker_state().stop.borrow_mut().take() {
                 let _ = s.send(());
             } else {
@@ -184,9 +184,9 @@ fn handle_message(msg: JsValue) {
             }
         }
 
-        ClientMessage::StartLS(lang) => {
+        WorkerRequest::StartLS(lang) => {
             if let Some(s) = worker_state().ls_stop.borrow_mut().take() {
-                send_msg(WorkerMessage::LSStopping);
+                send_msg(WorkerResponse::LSStopping);
                 let _ = s.send(());
             }
             if let Some(stdin) = worker_state().ls_stdin.borrow_mut().take() {
@@ -247,7 +247,7 @@ fn handle_message(msg: JsValue) {
                             break;
                         }
                         let msg = String::from_utf8(line.clone()).unwrap();
-                        send_msg(WorkerMessage::LSMessage(msg));
+                        send_msg(WorkerResponse::LSMessage(msg));
                     }
                 }
             });
@@ -269,7 +269,7 @@ fn handle_message(msg: JsValue) {
             });
         }
 
-        ClientMessage::LSMessage(msg) => {
+        WorkerRequest::LSMessage(msg) => {
             if let Some(stdin) = &*worker_state().ls_stdin.borrow_mut() {
                 debug!("Received LS message: {}", msg);
                 stdin.write(format!("Content-Length: {}\r\n\r\n", msg.len()).as_bytes());

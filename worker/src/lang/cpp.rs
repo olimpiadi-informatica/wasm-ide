@@ -198,7 +198,7 @@ pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Resul
             vec![b"clangd".to_vec(), b"--pch-storage=memory".to_vec()],
         );
 
-    crate::send_msg(common::WorkerMessage::LSReady);
+    crate::send_msg(common::WorkerResponse::LSReady);
     let status_code = proc.proc.wait().await;
     status_code.check_success().context("clangd failed")?;
     Ok(())
