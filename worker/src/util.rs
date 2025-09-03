@@ -2,12 +2,13 @@ use std::{io::Read, rc::Rc};
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
+use common::WorkerExecResponse;
 use tracing::{debug, info};
 use url::Url;
 use wasm_bindgen::JsCast;
 use web_sys::DedicatedWorkerGlobalScope;
 
-use crate::{os::Fs, send_msg, WorkerResponse, WORKER_STATE};
+use crate::{os::Fs, send_msg, WORKER_STATE};
 
 async fn fetch_tar(name: &str) -> Result<Bytes> {
     let worker = js_sys::global()
@@ -65,30 +66,30 @@ pub async fn get_fs(name: &str) -> Result<Fs> {
 
 pub fn send_fetching_compiler() {
     debug!("send_fetching_compiler");
-    send_msg(WorkerResponse::Started);
+    send_msg(WorkerExecResponse::Started);
 }
 
 pub fn send_compiling() {
     debug!("send_compiling");
-    send_msg(WorkerResponse::CompilerFetched);
+    send_msg(WorkerExecResponse::CompilerFetched);
 }
 
 pub fn send_compiler_message(data: &[u8]) {
     debug!("send_compiler_message: {:?}", String::from_utf8_lossy(data));
-    send_msg(WorkerResponse::CompilationMessageChunk(data.to_owned()));
+    send_msg(WorkerExecResponse::CompilationMessageChunk(data.to_owned()));
 }
 
 pub fn send_running() {
     debug!("send_running");
-    send_msg(WorkerResponse::CompilationDone);
+    send_msg(WorkerExecResponse::CompilationDone);
 }
 
 pub fn send_stdout(data: &[u8]) {
     debug!("send_stdout: {:?}", String::from_utf8_lossy(data));
-    send_msg(WorkerResponse::StdoutChunk(data.to_owned()));
+    send_msg(WorkerExecResponse::StdoutChunk(data.to_owned()));
 }
 
 pub fn send_stderr(data: &[u8]) {
     debug!("send_stderr: {:?}", String::from_utf8_lossy(data));
-    send_msg(WorkerResponse::StderrChunk(data.to_owned()));
+    send_msg(WorkerExecResponse::StderrChunk(data.to_owned()));
 }

@@ -8,13 +8,23 @@
 //! compilation or language-server lifecycle that drives the IDE.
 #![warn(missing_docs)]
 
+use derive_more::From;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::{fmt::format::Pretty, prelude::*};
 use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
 /// Messages sent from the frontend to the worker.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, From)]
 pub enum WorkerRequest {
+    /// Control program execution.
+    Execution(WorkerExecRequest),
+    /// Control the language server.
+    LS(WorkerLSRequest),
+}
+
+/// Messages sent from the frontend to the worker to control program execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
         /// The user's source code to compile and run.
@@ -28,17 +38,33 @@ pub enum WorkerRequest {
     StdinChunk(Vec<u8>),
     /// Cancel the current compilation or execution.
     Cancel,
+}
+
+/// Messages sent from the frontend to the worker to control the language server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerLSRequest {
     /// Start the language server for the given language.
-    StartLS(Language),
+    Start(Language),
     /// Forward a raw Language Server Protocol message to the worker.
-    LSMessage(String),
+    Message(String),
 }
 
 /// Messages emitted by the worker back to the frontend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, From)]
 pub enum WorkerResponse {
+    /// A message related to program execution.
+    Execution(WorkerExecResponse),
+    /// A message related to the language server.
+    LS(WorkerLSResponse),
+}
+
+/// Messages emitted by the worker back to the frontend to report on program
+/// execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerExecResponse {
     /// The worker finished initialization and is ready to receive messages.
     Ready,
+
     /// A chunk of bytes produced on the program's standard output.
     StdoutChunk(Vec<u8>),
     /// A chunk of bytes produced on the program's standard error.
@@ -48,12 +74,6 @@ pub enum WorkerResponse {
     CompilationMessageChunk(Vec<u8>),
     /// An unrecoverable error occurred.
     Error(String),
-    /// The language server finished starting and is ready.
-    LSReady,
-    /// The language server is shutting down.
-    LSStopping,
-    /// A Language Server Protocol message produced by the worker.
-    LSMessage(String),
     /// Program execution finished.
     Done,
     /// The worker has begun processing a `CompileAndRun` request.
@@ -62,6 +82,18 @@ pub enum WorkerResponse {
     CompilerFetched,
     /// Compilation has completed successfully.
     CompilationDone,
+}
+
+/// Messages emitted by the worker back to the frontend to report on the
+/// language server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerLSResponse {
+    /// The language server finished starting and is ready.
+    Started,
+    /// The language server is shutting down.
+    Stopping,
+    /// A Language Server Protocol message produced by the worker.
+    Message(String),
 }
 
 /// Languages supported by the IDE.

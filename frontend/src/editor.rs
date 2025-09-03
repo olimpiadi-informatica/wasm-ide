@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_channel::{unbounded, Receiver, Sender};
-use common::Language;
+use common::{Language, WorkerLSResponse};
 use gloo_timers::future::TimeoutFuture;
 use leptos::*;
 use thaw::use_rw_theme;
@@ -13,12 +13,6 @@ use wasm_bindgen::prelude::*;
 use web_sys::js_sys::Function;
 
 use crate::{save, KeyboardMode};
-
-pub enum LSEvent {
-    Ready,
-    Message(String),
-    Stopping,
-}
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
@@ -109,7 +103,7 @@ pub fn Editor(
     #[prop(into)] readonly: MaybeSignal<bool>,
     ctrl_enter: Box<dyn Fn()>,
     #[prop(into)] kb_mode: MaybeSignal<Option<KeyboardMode>>,
-    ls_interface: Option<(Receiver<LSEvent>, Box<dyn Fn(String)>)>,
+    ls_interface: Option<(Receiver<WorkerLSResponse>, Box<dyn Fn(String)>)>,
 ) -> impl IntoView {
     let cm6 = create_rw_signal(None);
 
@@ -168,15 +162,9 @@ pub fn Editor(
                     loop {
                         let msg = receiver.recv().await.unwrap();
                         match msg {
-                            LSEvent::Ready => {
-                                ls.ready();
-                            }
-                            LSEvent::Stopping => {
-                                ls.stopping();
-                            }
-                            LSEvent::Message(s) => {
-                                ls.message(s);
-                            }
+                            WorkerLSResponse::Started => ls.ready(),
+                            WorkerLSResponse::Stopping => ls.stopping(),
+                            WorkerLSResponse::Message(s) => ls.message(s),
                         }
                     }
                 });
