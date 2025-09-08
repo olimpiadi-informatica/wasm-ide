@@ -6,7 +6,7 @@ use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
 
 use async_channel::{unbounded, Sender};
 use common::{
-    init_logging, Language, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest,
+    init_logging, File, Language, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
 use gloo_timers::future::sleep;
@@ -805,11 +805,9 @@ fn App() -> impl IntoView {
 
     let download_code = move |_| {
         let code = code.with_untracked(|x| x.text().clone());
-        match lang.get_untracked().unwrap_or(Language::CPP) {
-            Language::C => download("code.c", code.as_bytes()),
-            Language::CPP => download("code.cpp", code.as_bytes()),
-            Language::Python => download("code.py", code.as_bytes()),
-        }
+        let lng = lang.get_untracked().unwrap_or(Language::CPP);
+        let name = format!("code.{}", lng.ext());
+        download(&name, code.as_bytes());
     };
 
     {
@@ -855,10 +853,14 @@ fn App() -> impl IntoView {
                 };
 
                 info!("Requesting execution");
+                let lng = lang.get_untracked().unwrap_or(Language::CPP);
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
-                        source: code,
-                        language: lang.get_untracked().unwrap_or(Language::CPP),
+                        files: vec![File {
+                            name: format!("solution.{}", lng.ext()),
+                            content: code,
+                        }],
+                        language: lng,
                         input,
                     }
                     .into(),

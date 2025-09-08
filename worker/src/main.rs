@@ -114,15 +114,15 @@ fn handle_message(msg: JsValue) {
         }
     };
     match req {
-        WorkerRequest::Execution(req) => handle_execution_request(req),
+        WorkerRequest::Execution(req) => handle_exec_request(req),
         WorkerRequest::LS(req) => handle_ls_request(req),
     }
 }
 
-fn handle_execution_request(req: WorkerExecRequest) {
+fn handle_exec_request(req: WorkerExecRequest) {
     match req {
         WorkerExecRequest::CompileAndRun {
-            source,
+            files,
             language,
             input,
         } => {
@@ -141,7 +141,7 @@ fn handle_execution_request(req: WorkerExecRequest) {
             spawn_local({
                 let stdout = stdout.clone();
                 async move {
-                    let running = lang::run(language, source.into_bytes(), stdin, stdout);
+                    let running = lang::run(language, files, stdin, stdout);
                     select! {
                         _ = receiver => {
                             info!("Received stop command, cancelling execution");

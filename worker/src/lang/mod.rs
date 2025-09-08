@@ -1,16 +1,16 @@
 use anyhow::{bail, Result};
-use common::Language;
+use common::{File, Language};
 
 use crate::os::Pipe;
 
 mod cpp;
 mod python;
 
-pub async fn run(language: Language, code: Vec<u8>, stdin: Pipe, stdout: Pipe) -> Result<()> {
+pub async fn run(language: Language, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
     match language {
-        Language::C => cpp::run(false, code, stdin, stdout).await,
-        Language::CPP => cpp::run(true, code, stdin, stdout).await,
-        Language::Python => python::run(code, stdin, stdout).await,
+        Language::C => cpp::run(false, files, stdin, stdout).await,
+        Language::CPP => cpp::run(true, files, stdin, stdout).await,
+        Language::Python => python::run(files, stdin, stdout).await,
     }
 }
 

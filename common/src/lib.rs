@@ -22,13 +22,22 @@ pub enum WorkerRequest {
     LS(WorkerLSRequest),
 }
 
+/// Messages emitted by the worker back to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize, From)]
+pub enum WorkerResponse {
+    /// A message related to program execution.
+    Execution(WorkerExecResponse),
+    /// A message related to the language server.
+    LS(WorkerLSResponse),
+}
+
 /// Messages sent from the frontend to the worker to control program execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
         /// The user's source code to compile and run.
-        source: String,
+        files: Vec<File>,
         /// Programming language of the source code.
         language: Language,
         /// Optional data written to the program's standard input before execution.
@@ -40,31 +49,12 @@ pub enum WorkerExecRequest {
     Cancel,
 }
 
-/// Messages sent from the frontend to the worker to control the language server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum WorkerLSRequest {
-    /// Start the language server for the given language.
-    Start(Language),
-    /// Forward a raw Language Server Protocol message to the worker.
-    Message(String),
-}
-
-/// Messages emitted by the worker back to the frontend.
-#[derive(Debug, Clone, Serialize, Deserialize, From)]
-pub enum WorkerResponse {
-    /// A message related to program execution.
-    Execution(WorkerExecResponse),
-    /// A message related to the language server.
-    LS(WorkerLSResponse),
-}
-
 /// Messages emitted by the worker back to the frontend to report on program
 /// execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkerExecResponse {
     /// The worker finished initialization and is ready to receive messages.
     Ready,
-
     /// A chunk of bytes produced on the program's standard output.
     StdoutChunk(Vec<u8>),
     /// A chunk of bytes produced on the program's standard error.
@@ -84,6 +74,15 @@ pub enum WorkerExecResponse {
     CompilationDone,
 }
 
+/// Messages sent from the frontend to the worker to control the language server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerLSRequest {
+    /// Start the language server for the given language.
+    Start(Language),
+    /// Forward a raw Language Server Protocol message to the worker.
+    Message(String),
+}
+
 /// Messages emitted by the worker back to the frontend to report on the
 /// language server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +95,15 @@ pub enum WorkerLSResponse {
     Message(String),
 }
 
+/// A source code file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct File {
+    /// The file's name.
+    pub name: String,
+    /// The file's content.
+    pub content: String,
+}
+
 /// Languages supported by the IDE.
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum Language {
@@ -105,6 +113,17 @@ pub enum Language {
     CPP,
     /// Python 3 code.
     Python,
+}
+
+impl Language {
+    /// Return the typical file extension for this language.
+    pub fn ext(self) -> &'static str {
+        match self {
+            Language::C => "c",
+            Language::CPP => "cpp",
+            Language::Python => "py",
+        }
+    }
 }
 
 impl From<Language> for &'static str {

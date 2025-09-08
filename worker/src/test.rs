@@ -57,9 +57,6 @@ async fn test(testsuite: &[u8]) {
             .map(|data| serde_json::from_slice::<Config>(&data).unwrap())
             .unwrap_or_default();
 
-        let mut args = vec![file.to_vec()];
-        args.extend(config.args.into_iter().map(|arg| arg.into_bytes()));
-
         let proc = ProcessHandle::builder()
             .fs(fs.clone())
             .stdin(FdEntry::Data {
@@ -81,7 +78,9 @@ async fn test(testsuite: &[u8]) {
                     .map(|(k, v)| [k.as_bytes(), v.as_bytes()].join(&b'=')),
             )
             ._preopens(config.dirs.into_iter().map(String::into_bytes).collect())
-            .spawn_with_path(file, args);
+            .arg(file.clone())
+            .args(config.args)
+            .spawn_with_path(file);
 
         let status_code = proc.proc.wait().await;
         assert_eq!(status_code, StatusCode::Exited(config.exit_code));

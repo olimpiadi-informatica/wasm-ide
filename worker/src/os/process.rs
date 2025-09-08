@@ -135,6 +135,7 @@ pub struct Builder {
     stdin: Option<FdEntry>,
     stdout: Option<FdEntry>,
     stderr: Option<FdEntry>,
+    args: Vec<Vec<u8>>,
     env: Vec<Vec<u8>>,
 }
 
@@ -159,13 +160,25 @@ impl Builder {
         self
     }
 
-    pub fn env(mut self, mut env: Vec<u8>) -> Self {
+    pub fn arg(mut self, arg: impl Into<Vec<u8>>) -> Self {
+        let mut arg: Vec<u8> = arg.into();
+        arg.push(0);
+        self.args.push(arg);
+        self
+    }
+
+    pub fn args(self, args: impl IntoIterator<Item = impl Into<Vec<u8>>>) -> Self {
+        args.into_iter().fold(self, Builder::arg)
+    }
+
+    pub fn env(mut self, env: impl Into<Vec<u8>>) -> Self {
+        let mut env: Vec<u8> = env.into();
         env.push(0);
         self.env.push(env);
         self
     }
 
-    pub fn _envs(self, envs: impl IntoIterator<Item = Vec<u8>>) -> Self {
+    pub fn _envs(self, envs: impl IntoIterator<Item = impl Into<Vec<u8>>>) -> Self {
         envs.into_iter().fold(self, Builder::env)
     }
 
@@ -174,7 +187,7 @@ impl Builder {
         self
     }
 
-    pub fn spawn_with_module(self, module: Module, args: Vec<Vec<u8>>) -> ProcessHandle {
+    pub fn spawn_with_module(self, module: Module) -> ProcessHandle {
         let imports_memory = Module::imports(&module).iter().any(|import| {
             let kind =
                 js_sys::Reflect::get(&import, &"kind".into()).expect("could not get import kind");
@@ -199,14 +212,6 @@ impl Builder {
         let memory = Memory::new(&mem_opts).expect("could not create memory");
 
         let start_instant = Instant::now();
-
-        let args = args
-            .into_iter()
-            .map(|mut arg| {
-                arg.push(0);
-                arg
-            })
-            .collect::<Vec<_>>();
 
         let fs = self.fs.unwrap_or_default();
 
@@ -235,7 +240,7 @@ impl Builder {
             module,
             memory,
             start_instant,
-            args,
+            args: self.args,
             env: self.env,
             termiation_send: Mutex::new(termination_send),
             inner: RefCell::new(inner),
@@ -246,16 +251,16 @@ impl Builder {
         ProcessHandle { proc }
     }
 
-    pub fn spawn_with_code(self, code: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
+    pub fn spawn_with_code(self, code: &[u8]) -> ProcessHandle {
         let uint8array = js_sys::Uint8Array::new_with_length(code.len() as u32);
         uint8array.copy_from(code);
         let module = Module::new(&uint8array).expect("could not create module from wasm bytes");
-        self.spawn_with_module(module, args)
+        self.spawn_with_module(module)
     }
 
-    pub fn spawn_with_path(self, path: &[u8], args: Vec<Vec<u8>>) -> ProcessHandle {
+    pub fn spawn_with_path(self, path: &[u8]) -> ProcessHandle {
         let code = self.fs.as_ref().unwrap().get_file_with_path(path).unwrap();
-        self.spawn_with_code(&code, args)
+        self.spawn_with_code(&code)
     }
 }
 
