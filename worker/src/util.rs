@@ -1,25 +1,16 @@
 use std::{io::Read, rc::Rc};
 
 use anyhow::{Context, Result};
-use bytes::Bytes;
 use common::WorkerExecResponse;
+use gloo_net::http::Request;
 use tracing::{debug, info};
-use url::Url;
-use wasm_bindgen::JsCast;
-use web_sys::DedicatedWorkerGlobalScope;
 
 use crate::{os::Fs, send_msg, WORKER_STATE};
 
-async fn fetch_tar(name: &str) -> Result<Bytes> {
-    let worker = js_sys::global()
-        .dyn_into::<DedicatedWorkerGlobalScope>()
-        .expect("not a worker");
-    let base_url = worker.location().href();
-    // server & browser will take care of compressing & decompressing
-    let url = Url::parse(&base_url)?.join(&format!("./compilers/{name}.tar"))?;
-    let res = reqwest::get(url).await?;
-    let res = res.error_for_status()?;
-    let body = res.bytes().await?;
+async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
+    let url = format!("./compilers/{name}.tar");
+    let res = Request::get(&url).send().await?;
+    let body = res.binary().await?;
     Ok(body)
 }
 
