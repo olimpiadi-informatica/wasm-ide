@@ -124,6 +124,16 @@ impl Language {
             Language::Python => "py",
         }
     }
+
+    /// Return the language corresponding to the given file extension, if any.
+    pub fn from_ext(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "c" => Some(Language::C),
+            "cpp" => Some(Language::CPP),
+            "py" => Some(Language::Python),
+            _ => None,
+        }
+    }
 }
 
 impl From<Language> for &'static str {

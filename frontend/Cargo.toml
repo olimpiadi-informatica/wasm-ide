@@ -6,21 +6,21 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.99"
-leptos = { version = "0.6.15", features = ["csr"] }
+leptos = { version = "0.7.8", features = ["csr"] }
 common = { path = "../common" }
 web-sys = { version = "0.3.77", features = ["Worker", "WorkerOptions", "WorkerType", "Storage"] }
 wasm-bindgen-futures = "0.4.50"
 serde-wasm-bindgen = "0.6.5"
-thaw = { version = "0.3.4", features = ["csr"] }
+thaw = { version = "0.4.8", features = ["csr"] }
 icondata = "0.6.0"
 base64 = "0.22.1"
 serde_json = "1.0.143"
 serde = "1.0.219"
 wasm-bindgen = "0.2.100"
-leptos-use = "0.13.13"
+leptos-use = "0.15.10"
 async-channel = "2.5.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-leptos_i18n = { version = "0.4.2", features = ["interpolate_display"] }
+leptos_i18n = { version = "0.5.11", features = ["interpolate_display"] }
 tracing = { version = "0.1.41" }
 
 [package.metadata.leptos-i18n]

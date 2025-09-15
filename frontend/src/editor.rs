@@ -6,10 +6,11 @@ use std::{
 use async_channel::{unbounded, Receiver, Sender};
 use common::{Language, WorkerLSResponse};
 use gloo_timers::future::TimeoutFuture;
-use leptos::*;
-use thaw::use_rw_theme;
+use leptos::prelude::*;
+use thaw::Theme;
 use tracing::debug;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys::Function;
 
 use crate::{save, KeyboardMode};
@@ -97,15 +98,15 @@ impl EditorText {
 
 #[component]
 pub fn Editor(
-    contents: RwSignal<EditorText>,
+    contents: RwSignal<EditorText, LocalStorage>,
     cache_key: &'static str,
-    #[prop(into)] syntax: MaybeSignal<Option<Language>>,
-    #[prop(into)] readonly: MaybeSignal<bool>,
+    #[prop(into)] syntax: Signal<Option<Language>>,
+    #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Box<dyn Fn()>,
-    #[prop(into)] kb_mode: MaybeSignal<Option<KeyboardMode>>,
+    #[prop(into)] kb_mode: Signal<Option<KeyboardMode>>,
     ls_interface: Option<(Receiver<WorkerLSResponse>, Box<dyn Fn(String)>)>,
 ) -> impl IntoView {
-    let cm6 = create_rw_signal(None);
+    let cm6 = RwSignal::new_local(None);
 
     let onchange = move |_: JsValue| {
         contents.update_untracked(|val| {
@@ -173,8 +174,8 @@ pub fn Editor(
         });
     }
 
-    let theme = use_rw_theme();
-    create_effect(move |_| {
+    let theme = Theme::use_rw_theme();
+    Effect::new(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
                 return;
@@ -183,7 +184,7 @@ pub fn Editor(
         });
     });
 
-    create_effect(move |_| {
+    Effect::new(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
                 return;
@@ -192,7 +193,7 @@ pub fn Editor(
         });
     });
 
-    create_effect(move |_| {
+    Effect::new(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
                 return;
@@ -201,7 +202,7 @@ pub fn Editor(
         });
     });
 
-    create_effect(move |_| {
+    Effect::new(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
                 return;
@@ -218,7 +219,7 @@ pub fn Editor(
         });
     });
 
-    create_effect(move |_| {
+    Effect::new(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
                 return;
