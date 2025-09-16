@@ -4,6 +4,7 @@ leptos_i18n::load_locales!();
 
 use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
 
+use anyhow::{bail, ensure, Result};
 use async_channel::{unbounded, Sender};
 use common::{
     init_logging, File, Language, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest,
@@ -18,12 +19,10 @@ use thaw::{
     Button, ButtonAppearance, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign, FlexJustify,
     Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
     MessageBarIntent, MessageBarLayout, MessageBarTitle, Popover, PopoverTrigger, Scrollbar,
-    ScrollbarRef, Select, Space, SpaceAlign, Text, Theme, Upload,
+    ScrollbarRef, Space, SpaceAlign, Text, Theme, Upload,
 };
-use wasm_bindgen::prelude::*;
-
-use anyhow::{bail, ensure, Result};
 use tracing::{debug, info, warn};
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{
     FileList, HtmlAnchorElement, MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions,
@@ -33,8 +32,11 @@ use web_sys::{
 use i18n::*;
 
 mod editor;
+mod enum_select;
 
 use editor::{Editor, EditorText};
+
+use crate::enum_select::enum_select;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -159,15 +161,6 @@ impl RunState {
             | RunState::NotStarted => false,
             RunState::Complete(_) => true,
         }
-    }
-}
-
-#[component]
-pub fn SelectOption(is: &'static str, value: ReadSignal<String>) -> impl IntoView {
-    view! {
-        <option value=is selected=move || value.get() == is>
-            {is}
-        </option>
     }
 }
 
@@ -699,38 +692,33 @@ fn ThemeSelector() -> impl IntoView {
 fn LocaleSelector() -> impl IntoView {
     let i18n = use_i18n();
 
-    let current_locale_str = {
-        let loc = load("locale").unwrap_or_else(|| {
-            let window = web_sys::window().expect("Missing Window");
-            let navigator = window.navigator();
-            let preferences: Vec<_> = navigator
-                .languages()
-                .into_iter()
-                .map(|x| x.as_string().unwrap())
-                .collect();
-            Locale::find_locale(&preferences)
-        });
-        RwSignal::new(loc.as_str().to_string())
-    };
-
-    Effect::new(move |_| {
-        let locale_str = current_locale_str.get();
-        save("locale", &locale_str);
-        let locale = Locale::get_all()
-            .iter()
-            .find(|x| x.as_str() == current_locale_str.get_untracked())
-            .copied()
-            .unwrap_or(Locale::en);
-        i18n.set_locale(locale);
+    let init = load("locale").unwrap_or_else(|| {
+        let window = web_sys::window().expect("Missing Window");
+        let navigator = window.navigator();
+        let preferences: Vec<_> = navigator
+            .languages()
+            .into_iter()
+            .map(|x| x.as_string().unwrap())
+            .collect();
+        Locale::find_locale(&preferences)
     });
 
-    view! {
-        <Select value=current_locale_str class="locale-selector">
-            {Locale::get_all().iter().map(|&x| view! {
-                <option value=x.as_str()>{locale_name(x)}</option>
-            }).collect::<Vec<_>>()}
-        </Select>
-    }
+    let (locale, view) = enum_select(
+        "locale-selector",
+        init,
+        Locale::get_all()
+            .iter()
+            .map(|&x| (x, Signal::stored(locale_name(x).to_string())))
+            .collect::<Vec<_>>(),
+    );
+
+    Effect::new(move |_| {
+        let loc = locale.get();
+        save("locale", &loc);
+        i18n.set_locale(loc);
+    });
+
+    view
 }
 
 #[component]
@@ -825,9 +813,14 @@ fn App() -> impl IntoView {
         download("output.txt", &data);
     };
 
-    let lang_str = load("language").unwrap_or("cpp".to_string());
-    let lang_str = RwSignal::new(lang_str);
-    let lang = Memo::new(move |_| Language::from_ext(&lang_str.get()).unwrap());
+    let (lang, lang_selector) = enum_select(
+        "language-selector",
+        load("language").unwrap_or(Language::CPP),
+        [Language::CPP, Language::C, Language::Python]
+            .into_iter()
+            .map(|lng| (lng, Signal::stored(lng.into())))
+            .collect::<Vec<_>>(),
+    );
 
     let download_code = move |_| {
         let code = code.with_untracked(|x| x.text().clone());
@@ -845,8 +838,24 @@ fn App() -> impl IntoView {
         });
     }
 
-    let input_mode = load("input_mode").unwrap_or(InputMode::Batch);
-    let input_mode = RwSignal::new(Some(input_mode));
+    let (input_mode, input_mode_select) = enum_select(
+        "input-selector",
+        load("input_mode").unwrap_or(InputMode::Batch),
+        [
+            InputMode::Batch,
+            InputMode::MixedInteractive,
+            InputMode::FullInteractive,
+        ]
+        .into_iter()
+        .map(|mode| {
+            (
+                mode,
+                Signal::derive(move || input_mode_string(i18n.get_locale(), mode)),
+            )
+        })
+        .collect::<Vec<_>>(),
+    );
+    Effect::new(move |_| save("input_mode", &input_mode.get()));
 
     let do_run = {
         let send_worker_message = send_worker_message.clone();
@@ -854,14 +863,14 @@ fn App() -> impl IntoView {
             state.set(RunState::MessageSent);
             let send_worker_message = send_worker_message.clone();
             spawn_local(async move {
-                if input_mode.get_untracked().unwrap() == InputMode::FullInteractive {
+                if input_mode.get_untracked() == InputMode::FullInteractive {
                     stdin.set(EditorText::from_str(""));
                 }
                 code.with_untracked(|x| x.await_all_changes()).await;
                 stdin.with_untracked(|x| x.await_all_changes()).await;
                 let code = code.with_untracked(|x| x.text().clone());
                 let input = stdin.with_untracked(|x| x.text().clone());
-                let (input, addn_msg) = match input_mode.get_untracked().unwrap() {
+                let (input, addn_msg) = match input_mode.get_untracked() {
                     InputMode::MixedInteractive => (
                         None,
                         Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
@@ -912,7 +921,7 @@ fn App() -> impl IntoView {
     let show_compilation = RwSignal::new(true);
 
     Effect::new(move |_| {
-        save("language", &lang_str.get());
+        save("language", &lang.get());
         if lang.get() == Language::Python {
             if show_compilation.get_untracked() && !show_stderr.get_untracked() {
                 show_stderr.set(true);
@@ -924,39 +933,25 @@ fn App() -> impl IntoView {
         }
     });
 
-    let kb_mode = load("kb_mode").unwrap_or(KeyboardMode::Standard);
-    let kb_mode = RwSignal::new(Some(kb_mode));
-    //let kb_modes = Signal::derive(move || -> Vec<SelectOption<KeyboardMode>> {
-    //    [
-    //        KeyboardMode::Standard,
-    //        KeyboardMode::Vim,
-    //        KeyboardMode::Emacs,
-    //    ]
-    //    .into_iter()
-    //    .map(|x| SelectOption {
-    //        value: x,
-    //        label: kb_mode_string(i18n.get_locale(), x),
-    //    })
-    //    .collect()
-    //});
+    let (kb_mode, kb_mode_select) = enum_select(
+        "kb-selector",
+        load("kb_mode").unwrap_or(KeyboardMode::Standard),
+        [
+            KeyboardMode::Standard,
+            KeyboardMode::Vim,
+            KeyboardMode::Emacs,
+        ]
+        .into_iter()
+        .map(|mode| {
+            (
+                mode,
+                Signal::derive(move || kb_mode_string(i18n.get_locale(), mode)),
+            )
+        })
+        .collect::<Vec<_>>(),
+    );
 
-    Effect::new(move |_| save("kb_mode", &kb_mode.get().unwrap_or(KeyboardMode::Standard)));
-
-    //let input_modes = Signal::derive(move || -> Vec<SelectOption<InputMode>> {
-    //    [
-    //        InputMode::Batch,
-    //        InputMode::MixedInteractive,
-    //        InputMode::FullInteractive,
-    //    ]
-    //    .into_iter()
-    //    .map(|x| SelectOption {
-    //        value: x,
-    //        label: input_mode_string(i18n.get_locale(), x),
-    //    })
-    //    .collect()
-    //});
-
-    Effect::new(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
+    Effect::new(move |_| save("kb_mode", &kb_mode.get()));
 
     let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
     let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, show_stderr).to_string());
@@ -969,11 +964,7 @@ fn App() -> impl IntoView {
             <Space align=SpaceAlign::Center>
                 <ThemeSelector />
                 <LocaleSelector />
-                <Select value=lang_str class="language-selector">
-                    <option value="cpp">C++</option>
-                    <option value="c">C</option>
-                    <option value="py">Python</option>
-                </Select>
+                {lang_selector}
                 <Upload custom_request=upload_input>
                     <Button disabled=disable_start icon=icondata::AiUploadOutlined>
                         {t!(i18n, load_input)}
@@ -1033,8 +1024,8 @@ fn App() -> impl IntoView {
                     tooltip=show_compileerr_tooltip
                     //color=ButtonColor::Warning
                 />
-                //<Select value=kb_mode options=kb_modes class="kb-selector"/>
-                //<Select value=input_mode options=input_modes class="input-selector"/>
+                {kb_mode_select}
+                {input_mode_select}
             </Space>
         }
     };
@@ -1070,7 +1061,7 @@ fn App() -> impl IntoView {
             <div
                 class="additional-input"
                 style=move || {
-                    if input_mode.get().unwrap() != InputMode::Batch
+                    if input_mode.get() != InputMode::Batch
                     {
                         ""
                     } else {
@@ -1107,9 +1098,7 @@ fn App() -> impl IntoView {
     };
 
     let disable_input_editor = {
-        Memo::new(move |_| {
-            disable_start.get() || input_mode.get() == Some(InputMode::FullInteractive)
-        })
+        Memo::new(move |_| disable_start.get() || input_mode.get() == InputMode::FullInteractive)
     };
 
     let body = {
