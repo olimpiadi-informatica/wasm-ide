@@ -61,3 +61,35 @@ body {
 .cm-hover-doc ol {
   margin: 0;
 }
+
+.thaw-button.green {
+  --colorNeutralBackground1: #18a058;
+  --colorNeutralBackground1Hover: #36ad6a;
+
+  --colorNeutralStroke1: var(--colorNeutralBackground1);
+  --colorNeutralStroke1Hover: var(--colorNeutralBackground1Hover);
+}
+
+.thaw-button.blue {
+  --colorNeutralBackground1: #0078ff;
+  --colorNeutralBackground1Hover: #2994ff;
+
+  --colorNeutralStroke1: var(--colorNeutralBackground1);
+  --colorNeutralStroke1Hover: var(--colorNeutralBackground1Hover);
+}
+
+.thaw-button.yellow {
+  --colorNeutralBackground1: #f0a020;
+  --colorNeutralBackground1Hover: #fcb040;
+
+  --colorNeutralStroke1: var(--colorNeutralBackground1);
+  --colorNeutralStroke1Hover: var(--colorNeutralBackground1Hover);
+}
+
+.thaw-button.red {
+  --colorNeutralBackground1: #d03050;
+  --colorNeutralBackground1Hover: #de576d;
+
+  --colorNeutralStroke1: var(--colorNeutralBackground1);
+  --colorNeutralStroke1Hover: var(--colorNeutralBackground1Hover);
+}

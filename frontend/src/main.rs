@@ -19,7 +19,7 @@ use thaw::{
     Button, ButtonAppearance, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign, FlexJustify,
     Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
     MessageBarIntent, MessageBarLayout, MessageBarTitle, Popover, PopoverTrigger, Scrollbar,
-    ScrollbarRef, Space, SpaceAlign, Text, Theme, Upload,
+    ScrollbarRef, Space, SpaceAlign, Upload,
 };
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
@@ -33,10 +33,11 @@ use i18n::*;
 
 mod editor;
 mod enum_select;
+mod theme;
 
 use editor::{Editor, EditorText};
 
-use crate::enum_select::enum_select;
+use crate::{enum_select::enum_select, theme::ThemeSelector};
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -226,8 +227,7 @@ fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
                             <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
                             <pre>{err}</pre>
                             <Button
-                                // TODO: color=ButtonColor::Error
-                                appearance=ButtonAppearance::Primary
+                                class="red"
                                 icon=icondata::AiCloseOutlined
                                 on_click=move |_| {
                                     state2
@@ -566,11 +566,11 @@ fn OutputControl(
     signal: RwSignal<bool>,
     icon: Icon,
     tooltip: Signal<String>,
-    // color: ButtonColor,
+    #[prop(into)] color: String,
 ) -> impl IntoView {
     let appearance = Signal::derive(move || {
         if signal.get() {
-            ButtonAppearance::Primary
+            ButtonAppearance::Secondary
         } else {
             ButtonAppearance::Subtle
         }
@@ -578,7 +578,7 @@ fn OutputControl(
     view! {
         <Popover>
             <PopoverTrigger slot>
-                <Button icon on_click=move |_| signal.update(|x| *x = !*x) appearance />
+                <Button class=color icon on_click=move |_| signal.update(|x| *x = !*x) appearance />
             </PopoverTrigger>
             {tooltip}
         </Popover>
@@ -628,64 +628,6 @@ fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
         InputMode::FullInteractive => td_display!(locale, full_interactive_input),
     }
     .to_string()
-}
-
-#[component]
-fn ThemeSelector() -> impl IntoView {
-    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-    enum ThemePlus {
-        System,
-        Light,
-        Dark,
-    }
-
-    let preferred_dark = leptos_use::use_preferred_dark();
-    let theme_plus = RwSignal::new(load("theme").unwrap_or(ThemePlus::System));
-    let theme = Theme::use_rw_theme();
-
-    Effect::new(move |_| {
-        let new_theme = match theme_plus.get() {
-            ThemePlus::System => match preferred_dark.get() {
-                true => Theme::dark(),
-                false => Theme::light(),
-            },
-            ThemePlus::Light => Theme::light(),
-            ThemePlus::Dark => Theme::dark(),
-        };
-        if new_theme.name != theme.get_untracked().name {
-            theme.set(new_theme);
-        }
-    });
-
-    let theme_name_and_icon = Memo::new(move |_| match theme_plus.get() {
-        ThemePlus::System => match preferred_dark.get() {
-            true => ("System", icondata::BiMoonSolid),
-            false => ("System", icondata::BiSunSolid),
-        },
-        ThemePlus::Light => ("Light", icondata::BiSunSolid),
-        ThemePlus::Dark => ("Dark", icondata::BiMoonSolid),
-    });
-    let change_theme = move |_| {
-        let new_theme = match theme_plus.get_untracked() {
-            ThemePlus::System => ThemePlus::Light,
-            ThemePlus::Light => ThemePlus::Dark,
-            ThemePlus::Dark => ThemePlus::System,
-        };
-        save("theme", &new_theme);
-        theme_plus.set(new_theme);
-    };
-
-    view! {
-        <Button appearance=ButtonAppearance::Subtle on_click=change_theme>
-            {move || {
-                let (name, icon) = theme_name_and_icon.get();
-                view! {
-                    <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em"/>
-                    <Text>{name}</Text>
-                }
-            }}
-        </Button>
-    }
 }
 
 #[component]
@@ -966,14 +908,13 @@ fn App() -> impl IntoView {
                 <LocaleSelector />
                 {lang_selector}
                 <Upload custom_request=upload_input>
-                    <Button disabled=disable_start icon=icondata::AiUploadOutlined>
+                    <Button class="blue" disabled=disable_start icon=icondata::AiUploadOutlined>
                         {t!(i18n, load_input)}
                     </Button>
                 </Upload>
                 <Button
                     disabled=disable_stop
-                    //color=ButtonColor::Error
-                    appearance=ButtonAppearance::Primary
+                    class="red"
                     icon=icondata::AiCloseOutlined
                     on_click=on_stop
                 >
@@ -981,8 +922,7 @@ fn App() -> impl IntoView {
                 </Button>
                 <Button
                     disabled=disable_start
-                    //color=ButtonColor::Success
-                    appearance=ButtonAppearance::Primary
+                    class="green"
                     loading=is_running
                     icon=icondata::AiCaretRightFilled
                     on_click=move |_| do_run()
@@ -991,16 +931,14 @@ fn App() -> impl IntoView {
                 </Button>
                 <Button
                     disabled=disable_output
-                    //color=ButtonColor::Success
-                    appearance=ButtonAppearance::Primary
+                    class="green"
                     icon=icondata::AiDownloadOutlined
                     on_click=download_output
                 >
                     {t!(i18n, download_output)}
                 </Button>
                 <Button
-                    //color=ButtonColor::Success
-                    appearance=ButtonAppearance::Primary
+                    class="green"
                     icon=icondata::AiDownloadOutlined
                     on_click=download_code
                 >
@@ -1010,19 +948,19 @@ fn App() -> impl IntoView {
                     signal=show_stdout
                     icon=icondata::VsOutput
                     tooltip=show_output_tooltip
-                    //color=ButtonColor::Primary
+                    color="blue"
                 />
                 <OutputControl
                     signal=show_stderr
                     icon=icondata::BiErrorSolid
                     tooltip=show_stderr_tooltip
-                    //color=ButtonColor::Warning
+                    color="yellow"
                 />
                 <OutputControl
                     signal=show_compilation
                     icon=icondata::BiCommentErrorSolid
                     tooltip=show_compileerr_tooltip
-                    //color=ButtonColor::Warning
+                    color="yellow"
                 />
                 {kb_mode_select}
                 {input_mode_select}
@@ -1087,8 +1025,7 @@ fn App() -> impl IntoView {
                     </form>
                     <Button
                         disabled=disable_stop
-                        //color=ButtonColor::Success
-                        appearance=ButtonAppearance::Primary
+                        class="green"
                         icon=icondata::AiSendOutlined
                         on_click=move |_| add_input2()
                     />
