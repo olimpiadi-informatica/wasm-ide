@@ -283,7 +283,7 @@ fn output_for_display(s: &[u8]) -> String {
     format!("{}{}", String::from_utf8_lossy(data), extra)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 struct Style {
     bold: bool,
     fg: Option<&'static str>,
@@ -415,17 +415,9 @@ fn OutDivInner(
             <Divider class="outdivider" />
             <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
                 <pre style=style>
-                    {move || {
-                        fragments
-                            .with(|f| {
-                                f.iter()
-                                    .cloned()
-                                    .map(|(style, text)| {
-                                        view! { <span style=style.style_str()>{text}</span> }
-                                    })
-                                    .collect::<Vec<_>>()
-                            })
-                    }}
+                    <For each=move || fragments.get() key=|x| x.clone() let((style, text))>
+                        <span style=style.style_str()>{text}</span>
+                    </For>
                 </pre>
             </Scrollbar>
         </div>
