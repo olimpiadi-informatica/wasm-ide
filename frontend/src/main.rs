@@ -1038,7 +1038,7 @@ fn App() -> impl IntoView {
             <StatusView state />
             <StorageErrorView />
             <div style="display: flex; flex-direction: column; height: calc(100vh - 65px);">
-                <div style="flex-grow: 1;">
+                <div style="flex-grow: 1; min-height: 0;">
                     <Grid cols=4 x_gap=8 class="textarea-grid">
                         <GridItem column=3>
                             <Editor
