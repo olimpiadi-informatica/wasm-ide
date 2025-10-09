@@ -39,13 +39,15 @@ pub fn ThemeSelector() -> impl IntoView {
         ThemePlus::Light => ("Light", icondata::BiSunSolid),
         ThemePlus::Dark => ("Dark", icondata::BiMoonSolid),
     });
+
+    let owner = Owner::current().unwrap();
     let change_theme = move |_| {
         let new_theme = match theme_plus.get_untracked() {
             ThemePlus::System => ThemePlus::Light,
             ThemePlus::Light => ThemePlus::Dark,
             ThemePlus::Dark => ThemePlus::System,
         };
-        save("theme", &new_theme);
+        owner.with(|| save("theme", &new_theme));
         theme_plus.set(new_theme);
     };
 

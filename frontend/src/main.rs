@@ -1044,7 +1044,7 @@ fn App() -> impl IntoView {
                             <Editor
                                 contents=code
                                 cache_key="code"
-                                syntax=Signal::derive(move || Some(lang.get()))
+                                syntax=lang
                                 readonly=disable_start
                                 ctrl_enter=do_run.clone()
                                 kb_mode=kb_mode

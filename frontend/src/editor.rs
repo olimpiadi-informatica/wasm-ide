@@ -106,7 +106,7 @@ pub fn Editor(
     #[prop(into)] syntax: Signal<Option<Language>>,
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Box<dyn Fn()>,
-    #[prop(into)] kb_mode: Signal<Option<KeyboardMode>>,
+    #[prop(into)] kb_mode: Signal<KeyboardMode>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
     let cm6 = RwSignal::new_local(None);
@@ -230,11 +230,9 @@ pub fn Editor(
                 return;
             };
             match kb_mode.get() {
-                None | Some(KeyboardMode::Standard) => {
-                    cm6.set_keymap("");
-                }
-                Some(KeyboardMode::Vim) => cm6.set_keymap("vim"),
-                Some(KeyboardMode::Emacs) => cm6.set_keymap("emacs"),
+                KeyboardMode::Standard => cm6.set_keymap(""),
+                KeyboardMode::Vim => cm6.set_keymap("vim"),
+                KeyboardMode::Emacs => cm6.set_keymap("emacs"),
             }
         });
     });
