@@ -4,6 +4,7 @@ leptos_i18n::load_locales!();
 
 use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
 
+use anyhow::{bail, ensure, Result};
 use async_channel::{unbounded, Sender};
 use common::{
     init_logging, File, Language, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest,
@@ -11,20 +12,18 @@ use common::{
 };
 use gloo_timers::future::sleep;
 use icondata::Icon;
-use leptos::*;
+use leptos::{context::Provider, prelude::*};
 use leptos_use::signal_throttled;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thaw::{
-    create_component_ref, use_rw_theme, Alert, AlertVariant, Button, ButtonColor, ButtonVariant,
-    ComponentRef, Divider, GlobalStyle, Grid, GridItem, Icon, Input, Layout, LayoutHeader, Popover,
-    PopoverTrigger, Scrollbar, ScrollbarRef, Select, SelectOption, Space, SpaceAlign, Text, Theme,
-    ThemeProvider, Upload,
+    Button, ButtonAppearance, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign, FlexJustify,
+    Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
+    MessageBarActions, MessageBarBody, MessageBarIntent, MessageBarLayout, MessageBarTitle,
+    Popover, PopoverTrigger, Scrollbar, ScrollbarRef, Space, SpaceAlign, Upload,
 };
-use wasm_bindgen::prelude::*;
-
-use anyhow::{bail, ensure, Result};
 use tracing::{debug, info, warn};
-use wasm_bindgen_futures::JsFuture;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{
     FileList, HtmlAnchorElement, MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions,
     WorkerType,
@@ -33,8 +32,12 @@ use web_sys::{
 use i18n::*;
 
 mod editor;
+mod enum_select;
+mod theme;
 
-use editor::{Editor, EditorText};
+use crate::editor::{Editor, EditorText};
+use crate::enum_select::enum_select;
+use crate::theme::ThemeSelector;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -50,6 +53,7 @@ pub enum InputMode {
     FullInteractive,
 }
 
+#[derive(Default)]
 struct LargeFileSet(HashSet<String>);
 
 #[derive(Clone, Debug, Default)]
@@ -163,31 +167,17 @@ impl RunState {
 }
 
 #[component]
-pub fn SelectOption(is: &'static str, value: ReadSignal<String>) -> impl IntoView {
-    view! {
-        <option value=is selected=move || value.get() == is>
-            {is}
-        </option>
-    }
-}
-
-#[component]
 fn StorageErrorView() -> impl IntoView {
     let i18n = use_i18n();
     let large_files = expect_context::<RwSignal<LargeFileSet>>();
-    move || {
-        large_files.with(|lf| {
-            if lf.0.is_empty() {
-                view! {}.into_view()
-            } else {
-                view! {
-                    <div class="storage-error-view">
-                        <Alert variant=AlertVariant::Warning>{t!(i18n, files_too_big)}</Alert>
-                    </div>
-                }
-                .into_view()
-            }
-        })
+    view! {
+        <Show when=move || large_files.with(|lf| !lf.0.is_empty())>
+            <div class="storage-error-view">
+                <MessageBar intent=MessageBarIntent::Warning>
+                    <MessageBarBody>{t!(i18n, files_too_big)}</MessageBarBody>
+                </MessageBar>
+            </div>
+        </Show>
     }
 }
 
@@ -196,65 +186,88 @@ fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
     let i18n = use_i18n();
     let state2 = state;
     let state_to_view = move |state: &RunState| match state {
-        RunState::Complete(_) => {
-            view! { <Alert variant=AlertVariant::Success>{t!(i18n, execution_completed)}</Alert> }
-                .into_view()
+        RunState::Complete(_) => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, execution_completed)}</MessageBarBody>
+            </MessageBar>
         }
-        RunState::CompilationInProgress(_, true) => {
-            view! { <Alert variant=AlertVariant::Success>{t!(i18n, compiling)}</Alert> }.into_view()
+        .into_any(),
+        RunState::CompilationInProgress(_, true) => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
+            </MessageBar>
         }
-        RunState::InProgress(_, true) => {
-            view! { <Alert variant=AlertVariant::Success>{t!(i18n, executing)}</Alert> }.into_view()
+        .into_any(),
+        RunState::InProgress(_, true) => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
+            </MessageBar>
         }
-        RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => {
-            view! { <Alert variant=AlertVariant::Warning>{t!(i18n, stopping_execution)}</Alert> }
-                .into_view()
+        .into_any(),
+        RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
+            <MessageBar intent=MessageBarIntent::Warning>
+                <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
+            </MessageBar>
         }
+        .into_any(),
         RunState::Error(err, _) => {
             let err = err.clone();
             if err.is_empty() {
                 view! {
-                    <Alert variant=AlertVariant::Error title=t_display!(i18n, error).to_string()>
-                        ""
-                    </Alert>
+                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                        <MessageBarBody>
+                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
+                        </MessageBarBody>
+                    </MessageBar>
                 }
-                .into_view()
+                .into_any()
             } else {
                 view! {
-                    <Alert variant=AlertVariant::Error title=t_display!(i18n, error).to_string()>
-                        <pre>{err}</pre>
-                        <Button
-                            color=ButtonColor::Error
-                            icon=icondata::AiCloseOutlined
-                            on_click=move |_| {
-                                state2
-                                    .update(|s| {
-                                        if let RunState::Error(err, _) = s {
-                                            *err = String::new();
-                                        }
-                                    })
-                            }
-
-                            block=true
-                        >
-                            {t!(i18n, hide_error)}
-                        </Button>
-                    </Alert>
+                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                        <MessageBarBody>
+                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
+                            <pre>{err}</pre>
+                        </MessageBarBody>
+                        <MessageBarActions>
+                            <Button
+                                class="red"
+                                icon=icondata::AiCloseOutlined
+                                on_click=move |_| {
+                                    state2
+                                        .update(|s| {
+                                            if let RunState::Error(err, _) = s {
+                                                *err = String::new();
+                                            }
+                                        })
+                                }
+                                block=true
+                            >
+                                {t!(i18n, hide_error)}
+                            </Button>
+                        </MessageBarActions>
+                    </MessageBar>
                 }
-                .into_view()
+                .into_any()
             }
         }
-        RunState::NotStarted => {
-            view! { <Alert variant=AlertVariant::Success>{t!(i18n, click_to_run)}</Alert> }
-                .into_view()
+        RunState::NotStarted => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, click_to_run)}</MessageBarBody>
+            </MessageBar>
         }
-        RunState::Loading => {
-            view! { <Alert variant=AlertVariant::Success>{t!(i18n, loading)}</Alert> }.into_view()
+        .into_any(),
+        RunState::Loading => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
+            </MessageBar>
         }
-        RunState::FetchingCompiler | RunState::MessageSent => {
-            view! { <Alert variant=AlertVariant::Success>{t!(i18n, downloading_runtime)}</Alert> }
-                .into_view()
+        .into_any(),
+        RunState::FetchingCompiler | RunState::MessageSent => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, downloading_runtime)}</MessageBarBody>
+            </MessageBar>
         }
+        .into_any(),
     };
 
     view! { <div class="status-view">{move || state.with(state_to_view)}</div> }
@@ -270,7 +283,7 @@ fn output_for_display(s: &[u8]) -> String {
     format!("{}{}", String::from_utf8_lossy(data), extra)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 struct Style {
     bold: bool,
     fg: Option<&'static str>,
@@ -360,7 +373,7 @@ fn OutDivInner(
     icon: Icon,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    let scrollbar: ComponentRef<ScrollbarRef> = create_component_ref();
+    let scrollbar = ComponentRef::<ScrollbarRef>::new();
 
     let style_and_text = Signal::derive(move || {
         state.with(move |s| match s {
@@ -381,7 +394,7 @@ fn OutDivInner(
     let text = Signal::derive(move || style_and_text.get().1);
     let fragments = Signal::derive(move || ansi(&text.get()));
 
-    create_effect(move |_| {
+    Effect::new(move |_| {
         text.get();
         let scroll_options = ScrollToOptions::new();
         scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
@@ -398,14 +411,14 @@ fn OutDivInner(
 
     view! {
         <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
-            <Icon icon style="font-size: 1.5em"/>
-            <Divider class="outdivider"/>
+            <Icon icon style="font-size: 1.5em" />
+            <Divider class="outdivider" />
             <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
-                <pre style=style>{
-                    move || fragments.with(|f| f.iter().map(|(style, text)| {
-                        view! { <span style=style.style_str()>{text}</span> }.into_view()
-                    }).collect::<Vec<_>>())
-                }</pre>
+                <pre style=style>
+                    <For each=move || fragments.get() key=|x| x.clone() let((style, text))>
+                        <span style=style.style_str()>{text}</span>
+                    </For>
+                </pre>
             </Scrollbar>
         </div>
     }
@@ -414,7 +427,7 @@ fn OutDivInner(
 #[component]
 fn OutDiv(
     #[prop(into)] state: Signal<RunState>,
-    #[prop(into)] display: MaybeSignal<bool>,
+    #[prop(into)] display: Signal<bool>,
     get_data: fn(&Outcome) -> &Vec<u8>,
     icon: Icon,
 ) -> impl IntoView {
@@ -428,39 +441,35 @@ fn OutDiv(
 #[component]
 fn OutputView(
     state: RwSignal<RunState>,
-    #[prop(into)] show_stdout: MaybeSignal<bool>,
-    #[prop(into)] show_stderr: MaybeSignal<bool>,
-    #[prop(into)] show_compilation: MaybeSignal<bool>,
+    #[prop(into)] show_stdout: Signal<bool>,
+    #[prop(into)] show_stderr: Signal<bool>,
+    #[prop(into)] show_compilation: Signal<bool>,
 ) -> impl IntoView {
     let state = signal_throttled(state, 100.0);
-    move || {
-        if !show_stdout.get() && !show_stderr.get() && !show_compilation.get() {
-            view! {}.into_view()
-        } else {
-            view! {
-                <div style="display: flex; flex-direction: row;">
-                    <OutDiv
-                        state
-                        display=show_stdout
-                        get_data=|outcome| &outcome.stdout
-                        icon=icondata::VsOutput
-                    />
-                    <OutDiv
-                        state
-                        display=show_stderr
-                        get_data=|outcome| &outcome.stderr
-                        icon=icondata::BiErrorSolid
-                    />
-                    <OutDiv
-                        state
-                        display=show_compilation
-                        get_data=|outcome| &outcome.compile_stderr
-                        icon=icondata::BiCommentErrorSolid
-                    />
-                </div>
-            }
-            .into_view()
-        }
+    let when = move || show_stdout.get() || show_stderr.get() || show_compilation.get();
+    view! {
+        <Show when>
+            <div style="display: flex; flex-direction: row;">
+                <OutDiv
+                    state
+                    display=show_stdout
+                    get_data=|outcome| &outcome.stdout
+                    icon=icondata::VsOutput
+                />
+                <OutDiv
+                    state
+                    display=show_stderr
+                    get_data=|outcome| &outcome.stderr
+                    icon=icondata::BiErrorSolid
+                />
+                <OutDiv
+                    state
+                    display=show_compilation
+                    get_data=|outcome| &outcome.compile_stderr
+                    icon=icondata::BiCommentErrorSolid
+                />
+            </div>
+        </Show>
     }
 }
 
@@ -559,21 +568,19 @@ fn OutputControl(
     signal: RwSignal<bool>,
     icon: Icon,
     tooltip: Signal<String>,
-    color: ButtonColor,
+    #[prop(into)] color: String,
 ) -> impl IntoView {
-    let variant = {
-        Signal::derive(move || {
-            if signal.get() {
-                ButtonVariant::Primary
-            } else {
-                ButtonVariant::Outlined
-            }
-        })
-    };
+    let appearance = Signal::derive(move || {
+        if signal.get() {
+            ButtonAppearance::Secondary
+        } else {
+            ButtonAppearance::Subtle
+        }
+    });
     view! {
         <Popover>
             <PopoverTrigger slot>
-                <Button icon on_click=move |_| signal.update(|x| *x = !*x) color variant/>
+                <Button class=color icon on_click=move |_| signal.update(|x| *x = !*x) appearance />
             </PopoverTrigger>
             {tooltip}
         </Popover>
@@ -613,7 +620,7 @@ fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
         KeyboardMode::Emacs => td_display!(locale, emacs_mode),
         KeyboardMode::Standard => td_display!(locale, standard_mode),
     }
-    .into()
+    .to_string()
 }
 
 fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
@@ -622,65 +629,40 @@ fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
         InputMode::MixedInteractive => td_display!(locale, mixed_interactive_input),
         InputMode::FullInteractive => td_display!(locale, full_interactive_input),
     }
-    .into()
+    .to_string()
 }
 
 #[component]
-fn ThemeSelector() -> impl IntoView {
-    #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-    enum ThemePlus {
-        System,
-        Light,
-        Dark,
-    }
+fn LocaleSelector() -> impl IntoView {
+    let i18n = use_i18n();
 
-    let preferred_dark = leptos_use::use_preferred_dark();
-    let theme_plus = create_rw_signal(load("theme").unwrap_or(ThemePlus::System));
-    let theme = use_rw_theme();
-
-    create_effect(move |_| {
-        let new_theme = match theme_plus.get() {
-            ThemePlus::System => match preferred_dark.get() {
-                true => Theme::dark(),
-                false => Theme::light(),
-            },
-            ThemePlus::Light => Theme::light(),
-            ThemePlus::Dark => Theme::dark(),
-        };
-        if new_theme.name != theme.get_untracked().name {
-            theme.set(new_theme);
-        }
+    let init = load("locale").unwrap_or_else(|| {
+        let window = web_sys::window().expect("Missing Window");
+        let navigator = window.navigator();
+        let preferences: Vec<_> = navigator
+            .languages()
+            .into_iter()
+            .map(|x| x.as_string().unwrap())
+            .collect();
+        Locale::find_locale(&preferences)
     });
 
-    let theme_name_and_icon = create_memo(move |_| match theme_plus.get() {
-        ThemePlus::System => match preferred_dark.get() {
-            true => ("System", icondata::BiMoonSolid),
-            false => ("System", icondata::BiSunSolid),
-        },
-        ThemePlus::Light => ("Light", icondata::BiSunSolid),
-        ThemePlus::Dark => ("Dark", icondata::BiMoonSolid),
-    });
-    let change_theme = move |_| {
-        let new_theme = match theme_plus.get_untracked() {
-            ThemePlus::System => ThemePlus::Light,
-            ThemePlus::Light => ThemePlus::Dark,
-            ThemePlus::Dark => ThemePlus::System,
-        };
-        save("theme", &new_theme);
-        theme_plus.set(new_theme);
-    };
+    let (locale, view) = enum_select(
+        "locale-selector",
+        init,
+        Locale::get_all()
+            .iter()
+            .map(|&x| (x, Signal::stored(locale_name(x).to_string())))
+            .collect::<Vec<_>>(),
+    );
 
-    view! {
-        <Button variant=ButtonVariant::Text on_click=change_theme>
-            {move || {
-                let (name, icon) = theme_name_and_icon.get();
-                view! {
-                    <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em"/>
-                    <Text>{name}</Text>
-                }
-            }}
-        </Button>
-    }
+    Effect::new(move |_| {
+        let loc = locale.get();
+        save("locale", &loc);
+        i18n.set_locale(loc);
+    });
+
+    view
 }
 
 #[component]
@@ -691,33 +673,8 @@ fn App() -> impl IntoView {
         Worker::new_with_options("./worker_loader.js", &options).expect("could not start worker");
 
     let i18n = use_i18n();
-    let locales: Vec<_> = Locale::get_all()
-        .iter()
-        .cloned()
-        .map(|x| SelectOption {
-            value: x,
-            label: locale_name(x).to_string(),
-        })
-        .collect();
 
-    let current_locale = create_rw_signal(Some(load("locale").unwrap_or_else(|| {
-        let window = web_sys::window().expect("Missing Window");
-        let navigator = window.navigator();
-        let preferences: Vec<_> = navigator
-            .languages()
-            .into_iter()
-            .map(|x| x.as_string().unwrap())
-            .collect();
-        Locale::find_locale(&preferences)
-    })));
-
-    create_effect(move |_| {
-        let locale = current_locale.get().unwrap();
-        save("locale", &locale);
-        i18n.set_locale(locale);
-    });
-
-    let state = create_rw_signal(RunState::Loading);
+    let state = RwSignal::new(RunState::Loading);
 
     let (sender, receiver) = unbounded();
 
@@ -757,20 +714,22 @@ fn App() -> impl IntoView {
     // TODO(veluca): Allow overriding the default code, possibly at runtime.
     let starting_code = include_str!("../default_code.txt");
     let code =
-        create_rw_signal(load("code").unwrap_or_else(|| EditorText::from_str(starting_code)));
+        RwSignal::new_local(load("code").unwrap_or_else(|| EditorText::from_str(starting_code)));
 
     let starting_stdin = include_str!("../default_stdin.txt");
 
     let stdin =
-        create_rw_signal(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));
+        RwSignal::new_local(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));
 
-    let disable_start = create_memo(move |_| state.with(|s| !s.can_start()));
-    let disable_stop = create_memo(move |_| state.with(|s| !s.can_stop()));
-    let is_running = create_memo(move |_| state.with(|s| s.can_stop() || !s.can_start()));
-    let disable_output = create_memo(move |_| state.with(|s| !s.has_output()));
+    let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
+    let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
+    let is_running = Memo::new(move |_| state.with(|s| s.can_stop() || !s.can_start()));
+    let disable_output = Memo::new(move |_| state.with(|s| !s.has_output()));
 
+    let owner = Owner::current().unwrap();
     let upload_input = move |files: FileList| {
         let file = files.get(0).expect("0 files?");
+        let owner = owner.clone();
         spawn_local(async move {
             let promise = file.text();
             let text = JsFuture::from(promise).await;
@@ -778,7 +737,7 @@ fn App() -> impl IntoView {
                 Ok(text) => {
                     let text =
                         EditorText::from_text(text.as_string().expect("did not read a string"));
-                    save("stdin", &text);
+                    owner.with(|| save("stdin", &text));
                     stdin.set(text)
                 }
                 Err(err) => warn!("could not read file: {err:?}"),
@@ -800,35 +759,49 @@ fn App() -> impl IntoView {
         download("output.txt", &data);
     };
 
-    let lang = load("language").unwrap_or(Language::CPP);
-    let lang = create_rw_signal(Some(lang));
+    let (lang, lang_selector) = enum_select(
+        "language-selector",
+        load("language").unwrap_or(Language::CPP),
+        [Language::CPP, Language::C, Language::Python]
+            .into_iter()
+            .map(|lng| (lng, Signal::stored(lng.into())))
+            .collect::<Vec<_>>(),
+    );
 
     let download_code = move |_| {
         let code = code.with_untracked(|x| x.text().clone());
-        let lng = lang.get_untracked().unwrap_or(Language::CPP);
+        let lng = lang.get_untracked();
         let name = format!("code.{}", lng.ext());
         download(&name, code.as_bytes());
     };
 
     {
         let send_worker_message = send_worker_message.clone();
-        create_effect(move |_| {
-            let lang = lang.get().unwrap();
+        Effect::new(move |_| {
+            let lang = lang.get();
             info!("Requesting language server for {lang:?}");
             send_worker_message(WorkerLSRequest::Start(lang).into());
         });
     }
 
-    let languages: Vec<_> = [Language::CPP, Language::C, Language::Python]
+    let (input_mode, input_mode_select) = enum_select(
+        "input-selector",
+        load("input_mode").unwrap_or(InputMode::Batch),
+        [
+            InputMode::Batch,
+            InputMode::MixedInteractive,
+            InputMode::FullInteractive,
+        ]
         .into_iter()
-        .map(|x| SelectOption {
-            value: x,
-            label: x.into(),
+        .map(|mode| {
+            (
+                mode,
+                Signal::derive(move || input_mode_string(i18n.get_locale(), mode)),
+            )
         })
-        .collect();
-
-    let input_mode = load("input_mode").unwrap_or(InputMode::Batch);
-    let input_mode = create_rw_signal(Some(input_mode));
+        .collect::<Vec<_>>(),
+    );
+    Effect::new(move |_| save("input_mode", &input_mode.get()));
 
     let do_run = {
         let send_worker_message = send_worker_message.clone();
@@ -836,14 +809,14 @@ fn App() -> impl IntoView {
             state.set(RunState::MessageSent);
             let send_worker_message = send_worker_message.clone();
             spawn_local(async move {
-                if input_mode.get_untracked().unwrap() == InputMode::FullInteractive {
+                if input_mode.get_untracked() == InputMode::FullInteractive {
                     stdin.set(EditorText::from_str(""));
                 }
                 code.with_untracked(|x| x.await_all_changes()).await;
                 stdin.with_untracked(|x| x.await_all_changes()).await;
                 let code = code.with_untracked(|x| x.text().clone());
                 let input = stdin.with_untracked(|x| x.text().clone());
-                let (input, addn_msg) = match input_mode.get_untracked().unwrap() {
+                let (input, addn_msg) = match input_mode.get_untracked() {
                     InputMode::MixedInteractive => (
                         None,
                         Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
@@ -853,7 +826,7 @@ fn App() -> impl IntoView {
                 };
 
                 info!("Requesting execution");
-                let lng = lang.get_untracked().unwrap_or(Language::CPP);
+                let lng = lang.get_untracked();
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
                         files: vec![File {
@@ -889,13 +862,13 @@ fn App() -> impl IntoView {
         }
     };
 
-    let show_stdout = create_rw_signal(true);
-    let show_stderr = create_rw_signal(false);
-    let show_compilation = create_rw_signal(true);
+    let show_stdout = RwSignal::new(true);
+    let show_stderr = RwSignal::new(false);
+    let show_compilation = RwSignal::new(true);
 
-    create_effect(move |_| {
-        save("language", &lang.get().unwrap_or(Language::CPP));
-        if lang.get().is_some_and(|x| x == Language::Python) {
+    Effect::new(move |_| {
+        save("language", &lang.get());
+        if lang.get() == Language::Python {
             if show_compilation.get_untracked() && !show_stderr.get_untracked() {
                 show_stderr.set(true);
                 show_compilation.set(false);
@@ -906,39 +879,25 @@ fn App() -> impl IntoView {
         }
     });
 
-    let kb_mode = load("kb_mode").unwrap_or(KeyboardMode::Standard);
-    let kb_mode = create_rw_signal(Some(kb_mode));
-    let kb_modes = Signal::derive(move || -> Vec<SelectOption<KeyboardMode>> {
+    let (kb_mode, kb_mode_select) = enum_select(
+        "kb-selector",
+        load("kb_mode").unwrap_or(KeyboardMode::Standard),
         [
             KeyboardMode::Standard,
             KeyboardMode::Vim,
             KeyboardMode::Emacs,
         ]
         .into_iter()
-        .map(|x| SelectOption {
-            value: x,
-            label: kb_mode_string(i18n.get_locale(), x),
+        .map(|mode| {
+            (
+                mode,
+                Signal::derive(move || kb_mode_string(i18n.get_locale(), mode)),
+            )
         })
-        .collect()
-    });
+        .collect::<Vec<_>>(),
+    );
 
-    create_effect(move |_| save("kb_mode", &kb_mode.get().unwrap_or(KeyboardMode::Standard)));
-
-    let input_modes = Signal::derive(move || -> Vec<SelectOption<InputMode>> {
-        [
-            InputMode::Batch,
-            InputMode::MixedInteractive,
-            InputMode::FullInteractive,
-        ]
-        .into_iter()
-        .map(|x| SelectOption {
-            value: x,
-            label: input_mode_string(i18n.get_locale(), x),
-        })
-        .collect()
-    });
-
-    create_effect(move |_| save("input_mode", &input_mode.get().unwrap_or(InputMode::Batch)));
+    Effect::new(move |_| save("kb_mode", &kb_mode.get()));
 
     let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
     let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, show_stderr).to_string());
@@ -950,17 +909,16 @@ fn App() -> impl IntoView {
         view! {
             <Space align=SpaceAlign::Center>
                 <ThemeSelector />
-                <Select value=current_locale options=locales class="locale-selector"/>
-                <Select value=lang options=languages class="language-selector"/>
+                <LocaleSelector />
+                {lang_selector}
                 <Upload custom_request=upload_input>
-                    <Button disabled=disable_start icon=icondata::AiUploadOutlined>
+                    <Button class="blue" disabled=disable_start icon=icondata::AiUploadOutlined>
                         {t!(i18n, load_input)}
                     </Button>
                 </Upload>
                 <Button
                     disabled=disable_stop
-                    color=ButtonColor::Error
-                    variant=ButtonVariant::Primary
+                    class="red"
                     icon=icondata::AiCloseOutlined
                     on_click=on_stop
                 >
@@ -968,8 +926,7 @@ fn App() -> impl IntoView {
                 </Button>
                 <Button
                     disabled=disable_start
-                    color=ButtonColor::Success
-                    variant=ButtonVariant::Primary
+                    class="green"
                     loading=is_running
                     icon=icondata::AiCaretRightFilled
                     on_click=move |_| do_run()
@@ -978,46 +935,40 @@ fn App() -> impl IntoView {
                 </Button>
                 <Button
                     disabled=disable_output
-                    color=ButtonColor::Success
-                    variant=ButtonVariant::Primary
+                    class="green"
                     icon=icondata::AiDownloadOutlined
                     on_click=download_output
                 >
                     {t!(i18n, download_output)}
                 </Button>
-                <Button
-                    color=ButtonColor::Success
-                    variant=ButtonVariant::Primary
-                    icon=icondata::AiDownloadOutlined
-                    on_click=download_code
-                >
+                <Button class="green" icon=icondata::AiDownloadOutlined on_click=download_code>
                     {t!(i18n, download_code)}
                 </Button>
                 <OutputControl
                     signal=show_stdout
                     icon=icondata::VsOutput
                     tooltip=show_output_tooltip
-                    color=ButtonColor::Primary
+                    color="blue"
                 />
                 <OutputControl
                     signal=show_stderr
                     icon=icondata::BiErrorSolid
                     tooltip=show_stderr_tooltip
-                    color=ButtonColor::Warning
+                    color="yellow"
                 />
                 <OutputControl
                     signal=show_compilation
                     icon=icondata::BiCommentErrorSolid
                     tooltip=show_compileerr_tooltip
-                    color=ButtonColor::Warning
+                    color="yellow"
                 />
-                <Select value=kb_mode options=kb_modes class="kb-selector"/>
-                <Select value=input_mode options=input_modes class="input-selector"/>
+                {kb_mode_select}
+                {input_mode_select}
             </Space>
         }
     };
 
-    let additional_input = create_rw_signal(String::from(""));
+    let additional_input = RwSignal::new(String::from(""));
 
     let add_input = {
         let send_worker_message = send_worker_message.clone();
@@ -1048,12 +999,7 @@ fn App() -> impl IntoView {
             <div
                 class="additional-input"
                 style=move || {
-                    if input_mode.get().unwrap() != InputMode::Batch
-                    {
-                        ""
-                    } else {
-                        "display: none;"
-                    }
+                    if input_mode.get() != InputMode::Batch { "" } else { "display: none;" }
                 }
             >
 
@@ -1074,8 +1020,7 @@ fn App() -> impl IntoView {
                     </form>
                     <Button
                         disabled=disable_stop
-                        color=ButtonColor::Success
-                        variant=ButtonVariant::Primary
+                        class="green"
                         icon=icondata::AiSendOutlined
                         on_click=move |_| add_input2()
                     />
@@ -1085,17 +1030,15 @@ fn App() -> impl IntoView {
     };
 
     let disable_input_editor = {
-        create_memo(move |_| {
-            disable_start.get() || input_mode.get() == Some(InputMode::FullInteractive)
-        })
+        Memo::new(move |_| disable_start.get() || input_mode.get() == InputMode::FullInteractive)
     };
 
     let body = {
         let do_run = Box::new(do_run);
         let do_run2 = do_run.clone();
         view! {
-            <StatusView state/>
-            <StorageErrorView/>
+            <StatusView state />
+            <StorageErrorView />
             <div style="display: flex; flex-direction: column; height: calc(100vh - 65px);">
                 <div style="flex-grow: 1;">
                     <Grid cols=4 x_gap=8 class="textarea-grid">
@@ -1103,7 +1046,7 @@ fn App() -> impl IntoView {
                             <Editor
                                 contents=code
                                 cache_key="code"
-                                syntax=lang
+                                syntax=Signal::derive(move || Some(lang.get()))
                                 readonly=disable_start
                                 ctrl_enter=do_run.clone()
                                 kb_mode=kb_mode
@@ -1134,18 +1077,25 @@ fn App() -> impl IntoView {
                     </Grid>
                 </div>
                 <div>
-                    <OutputView state show_stdout show_stderr show_compilation/>
+                    <OutputView state show_stdout show_stderr show_compilation />
                 </div>
             </div>
         }
     };
 
     view! {
-        <Layout style="height: 100%;" content_style="height: 100%;">
-            <LayoutHeader style="padding: 0 20px; display: flex; align-items: center; height: 64px; justify-content: space-between;">
-                {navbar}
+        <Layout position=LayoutPosition::Absolute content_style="height: 100%;">
+            <LayoutHeader>
+                <Flex
+                    style="padding: 0 20px; height: 64px;"
+                    justify=FlexJustify::SpaceBetween
+                    align=FlexAlign::Center
+                >
+                    {navbar}
+                </Flex>
             </LayoutHeader>
-            <Layout>{body}</Layout>
+
+            <Layout content_style="height: 100%;">{body}</Layout>
         </Layout>
     }
 }
@@ -1153,16 +1103,16 @@ fn App() -> impl IntoView {
 fn main() {
     init_logging();
 
-    let large_files = create_rw_signal(LargeFileSet(HashSet::new()));
-    provide_context(large_files);
+    let large_file_set = RwSignal::new(LargeFileSet::default());
 
     mount_to_body(move || {
         view! {
             <I18nContextProvider>
-                <ThemeProvider>
-                    <GlobalStyle/>
-                    <App/>
-                </ThemeProvider>
+                <ConfigProvider>
+                    <Provider value=large_file_set>
+                        <App />
+                    </Provider>
+                </ConfigProvider>
             </I18nContextProvider>
         }
     })
