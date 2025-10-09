@@ -1,5 +1,3 @@
-#![allow(clippy::type_complexity)]
-
 leptos_i18n::load_locales!();
 
 use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
@@ -1060,8 +1058,9 @@ fn App() -> impl IntoView {
 
                         </GridItem>
                         <GridItem>
-                            <div style="display: flex; flex-direction: column; height: calc(75vh);">
-                                {additional_input_line} <div style="flex-grow: 1; flex-shrink: 1;">
+                            <div style="display: flex; flex-direction: column; height: 100%;">
+                                {additional_input_line}
+                                <div style="flex-grow: 1; flex-shrink: 1;">
                                     <Editor
                                         contents=stdin
                                         cache_key="stdin"
