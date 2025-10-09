@@ -108,10 +108,12 @@ pub fn Editor(
 ) -> impl IntoView {
     let cm6 = RwSignal::new_local(None);
 
+    let owner = Owner::current().unwrap();
     let onchange = move |_: JsValue| {
         contents.update_untracked(|val| {
             *val.num_pending_changes.lock().unwrap() += 1;
         });
+        let owner = owner.clone();
         spawn_local(async move {
             TimeoutFuture::new(100).await;
             let mut do_update = false;
@@ -133,7 +135,7 @@ pub fn Editor(
                 contents.update_untracked(|val| {
                     val.data = data;
                     debug!("onchange: {cache_key} {}", val.data.len());
-                    save(cache_key, val);
+                    owner.with(|| save(cache_key, val));
                 })
             });
             let sender = contents.with_untracked(|c| c.sender.clone());

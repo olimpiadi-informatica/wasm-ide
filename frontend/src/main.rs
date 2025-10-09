@@ -12,7 +12,7 @@ use common::{
 };
 use gloo_timers::future::sleep;
 use icondata::Icon;
-use leptos::prelude::*;
+use leptos::{context::Provider, prelude::*};
 use leptos_use::signal_throttled;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thaw::{
@@ -53,6 +53,7 @@ pub enum InputMode {
     FullInteractive,
 }
 
+#[derive(Default)]
 struct LargeFileSet(HashSet<String>);
 
 #[derive(Clone, Debug, Default)]
@@ -99,16 +100,16 @@ impl<T: Serialize + DeserializeOwned> Stringifiable for T {
 
 fn save<T: Stringifiable>(key: &str, value: &T) {
     let s = value.stringify();
-    //let large_files = expect_context::<RwSignal<LargeFileSet>>();
-    //if s.len() >= 3_000_000 {
-    //    large_files.update(|x| {
-    //        x.0.insert(key.to_owned());
-    //    });
-    //    return;
-    //}
-    //large_files.update(|x| {
-    //    x.0.remove(key);
-    //});
+    let large_files = expect_context::<RwSignal<LargeFileSet>>();
+    if s.len() >= 3_000_000 {
+        large_files.update(|x| {
+            x.0.insert(key.to_owned());
+        });
+        return;
+    }
+    large_files.update(|x| {
+        x.0.remove(key);
+    });
     window()
         .local_storage()
         .expect("no local storage")
@@ -167,22 +168,17 @@ impl RunState {
 
 #[component]
 fn StorageErrorView() -> impl IntoView {
-    //let i18n = use_i18n();
-    //let large_files = expect_context::<RwSignal<LargeFileSet>>();
-    //move || {
-    //    large_files.with(|lf| {
-    //        if lf.0.is_empty() {
-    //            view! {}.into_any()
-    //        } else {
-    //            view! {
-    //                <div class="storage-error-view">
-    //                    <MessageBar intent=MessageBarIntent::Warning>{t!(i18n, files_too_big)}</MessageBar>
-    //                </div>
-    //            }
-    //            .into_any()
-    //        }
-    //    })
-    //}
+    let i18n = use_i18n();
+    let large_files = expect_context::<RwSignal<LargeFileSet>>();
+    view! {
+        <Show when=move || large_files.with(|lf| !lf.0.is_empty())>
+            <div class="storage-error-view">
+                <MessageBar intent=MessageBarIntent::Warning>
+                    <MessageBarBody>{t!(i18n, files_too_big)}</MessageBarBody>
+                </MessageBar>
+            </div>
+        </Show>
+    }
 }
 
 #[component]
@@ -742,8 +738,10 @@ fn App() -> impl IntoView {
     let is_running = Memo::new(move |_| state.with(|s| s.can_stop() || !s.can_start()));
     let disable_output = Memo::new(move |_| state.with(|s| !s.has_output()));
 
+    let owner = Owner::current().unwrap();
     let upload_input = move |files: FileList| {
         let file = files.get(0).expect("0 files?");
+        let owner = owner.clone();
         spawn_local(async move {
             let promise = file.text();
             let text = JsFuture::from(promise).await;
@@ -751,7 +749,7 @@ fn App() -> impl IntoView {
                 Ok(text) => {
                     let text =
                         EditorText::from_text(text.as_string().expect("did not read a string"));
-                    save("stdin", &text);
+                    owner.with(|| save("stdin", &text));
                     stdin.set(text)
                 }
                 Err(err) => warn!("could not read file: {err:?}"),
@@ -1097,15 +1095,6 @@ fn App() -> impl IntoView {
         }
     };
 
-    //view! {
-    //    <Layout style="height: 100%;" content_style="height: 100%;">
-    //        <LayoutHeader style="padding: 0 20px; display: flex; align-items: center; height: 64px; justify-content: space-between;">
-    //            {navbar}
-    //        </LayoutHeader>
-    //        <Layout>{body}</Layout>
-    //    </Layout>
-    //}
-
     view! {
         <Layout position=LayoutPosition::Absolute content_style="height: 100%;">
             <LayoutHeader>
@@ -1126,21 +1115,15 @@ fn App() -> impl IntoView {
 fn main() {
     init_logging();
 
-    #[component]
-    fn LargeFileSetProvider(children: Children) -> impl IntoView {
-        tracing::warn!("owner: {:?}", Owner::current());
-        let large_files = RwSignal::new(LargeFileSet(HashSet::new()));
-        provide_context(large_files);
-        children()
-    }
+    let large_file_set = RwSignal::new(LargeFileSet::default());
 
     mount_to_body(move || {
         view! {
             <I18nContextProvider>
                 <ConfigProvider>
-                    <LargeFileSetProvider>
+                    <Provider value=large_file_set>
                         <App />
-                    </LargeFileSetProvider>
+                    </Provider>
                 </ConfigProvider>
             </I18nContextProvider>
         }
