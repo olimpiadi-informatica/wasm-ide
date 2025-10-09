@@ -28,10 +28,18 @@ where
 
     let view = view! {
         <Select value=value_str class>
-            {names.into_iter().enumerate().map(|(i, n)| {
-                let id = i.to_string();
-                view! { <option value=id.clone() selected=move || value_str.get() == id>{n}</option> }
-            }).collect::<Vec<_>>()}
+            {names
+                .into_iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let id = i.to_string();
+                    view! {
+                        <option value=id.clone() selected=move || value_str.get() == id>
+                            {n}
+                        </option>
+                    }
+                })
+                .collect::<Vec<_>>()}
         </Select>
     };
 

@@ -18,8 +18,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thaw::{
     Button, ButtonAppearance, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign, FlexJustify,
     Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
-    MessageBarIntent, MessageBarLayout, MessageBarTitle, Popover, PopoverTrigger, Scrollbar,
-    ScrollbarRef, Space, SpaceAlign, Upload,
+    MessageBarActions, MessageBarBody, MessageBarIntent, MessageBarLayout, MessageBarTitle,
+    Popover, PopoverTrigger, Scrollbar, ScrollbarRef, Space, SpaceAlign, Upload,
 };
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
@@ -189,43 +189,50 @@ fn StorageErrorView() -> impl IntoView {
 fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
     let i18n = use_i18n();
     let state2 = state;
-    let state_to_view = move |state: &RunState| {
-        match state {
-            RunState::Complete(_) => {
+    let state_to_view = move |state: &RunState| match state {
+        RunState::Complete(_) => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, execution_completed)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
+        RunState::CompilationInProgress(_, true) => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
+        RunState::InProgress(_, true) => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
+        RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
+            <MessageBar intent=MessageBarIntent::Warning>
+                <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
+        RunState::Error(err, _) => {
+            let err = err.clone();
+            if err.is_empty() {
                 view! {
-                    <MessageBar intent=MessageBarIntent::Success> {t!(i18n, execution_completed)} </MessageBar>
+                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                        <MessageBarBody>
+                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
+                        </MessageBarBody>
+                    </MessageBar>
                 }
                 .into_any()
-            }
-            RunState::CompilationInProgress(_, true) => {
+            } else {
                 view! {
-                    <MessageBar intent=MessageBarIntent::Success> {t!(i18n, compiling)} </MessageBar>
-                }.into_any()
-            }
-            RunState::InProgress(_, true) => {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Success> {t!(i18n, executing)} </MessageBar>
-                }.into_any()
-            }
-            RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Warning> {t!(i18n, stopping_execution)} </MessageBar>
-                }.into_any()
-            }
-            RunState::Error(err, _) => {
-                let err = err.clone();
-                if err.is_empty() {
-                    view! {
-                        <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
-                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
-                        </MessageBar>
-                    }
-                    .into_any()
-                } else {
-                    view! {
-                        <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                        <MessageBarBody>
                             <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
                             <pre>{err}</pre>
+                        </MessageBarBody>
+                        <MessageBarActions>
                             <Button
                                 class="red"
                                 icon=icondata::AiCloseOutlined
@@ -241,27 +248,30 @@ fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
                             >
                                 {t!(i18n, hide_error)}
                             </Button>
-                        </MessageBar>
-                    }
-                    .into_any()
+                        </MessageBarActions>
+                    </MessageBar>
                 }
-            }
-            RunState::NotStarted => {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Success> {t!(i18n, click_to_run)} </MessageBar>
-                }.into_any()
-            }
-            RunState::Loading => {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Success> {t!(i18n, loading)} </MessageBar>
-                }.into_any()
-            }
-            RunState::FetchingCompiler | RunState::MessageSent => {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Success> {t!(i18n, downloading_runtime)} </MessageBar>
-                }.into_any()
+                .into_any()
             }
         }
+        RunState::NotStarted => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, click_to_run)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
+        RunState::Loading => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
+        RunState::FetchingCompiler | RunState::MessageSent => view! {
+            <MessageBar intent=MessageBarIntent::Success>
+                <MessageBarBody>{t!(i18n, downloading_runtime)}</MessageBarBody>
+            </MessageBar>
+        }
+        .into_any(),
     };
 
     view! { <div class="status-view">{move || state.with(state_to_view)}</div> }
@@ -405,14 +415,22 @@ fn OutDivInner(
 
     view! {
         <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
-            <Icon icon style="font-size: 1.5em"/>
-            <Divider class="outdivider"/>
+            <Icon icon style="font-size: 1.5em" />
+            <Divider class="outdivider" />
             <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
-                <pre style=style>{
-                    move || fragments.with(|f| f.iter().cloned().map(|(style, text)| {
-                        view! { <span style=style.style_str()>{text}</span> }
-                    }).collect::<Vec<_>>())
-                }</pre>
+                <pre style=style>
+                    {move || {
+                        fragments
+                            .with(|f| {
+                                f.iter()
+                                    .cloned()
+                                    .map(|(style, text)| {
+                                        view! { <span style=style.style_str()>{text}</span> }
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                    }}
+                </pre>
             </Scrollbar>
         </div>
     }
@@ -937,11 +955,7 @@ fn App() -> impl IntoView {
                 >
                     {t!(i18n, download_output)}
                 </Button>
-                <Button
-                    class="green"
-                    icon=icondata::AiDownloadOutlined
-                    on_click=download_code
-                >
+                <Button class="green" icon=icondata::AiDownloadOutlined on_click=download_code>
                     {t!(i18n, download_code)}
                 </Button>
                 <OutputControl
@@ -999,12 +1013,7 @@ fn App() -> impl IntoView {
             <div
                 class="additional-input"
                 style=move || {
-                    if input_mode.get() != InputMode::Batch
-                    {
-                        ""
-                    } else {
-                        "display: none;"
-                    }
+                    if input_mode.get() != InputMode::Batch { "" } else { "display: none;" }
                 }
             >
 
@@ -1042,8 +1051,8 @@ fn App() -> impl IntoView {
         let do_run = Box::new(do_run);
         let do_run2 = do_run.clone();
         view! {
-            <StatusView state/>
-            <StorageErrorView/>
+            <StatusView state />
+            <StorageErrorView />
             <div style="display: flex; flex-direction: column; height: calc(100vh - 65px);">
                 <div style="flex-grow: 1;">
                     <Grid cols=4 x_gap=8 class="textarea-grid">
@@ -1082,7 +1091,7 @@ fn App() -> impl IntoView {
                     </Grid>
                 </div>
                 <div>
-                    <OutputView state show_stdout show_stderr show_compilation/>
+                    <OutputView state show_stdout show_stderr show_compilation />
                 </div>
             </div>
         }
@@ -1098,10 +1107,7 @@ fn App() -> impl IntoView {
     //}
 
     view! {
-        <Layout
-            position=LayoutPosition::Absolute
-            content_style="height: 100%;"
-        >
+        <Layout position=LayoutPosition::Absolute content_style="height: 100%;">
             <LayoutHeader>
                 <Flex
                     style="padding: 0 20px; height: 64px;"
@@ -1112,9 +1118,7 @@ fn App() -> impl IntoView {
                 </Flex>
             </LayoutHeader>
 
-            <Layout content_style="height: 100%;">
-                {body}
-            </Layout>
+            <Layout content_style="height: 100%;">{body}</Layout>
         </Layout>
     }
 }
@@ -1135,7 +1139,7 @@ fn main() {
             <I18nContextProvider>
                 <ConfigProvider>
                     <LargeFileSetProvider>
-                        <App/>
+                        <App />
                     </LargeFileSetProvider>
                 </ConfigProvider>
             </I18nContextProvider>

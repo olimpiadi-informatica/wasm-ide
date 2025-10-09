@@ -54,7 +54,7 @@ pub fn ThemeSelector() -> impl IntoView {
             {move || {
                 let (name, icon) = theme_name_and_icon.get();
                 view! {
-                    <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em"/>
+                    <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em" />
                     <Text>{name}</Text>
                 }
             }}
