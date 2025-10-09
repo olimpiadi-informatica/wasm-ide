@@ -35,9 +35,9 @@ mod editor;
 mod enum_select;
 mod theme;
 
-use editor::{Editor, EditorText};
-
-use crate::{enum_select::enum_select, theme::ThemeSelector};
+use crate::editor::{Editor, EditorText};
+use crate::enum_select::enum_select;
+use crate::theme::ThemeSelector;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -454,34 +454,30 @@ fn OutputView(
     #[prop(into)] show_compilation: Signal<bool>,
 ) -> impl IntoView {
     let state = signal_throttled(state, 100.0);
-    move || {
-        if !show_stdout.get() && !show_stderr.get() && !show_compilation.get() {
-            view! {}.into_any()
-        } else {
-            view! {
-                <div style="display: flex; flex-direction: row;">
-                    <OutDiv
-                        state
-                        display=show_stdout
-                        get_data=|outcome| &outcome.stdout
-                        icon=icondata::VsOutput
-                    />
-                    <OutDiv
-                        state
-                        display=show_stderr
-                        get_data=|outcome| &outcome.stderr
-                        icon=icondata::BiErrorSolid
-                    />
-                    <OutDiv
-                        state
-                        display=show_compilation
-                        get_data=|outcome| &outcome.compile_stderr
-                        icon=icondata::BiCommentErrorSolid
-                    />
-                </div>
-            }
-            .into_any()
-        }
+    let when = move || show_stdout.get() || show_stderr.get() || show_compilation.get();
+    view! {
+        <Show when>
+            <div style="display: flex; flex-direction: row;">
+                <OutDiv
+                    state
+                    display=show_stdout
+                    get_data=|outcome| &outcome.stdout
+                    icon=icondata::VsOutput
+                />
+                <OutDiv
+                    state
+                    display=show_stderr
+                    get_data=|outcome| &outcome.stderr
+                    icon=icondata::BiErrorSolid
+                />
+                <OutDiv
+                    state
+                    display=show_compilation
+                    get_data=|outcome| &outcome.compile_stderr
+                    icon=icondata::BiCommentErrorSolid
+                />
+            </div>
+        </Show>
     }
 }
 
