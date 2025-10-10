@@ -1,13 +1,3 @@
-html {
-    font-size: 16px;
-    height: 100%;
-}
-
-body {
-    margin: 0;
-    height: 100%;
-}
-
 .language-selector {
   min-width: 80px;
   text-align: center;
@@ -37,7 +27,7 @@ body {
   grid-template-rows: 100%;
 }
 
-.thaw-alert {
+.thaw-message-bar {
   backdrop-filter: blur(5px);
 }
 

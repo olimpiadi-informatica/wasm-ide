@@ -14,10 +14,10 @@ use leptos::{context::Provider, prelude::*};
 use leptos_use::signal_throttled;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thaw::{
-    Button, ButtonAppearance, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign, FlexJustify,
+    Button, ButtonAppearance, ButtonType, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign,
     Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
     MessageBarActions, MessageBarBody, MessageBarIntent, MessageBarLayout, MessageBarTitle,
-    Popover, PopoverTrigger, Scrollbar, ScrollbarRef, Space, SpaceAlign, Upload,
+    Popover, PopoverTrigger, Scrollbar, ScrollbarRef, Upload,
 };
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
@@ -170,11 +170,9 @@ fn StorageErrorView() -> impl IntoView {
     let large_files = expect_context::<RwSignal<LargeFileSet>>();
     view! {
         <Show when=move || large_files.with(|lf| !lf.0.is_empty())>
-            <div class="storage-error-view">
-                <MessageBar intent=MessageBarIntent::Warning>
-                    <MessageBarBody>{t!(i18n, files_too_big)}</MessageBarBody>
-                </MessageBar>
-            </div>
+            <MessageBar class="storage-error-view" intent=MessageBarIntent::Warning>
+                <MessageBarBody>{t!(i18n, files_too_big)}</MessageBarBody>
+            </MessageBar>
         </Show>
     }
 }
@@ -408,7 +406,7 @@ fn OutDivInner(
     });
 
     view! {
-        <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; text-align: center;">
+        <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; min-width: 0; text-align: center;">
             <Icon icon style="font-size: 1.5em" />
             <Divider class="outdivider" />
             <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
@@ -905,7 +903,7 @@ fn App() -> impl IntoView {
     let navbar = {
         let do_run = do_run.clone();
         view! {
-            <Space align=SpaceAlign::Center>
+            <Flex align=FlexAlign::Center style="padding: 0 20px; height: 64px;">
                 <ThemeSelector />
                 <LocaleSelector />
                 {lang_selector}
@@ -962,7 +960,7 @@ fn App() -> impl IntoView {
                 />
                 {kb_mode_select}
                 {input_mode_select}
-            </Space>
+            </Flex>
         }
     };
 
@@ -991,40 +989,32 @@ fn App() -> impl IntoView {
     let additional_input_string =
         Signal::derive(move || t_display!(i18n, additional_input).to_string());
 
-    let additional_input_line = {
-        let add_input2 = add_input.clone();
-        view! {
-            <div
-                class="additional-input"
-                style=move || {
-                    if input_mode.get() != InputMode::Batch { "" } else { "display: none;" }
+    let additional_input_line = view! {
+        <div style=move || {
+            if input_mode.get() != InputMode::Batch { "" } else { "display: none;" }
+        }>
+            <form
+                on:submit=move |ev| {
+                    ev.prevent_default();
+                    add_input()
                 }
+                style="display: flex; flex-direction: row;"
             >
-
-                <div style="display: flex; flex-direction: row; height: 100%;">
-                    <form
-                        on:submit=move |ev| {
-                            ev.prevent_default();
-                            add_input()
-                        }
-
-                        style="width: 100%;"
-                    >
-                        <Input
-                            value=additional_input
-                            disabled=disable_stop
-                            placeholder=additional_input_string
-                        />
-                    </form>
-                    <Button
-                        disabled=disable_stop
-                        class="green"
-                        icon=icondata::AiSendOutlined
-                        on_click=move |_| add_input2()
-                    />
-                </div>
-            </div>
-        }
+                <Input
+                    style:flex-grow="1"
+                    style:min-width="0"
+                    value=additional_input
+                    disabled=disable_stop
+                    placeholder=additional_input_string
+                />
+                <Button
+                    disabled=disable_stop
+                    class="green"
+                    icon=icondata::AiSendOutlined
+                    button_type=ButtonType::Submit
+                />
+            </form>
+        </div>
     };
 
     let disable_input_editor = {
@@ -1055,12 +1045,10 @@ fn App() -> impl IntoView {
                                     )),
                                 ))
                             />
-
                         </GridItem>
                         <GridItem>
                             <div style="display: flex; flex-direction: column; height: 100%;">
-                                {additional_input_line}
-                                <div style="flex-grow: 1; flex-shrink: 1;">
+                                {additional_input_line} <div style="flex: 1 1; min-height: 0;">
                                     <Editor
                                         contents=stdin
                                         cache_key="stdin"
@@ -1083,18 +1071,9 @@ fn App() -> impl IntoView {
     };
 
     view! {
-        <Layout position=LayoutPosition::Absolute content_style="height: 100%;">
-            <LayoutHeader>
-                <Flex
-                    style="padding: 0 20px; height: 64px;"
-                    justify=FlexJustify::SpaceBetween
-                    align=FlexAlign::Center
-                >
-                    {navbar}
-                </Flex>
-            </LayoutHeader>
-
-            <Layout content_style="height: 100%;">{body}</Layout>
+        <Layout position=LayoutPosition::Absolute content_style="width: 100%; height: 100%;">
+            <LayoutHeader>{navbar}</LayoutHeader>
+            {body}
         </Layout>
     }
 }

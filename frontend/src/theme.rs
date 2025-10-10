@@ -40,6 +40,9 @@ pub fn ThemeSelector() -> impl IntoView {
         ThemePlus::Dark => ("Dark", icondata::BiMoonSolid),
     });
 
+    let name = Signal::derive(move || theme_name_and_icon.get().0);
+    let icon = Signal::derive(move || theme_name_and_icon.get().1);
+
     let owner = Owner::current().unwrap();
     let change_theme = move |_| {
         let new_theme = match theme_plus.get_untracked() {
@@ -53,13 +56,8 @@ pub fn ThemeSelector() -> impl IntoView {
 
     view! {
         <Button appearance=ButtonAppearance::Subtle on_click=change_theme>
-            {move || {
-                let (name, icon) = theme_name_and_icon.get();
-                view! {
-                    <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em" />
-                    <Text>{name}</Text>
-                }
-            }}
+            <Icon icon style="padding: 0 5px 0 0;" width="1.5em" height="1.5em" />
+            <Text>{name}</Text>
         </Button>
     }
 }
