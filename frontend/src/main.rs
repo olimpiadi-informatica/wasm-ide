@@ -1,5 +1,6 @@
 leptos_i18n::load_locales!();
 
+use std::collections::HashMap;
 use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
 
 use anyhow::{bail, ensure, Result};
@@ -60,6 +61,9 @@ pub struct Outcome {
     pub compile_stderr: Vec<u8>,
     pub stderr: Vec<u8>,
 }
+
+// TODO(Virv12): Can we always have the progress info?
+type FetchingCompilerProgress = HashMap<String, Option<(u64, u64)>>;
 
 #[derive(Clone, Debug)]
 enum RunState {
@@ -178,10 +182,14 @@ fn StorageErrorView() -> impl IntoView {
 }
 
 #[component]
-fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
+fn StatusView(
+    state: RwSignal<RunState>,
+    fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
+) -> impl IntoView {
     let i18n = use_i18n();
     let state2 = state;
-    let state_to_view = move |state: &RunState| match state {
+    let state_to_view = move |state: &RunState| {
+        match state {
         RunState::Complete(_) => view! {
             <MessageBar intent=MessageBarIntent::Success>
                 <MessageBarBody>{t!(i18n, execution_completed)}</MessageBarBody>
@@ -259,11 +267,30 @@ fn StatusView(state: RwSignal<RunState>) -> impl IntoView {
         }
         .into_any(),
         RunState::FetchingCompiler | RunState::MessageSent => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, downloading_runtime)}</MessageBarBody>
+            <MessageBar intent=MessageBarIntent::Success layout=MessageBarLayout::Multiline>
+                <MessageBarBody>
+                    <MessageBarTitle>{t!(i18n, downloading_runtime)}</MessageBarTitle>
+                    <For
+                        each=move || fetching_compiler_progress.get()
+                        key=|x| x.clone()
+                        let((name, progress))
+                    >
+                        <div style="display: flex; flex-direction: row; align-items: center; gap: 20px;">
+                            <pre>{name}</pre>
+                            <progress value=progress.map(|x| x.0) max=progress.map(|x| x.1) />
+                            <span style="width: 3em; text-align: right;">
+                                {progress
+                                    .map(|(cur, tot)| {
+                                        format!("{:.1}%", 100. * cur as f64 / tot as f64)
+                                    })}
+                            </span>
+                        </div>
+                    </For>
+                </MessageBarBody>
             </MessageBar>
         }
         .into_any(),
+    }
     };
 
     view! { <div class="status-view">{move || state.with(state_to_view)}</div> }
@@ -472,6 +499,7 @@ fn OutputView(
 fn handle_message(
     msg: JsValue,
     state: RwSignal<RunState>,
+    fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
     ls_message_chan: &Sender<WorkerLSResponse>,
 ) -> Result<()> {
     let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
@@ -487,6 +515,18 @@ fn handle_message(
         WorkerResponse::Execution(msg) => msg,
         WorkerResponse::LS(msg) => {
             ls_message_chan.try_send(msg)?;
+            return Ok(());
+        }
+        WorkerResponse::FetchingCompiler(name, progress) => {
+            fetching_compiler_progress.update(|x| {
+                x.insert(name, progress);
+            });
+            return Ok(());
+        }
+        WorkerResponse::CompilerFetchDone(name) => {
+            fetching_compiler_progress.update(|x| {
+                x.remove(&name);
+            });
             return Ok(());
         }
     };
@@ -674,9 +714,11 @@ fn App() -> impl IntoView {
 
     let (sender, receiver) = unbounded();
 
+    let fetching_compiler_progress = RwSignal::new(FetchingCompilerProgress::default());
+
     worker.set_onmessage(Some(
         Closure::<dyn Fn(_)>::new(move |msg| {
-            handle_message(msg, state, &sender).unwrap();
+            handle_message(msg, state, fetching_compiler_progress, &sender).unwrap();
         })
         .into_js_value()
         .unchecked_ref(),
@@ -1025,7 +1067,7 @@ fn App() -> impl IntoView {
         let do_run = Box::new(do_run);
         let do_run2 = do_run.clone();
         view! {
-            <StatusView state />
+            <StatusView state fetching_compiler_progress />
             <StorageErrorView />
             <div style="display: flex; flex-direction: column; height: calc(100vh - 65px);">
                 <div style="flex-grow: 1; min-height: 0;">

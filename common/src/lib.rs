@@ -29,6 +29,12 @@ pub enum WorkerResponse {
     Execution(WorkerExecResponse),
     /// A message related to the language server.
     LS(WorkerLSResponse),
+
+    /// The worker is downloading the compiler, with an optional progress
+    /// report (bytes downloaded, total bytes).
+    FetchingCompiler(String, Option<(u64, u64)>),
+    /// The worker has finished downloading the compiler.
+    CompilerFetchDone(String),
 }
 
 /// Messages sent from the frontend to the worker to control program execution.

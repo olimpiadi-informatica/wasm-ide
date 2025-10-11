@@ -1,16 +1,42 @@
-use std::{io::Read, rc::Rc};
+use std::{collections::HashMap, io::Read, rc::Rc};
 
-use anyhow::{Context, Result};
-use common::WorkerExecResponse;
+use anyhow::{anyhow, Context, Result};
+use common::{WorkerExecResponse, WorkerResponse};
+use futures::StreamExt;
 use gloo_net::http::Request;
 use tracing::{debug, info};
+use wasm_bindgen_futures::stream::JsStream;
 
 use crate::{os::Fs, send_msg, WORKER_STATE};
 
+async fn manifest() -> Result<HashMap<String, u64>> {
+    let res = Request::get("./compilers/manifest.json").send().await?;
+    let manifest = res.json().await?;
+    Ok(manifest)
+}
+
 async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
+    send_msg(WorkerResponse::FetchingCompiler(name.to_owned(), None));
     let url = format!("./compilers/{name}.tar");
     let res = Request::get(&url).send().await?;
-    let body = res.binary().await?;
+    let reader = res.body().context("missing body")?;
+    let mut js_stream = JsStream::from(reader.values());
+
+    let manifest = manifest().await?;
+    let size = *manifest.get(name).unwrap();
+
+    let mut body = vec![];
+    while let Some(chunk) = js_stream.next().await {
+        let chunk = chunk.map_err(|_| anyhow!("stream error"))?;
+        let chunk = js_sys::Uint8Array::new(&chunk).to_vec();
+        body.extend_from_slice(&chunk);
+        send_msg(WorkerResponse::FetchingCompiler(
+            name.to_owned(),
+            Some((body.len() as u64, size)),
+        ));
+    }
+
+    send_msg(WorkerResponse::CompilerFetchDone(name.to_owned()));
     Ok(body)
 }
 

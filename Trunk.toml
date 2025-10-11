@@ -15,3 +15,19 @@ command_arguments = ["-c", """
       $([ "$TRUNK_PROFILE" = "release" ] && echo -p @rollup/plugin-terser)
   """]
 
+[[hooks]]
+stage = "build"
+command = "bash"
+command_arguments = ["-c", """
+    gen_manifest() {
+        cd compilers
+        echo -n '{'
+        for comp in *.tar.br; do
+            name=${comp%.tar.br}
+            size=$(brotli --decompress --stdout "$comp" | wc -c)
+            echo -n "\\\"$name\\\":$size,"
+        done
+        echo '}'
+    }
+    gen_manifest | sed 's/,}/}/' > $TRUNK_STAGING_DIR/compilers/manifest.json
+    """]
