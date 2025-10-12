@@ -29,12 +29,13 @@ use i18n::*;
 
 mod editor;
 mod enum_select;
+mod settings;
 mod theme;
 mod util;
 
 use crate::editor::{Editor, EditorText};
 use crate::enum_select::enum_select;
-use crate::theme::ThemeSelector;
+use crate::settings::Settings;
 use crate::util::download;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
@@ -651,39 +652,6 @@ fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
 }
 
 #[component]
-fn LocaleSelector() -> impl IntoView {
-    let i18n = use_i18n();
-
-    let init = load("locale").unwrap_or_else(|| {
-        let window = web_sys::window().expect("Missing Window");
-        let navigator = window.navigator();
-        let preferences: Vec<_> = navigator
-            .languages()
-            .into_iter()
-            .map(|x| x.as_string().unwrap())
-            .collect();
-        Locale::find_locale(&preferences)
-    });
-
-    let (locale, view) = enum_select(
-        "locale-selector",
-        init,
-        Locale::get_all()
-            .iter()
-            .map(|&x| (x, Signal::stored(locale_name(x).to_string())))
-            .collect::<Vec<_>>(),
-    );
-
-    Effect::new(move |_| {
-        let loc = locale.get();
-        save("locale", &loc);
-        i18n.set_locale(loc);
-    });
-
-    view
-}
-
-#[component]
 fn App() -> impl IntoView {
     let options = WorkerOptions::default();
     options.set_type(WorkerType::Module);
@@ -902,8 +870,7 @@ fn App() -> impl IntoView {
         let do_run = do_run.clone();
         view! {
             <Flex align=FlexAlign::Center style="padding: 0 20px; height: 64px;">
-                <ThemeSelector />
-                <LocaleSelector />
+                <Settings kb_mode_select />
                 {lang_selector}
                 <Button
                     disabled=disable_stop
@@ -948,7 +915,6 @@ fn App() -> impl IntoView {
                     tooltip=show_compileerr_tooltip
                     color="yellow"
                 />
-                {kb_mode_select}
                 {input_mode_select}
             </Flex>
         }
