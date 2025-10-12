@@ -13,7 +13,10 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::js_sys::Function;
 
-use crate::{save, util::download, KeyboardMode};
+use crate::{
+    util::{download, save},
+    KeyboardMode,
+};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {

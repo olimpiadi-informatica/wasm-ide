@@ -4,10 +4,7 @@ use thaw::{
     DialogSurface, DialogTitle,
 };
 
-use crate::{
-    enum_select::EnumSelect, i18n::*, kb_mode_string, locale_name, theme::ThemeSelector,
-    KeyboardMode,
-};
+use crate::{enum_select::EnumSelect, i18n::*, theme::ThemeSelector, KeyboardMode};
 
 #[component]
 pub fn Settings(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
@@ -47,6 +44,15 @@ pub fn Settings(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
 
 #[component]
 fn LocaleSelector() -> impl IntoView {
+    fn locale_name(locale: Locale) -> &'static str {
+        match locale {
+            Locale::en => "English",
+            Locale::it => "Italiano",
+            Locale::es => "Español",
+            Locale::ca => "Català",
+        }
+    }
+
     let i18n = use_i18n();
 
     let options = Locale::get_all()
@@ -70,6 +76,15 @@ fn LocaleSelector() -> impl IntoView {
 
 #[component]
 fn KbModeSelector(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
+    fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
+        match kb_mode {
+            KeyboardMode::Vim => td_display!(locale, vim_mode),
+            KeyboardMode::Emacs => td_display!(locale, emacs_mode),
+            KeyboardMode::Standard => td_display!(locale, standard_mode),
+        }
+        .to_string()
+    }
+
     let i18n = use_i18n();
 
     let options = [

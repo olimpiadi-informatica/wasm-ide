@@ -1,7 +1,7 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::{borrow::Cow, collections::HashSet, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
@@ -11,7 +11,7 @@ use common::{
 };
 use gloo_timers::future::sleep;
 use leptos::{context::Provider, prelude::*};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use thaw::{
     Button, ButtonType, ConfigProvider, Flex, FlexAlign, Grid, GridItem, Input, Layout,
     LayoutHeader, LayoutPosition, MessageBar, MessageBarActions, MessageBarBody, MessageBarIntent,
@@ -35,6 +35,7 @@ use crate::editor::{Editor, EditorText};
 use crate::enum_select::EnumSelect;
 use crate::output::{OutputControl, OutputView};
 use crate::settings::Settings;
+use crate::util::{load, save};
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -73,59 +74,6 @@ enum RunState {
     InProgress(Outcome, bool),
     Complete(Outcome),
     Error(String, Outcome),
-}
-
-trait Stringifiable: Sized {
-    fn stringify(&self) -> Cow<'_, str>;
-    fn from_string(data: String) -> Option<Self>;
-}
-
-impl Stringifiable for EditorText {
-    fn stringify(&self) -> Cow<'_, str> {
-        Cow::Borrowed(self.text())
-    }
-    fn from_string(data: String) -> Option<EditorText> {
-        Some(EditorText::from_text(data))
-    }
-}
-
-impl<T: Serialize + DeserializeOwned> Stringifiable for T {
-    fn stringify(&self) -> Cow<'_, str> {
-        Cow::Owned(serde_json::to_string(self).expect("serialization error"))
-    }
-    fn from_string(data: String) -> Option<Self> {
-        serde_json::from_str(&data).ok()
-    }
-}
-
-fn save<T: Stringifiable>(key: &str, value: &T) {
-    let s = value.stringify();
-    let large_files = expect_context::<RwSignal<LargeFileSet>>();
-    if s.len() >= 3_000_000 {
-        large_files.update(|x| {
-            x.0.insert(key.to_owned());
-        });
-        return;
-    }
-    large_files.update(|x| {
-        x.0.remove(key);
-    });
-    window()
-        .local_storage()
-        .expect("no local storage")
-        .unwrap()
-        .set(key, &s)
-        .expect("could not save data");
-}
-
-fn load<T: Stringifiable>(key: &str) -> Option<T> {
-    window()
-        .local_storage()
-        .expect("no local storage")
-        .unwrap()
-        .get(key)
-        .expect("error fetching from local storage")
-        .and_then(|x| T::from_string(x))
 }
 
 impl RunState {
@@ -384,24 +332,6 @@ fn handle_message(
     });
 
     Ok(())
-}
-
-fn locale_name(locale: Locale) -> &'static str {
-    match locale {
-        Locale::en => "English",
-        Locale::it => "Italiano",
-        Locale::es => "Español",
-        Locale::ca => "Català",
-    }
-}
-
-fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
-    match kb_mode {
-        KeyboardMode::Vim => td_display!(locale, vim_mode),
-        KeyboardMode::Emacs => td_display!(locale, emacs_mode),
-        KeyboardMode::Standard => td_display!(locale, standard_mode),
-    }
-    .to_string()
 }
 
 fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
