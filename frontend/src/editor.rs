@@ -7,13 +7,13 @@ use async_channel::{unbounded, Receiver, Sender};
 use common::{Language, WorkerLSResponse};
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
-use thaw::Theme;
-use tracing::debug;
+use thaw::{Button, ButtonAppearance, FileList, Theme, Upload};
+use tracing::{debug, warn};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::spawn_local;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::js_sys::Function;
 
-use crate::{save, KeyboardMode};
+use crate::{save, util::download, KeyboardMode};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
@@ -237,5 +237,48 @@ pub fn Editor(
         });
     });
 
-    view! { <div id=id style="height: 100%; width: 100%; font-size: 1.2em;"></div> }
+    let do_download = move |_| {
+        let contents = contents.read_untracked();
+        let ext = syntax.get_untracked().map_or("txt", Language::ext);
+        let name = format!("{cache_key}.{ext}");
+        download(&name, contents.text().as_bytes());
+    };
+
+    let owner = Owner::current().unwrap();
+    let do_upload = move |files: FileList| {
+        let file = files.get(0).expect("0 files?");
+        let owner = owner.clone();
+        spawn_local(async move {
+            let promise = file.text();
+            let text = JsFuture::from(promise).await;
+            match text {
+                Ok(text) => {
+                    let text =
+                        EditorText::from_text(text.as_string().expect("did not read a string"));
+                    owner.with(|| save(cache_key, &text));
+                    contents.set(text)
+                }
+                Err(err) => warn!("could not read file: {err:?}"),
+            }
+        });
+    };
+
+    view! {
+        <div id=id style="height: 100%; width: 100%; font-size: 1.2em; position: relative;">
+            <div style="position: absolute; top: 0; right: 0; display: flex; flex-direction: row; z-index: 100; opacity: 0.5;">
+                <Upload custom_request=do_upload>
+                    <Button
+                        appearance=ButtonAppearance::Transparent
+                        icon=icondata::ChUpload
+                        disabled=readonly
+                    />
+                </Upload>
+                <Button
+                    appearance=ButtonAppearance::Transparent
+                    icon=icondata::ChDownload
+                    on_click=do_download
+                />
+            </div>
+        </div>
+    }
 }

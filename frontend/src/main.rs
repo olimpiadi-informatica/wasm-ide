@@ -18,25 +18,24 @@ use thaw::{
     Button, ButtonAppearance, ButtonType, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign,
     Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
     MessageBarActions, MessageBarBody, MessageBarIntent, MessageBarLayout, MessageBarTitle,
-    Popover, PopoverTrigger, Scrollbar, ScrollbarRef, Upload,
+    Popover, PopoverTrigger, Scrollbar, ScrollbarRef,
 };
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::{
-    FileList, HtmlAnchorElement, MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions,
-    WorkerType,
-};
+use wasm_bindgen_futures::spawn_local;
+use web_sys::{MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions, WorkerType};
 
 use i18n::*;
 
 mod editor;
 mod enum_select;
 mod theme;
+mod util;
 
 use crate::editor::{Editor, EditorText};
 use crate::enum_select::enum_select;
 use crate::theme::ThemeSelector;
+use crate::util::download;
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -144,14 +143,15 @@ impl RunState {
     fn can_stop(&self) -> bool {
         match self {
             RunState::Loading
-            | RunState::MessageSent
-            | RunState::FetchingCompiler
             | RunState::Complete(_)
             | RunState::Error(_, _)
             | RunState::InProgress(_, false)
             | RunState::CompilationInProgress(_, false)
             | RunState::NotStarted => false,
-            RunState::InProgress(_, true) | RunState::CompilationInProgress(_, true) => true,
+            RunState::MessageSent
+            | RunState::FetchingCompiler
+            | RunState::InProgress(_, true)
+            | RunState::CompilationInProgress(_, true) => true,
         }
     }
     fn has_output(&self) -> bool {
@@ -554,7 +554,7 @@ fn handle_message(
             (WorkerExecResponse::CompilationDone, RunState::CompilationInProgress(cur, _)) => {
                 *state = RunState::InProgress(std::mem::take(cur), true);
             }
-            (WorkerExecResponse::Error(s), RunState::FetchingCompiler) => {
+            (WorkerExecResponse::Error(s), RunState::MessageSent | RunState::FetchingCompiler) => {
                 *state = RunState::Error(s, Outcome::default());
             }
             (
@@ -621,24 +621,6 @@ fn OutputControl(
             {tooltip}
         </Popover>
     }
-}
-
-fn download(name: &str, data: &[u8]) {
-    use base64::prelude::*;
-    let b64 = BASE64_STANDARD.encode(data);
-    let url = format!("data:text/plain;base64,{b64}");
-    let w = window();
-    let d = w.document().expect("no document");
-    let a = d
-        .create_element("a")
-        .unwrap()
-        .dyn_into::<HtmlAnchorElement>()
-        .unwrap();
-    a.set_download(name);
-    a.set_href(&url);
-    d.body().expect("no body").append_child(&a).unwrap();
-    a.click(); // TODO: this causes a panic for some reason
-    a.remove();
 }
 
 fn locale_name(locale: Locale) -> &'static str {
@@ -764,25 +746,6 @@ fn App() -> impl IntoView {
     let is_running = Memo::new(move |_| state.with(|s| s.can_stop() || !s.can_start()));
     let disable_output = Memo::new(move |_| state.with(|s| !s.has_output()));
 
-    let owner = Owner::current().unwrap();
-    let upload_input = move |files: FileList| {
-        let file = files.get(0).expect("0 files?");
-        let owner = owner.clone();
-        spawn_local(async move {
-            let promise = file.text();
-            let text = JsFuture::from(promise).await;
-            match text {
-                Ok(text) => {
-                    let text =
-                        EditorText::from_text(text.as_string().expect("did not read a string"));
-                    owner.with(|| save("stdin", &text));
-                    stdin.set(text)
-                }
-                Err(err) => warn!("could not read file: {err:?}"),
-            }
-        });
-    };
-
     let download_output = move |_| {
         let data = state.with(|s| {
             let RunState::Complete(outcome) = s else {
@@ -805,13 +768,6 @@ fn App() -> impl IntoView {
             .map(|lng| (lng, Signal::stored(lng.into())))
             .collect::<Vec<_>>(),
     );
-
-    let download_code = move |_| {
-        let code = code.with_untracked(|x| x.text().clone());
-        let lng = lang.get_untracked();
-        let name = format!("code.{}", lng.ext());
-        download(&name, code.as_bytes());
-    };
 
     {
         let send_worker_message = send_worker_message.clone();
@@ -949,11 +905,6 @@ fn App() -> impl IntoView {
                 <ThemeSelector />
                 <LocaleSelector />
                 {lang_selector}
-                <Upload custom_request=upload_input>
-                    <Button class="blue" disabled=disable_start icon=icondata::AiUploadOutlined>
-                        {t!(i18n, load_input)}
-                    </Button>
-                </Upload>
                 <Button
                     disabled=disable_stop
                     class="red"
@@ -978,9 +929,6 @@ fn App() -> impl IntoView {
                     on_click=download_output
                 >
                     {t!(i18n, download_output)}
-                </Button>
-                <Button class="green" icon=icondata::AiDownloadOutlined on_click=download_code>
-                    {t!(i18n, download_code)}
                 </Button>
                 <OutputControl
                     signal=show_stdout
