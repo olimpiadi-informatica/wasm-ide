@@ -86,11 +86,5 @@ fn KbModeSelector(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
     })
     .collect::<Vec<_>>();
 
-    view! {
-        <EnumSelect
-            class="kb-selector"
-            value=(kb_mode.into(), kb_mode.into())
-            options
-        />
-    }
+    view! { <EnumSelect class="kb-selector" value=(kb_mode.into(), kb_mode.into()) options /> }
 }

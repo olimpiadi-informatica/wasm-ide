@@ -39,7 +39,7 @@ where
         <Select value=(getter_str, setter_str) class>
             <For
                 each=move || options.clone().into_iter().enumerate()
-                key=|(i, _)| i.clone()
+                key=|&(i, (ref v, _))| (i, v.clone())
                 let:((i, (v, n)))
             >
                 <option value=i.to_string() selected=move || getter.get() == v>
