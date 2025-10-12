@@ -1,6 +1,7 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::{collections::HashSet, time::Duration};
 
 use anyhow::Result;
@@ -122,47 +123,36 @@ fn StatusView(
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    let state2 = state;
-    let state_to_view = move |state: &RunState| {
-        match state {
-        RunState::Complete(_) => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, execution_completed)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::CompilationInProgress(_, true) => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::InProgress(_, true) => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
-            <MessageBar intent=MessageBarIntent::Warning>
-                <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::Error(err, _) => {
-            let err = err.clone();
-            if err.is_empty() {
+
+    move || {
+        match state.read().deref() {
+            RunState::Complete(_) => ().into_any(),
+            RunState::CompilationInProgress(_, true) => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Success>
+                    <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::InProgress(_, true) => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Success>
+                    <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Warning>
+                    <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::Error(err, _) => {
+                let err = err.clone();
                 view! {
-                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
-                        <MessageBarBody>
-                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
-                        </MessageBarBody>
-                    </MessageBar>
-                }
-                .into_any()
-            } else {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                    <MessageBar
+                        class="status-view"
+                        intent=MessageBarIntent::Error
+                        layout=MessageBarLayout::Multiline
+                    >
                         <MessageBarBody>
                             <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
                             <pre>{err}</pre>
@@ -172,10 +162,10 @@ fn StatusView(
                                 class="red"
                                 icon=icondata::AiCloseOutlined
                                 on_click=move |_| {
-                                    state2
+                                    state
                                         .update(|s| {
-                                            if let RunState::Error(err, _) = s {
-                                                *err = String::new();
+                                            if let RunState::Error(_, o) = s {
+                                                *s = RunState::Complete(std::mem::take(o));
                                             }
                                         })
                                 }
@@ -188,47 +178,43 @@ fn StatusView(
                 }
                 .into_any()
             }
+            RunState::NotStarted => ().into_any(),
+            RunState::Loading => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Success>
+                    <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::FetchingCompiler | RunState::MessageSent => view! {
+                <MessageBar
+                    class="status-view"
+                    intent=MessageBarIntent::Success
+                    layout=MessageBarLayout::Multiline
+                >
+                    <MessageBarBody>
+                        <MessageBarTitle>{t!(i18n, downloading_runtime)}</MessageBarTitle>
+                        <For
+                            each=move || fetching_compiler_progress.get()
+                            key=|x| x.clone()
+                            let((name, progress))
+                        >
+                            <div style="display: flex; flex-direction: row; align-items: center; gap: 20px;">
+                                <pre>{name}</pre>
+                                <progress value=progress.map(|x| x.0) max=progress.map(|x| x.1) />
+                                <span style="width: 3em; text-align: right;">
+                                    {progress
+                                        .map(|(cur, tot)| {
+                                            format!("{:.1}%", 100. * cur as f64 / tot as f64)
+                                        })}
+                                </span>
+                            </div>
+                        </For>
+                    </MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
         }
-        RunState::NotStarted => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, click_to_run)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::Loading => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::FetchingCompiler | RunState::MessageSent => view! {
-            <MessageBar intent=MessageBarIntent::Success layout=MessageBarLayout::Multiline>
-                <MessageBarBody>
-                    <MessageBarTitle>{t!(i18n, downloading_runtime)}</MessageBarTitle>
-                    <For
-                        each=move || fetching_compiler_progress.get()
-                        key=|x| x.clone()
-                        let((name, progress))
-                    >
-                        <div style="display: flex; flex-direction: row; align-items: center; gap: 20px;">
-                            <pre>{name}</pre>
-                            <progress value=progress.map(|x| x.0) max=progress.map(|x| x.1) />
-                            <span style="width: 3em; text-align: right;">
-                                {progress
-                                    .map(|(cur, tot)| {
-                                        format!("{:.1}%", 100. * cur as f64 / tot as f64)
-                                    })}
-                            </span>
-                        </div>
-                    </For>
-                </MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
     }
-    };
-
-    view! { <div class="status-view">{move || state.with(state_to_view)}</div> }
 }
 
 fn handle_message(
