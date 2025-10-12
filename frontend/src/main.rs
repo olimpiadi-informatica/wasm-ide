@@ -34,7 +34,7 @@ mod theme;
 mod util;
 
 use crate::editor::{Editor, EditorText};
-use crate::enum_select::enum_select;
+use crate::enum_select::EnumSelect;
 use crate::settings::Settings;
 use crate::util::download;
 
@@ -728,14 +728,11 @@ fn App() -> impl IntoView {
         download("output.txt", &data);
     };
 
-    let (lang, lang_selector) = enum_select(
-        "language-selector",
-        load("language").unwrap_or(Language::CPP),
-        [Language::CPP, Language::C, Language::Python]
-            .into_iter()
-            .map(|lng| (lng, Signal::stored(lng.into())))
-            .collect::<Vec<_>>(),
-    );
+    let lang = RwSignal::new(load("language").unwrap_or(Language::CPP));
+    let lang_options = [Language::CPP, Language::C, Language::Python]
+        .into_iter()
+        .map(|lng| (lng, Signal::stored(lng.into())))
+        .collect::<Vec<_>>();
 
     {
         let send_worker_message = send_worker_message.clone();
@@ -746,23 +743,20 @@ fn App() -> impl IntoView {
         });
     }
 
-    let (input_mode, input_mode_select) = enum_select(
-        "input-selector",
-        load("input_mode").unwrap_or(InputMode::Batch),
-        [
-            InputMode::Batch,
-            InputMode::MixedInteractive,
-            InputMode::FullInteractive,
-        ]
-        .into_iter()
-        .map(|mode| {
-            (
-                mode,
-                Signal::derive(move || input_mode_string(i18n.get_locale(), mode)),
-            )
-        })
-        .collect::<Vec<_>>(),
-    );
+    let input_mode = RwSignal::new(load("input_mode").unwrap_or(InputMode::Batch));
+    let input_options = [
+        InputMode::Batch,
+        InputMode::MixedInteractive,
+        InputMode::FullInteractive,
+    ]
+    .into_iter()
+    .map(|mode| {
+        (
+            mode,
+            Signal::derive(move || input_mode_string(i18n.get_locale(), mode)),
+        )
+    })
+    .collect::<Vec<_>>();
     Effect::new(move |_| save("input_mode", &input_mode.get()));
 
     let do_run = {
@@ -841,24 +835,7 @@ fn App() -> impl IntoView {
         }
     });
 
-    let (kb_mode, kb_mode_select) = enum_select(
-        "kb-selector",
-        load("kb_mode").unwrap_or(KeyboardMode::Standard),
-        [
-            KeyboardMode::Standard,
-            KeyboardMode::Vim,
-            KeyboardMode::Emacs,
-        ]
-        .into_iter()
-        .map(|mode| {
-            (
-                mode,
-                Signal::derive(move || kb_mode_string(i18n.get_locale(), mode)),
-            )
-        })
-        .collect::<Vec<_>>(),
-    );
-
+    let kb_mode = RwSignal::new(load("kb_mode").unwrap_or(KeyboardMode::Standard));
     Effect::new(move |_| save("kb_mode", &kb_mode.get()));
 
     let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
@@ -870,8 +847,12 @@ fn App() -> impl IntoView {
         let do_run = do_run.clone();
         view! {
             <Flex align=FlexAlign::Center style="padding: 0 20px; height: 64px;">
-                <Settings kb_mode_select />
-                {lang_selector}
+                <Settings kb_mode />
+                <EnumSelect
+                    class="language-selector"
+                    value=(lang.into(), lang.into())
+                    options=lang_options
+                />
                 <Button
                     disabled=disable_stop
                     class="red"
@@ -915,7 +896,7 @@ fn App() -> impl IntoView {
                     tooltip=show_compileerr_tooltip
                     color="yellow"
                 />
-                {input_mode_select}
+                <EnumSelect value=(input_mode.into(), input_mode.into()) options=input_options />
             </Flex>
         }
     };
@@ -990,7 +971,7 @@ fn App() -> impl IntoView {
                             <Editor
                                 contents=code
                                 cache_key="code"
-                                syntax=lang
+                                syntax=Signal::derive(move || Some(lang.get()))
                                 readonly=disable_start
                                 ctrl_enter=do_run.clone()
                                 kb_mode=kb_mode

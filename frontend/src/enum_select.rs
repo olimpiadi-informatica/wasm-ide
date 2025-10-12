@@ -1,47 +1,51 @@
-use leptos::prelude::*;
+use std::hash::Hash;
+
+use leptos::{prelude::*, reactive::wrappers::write::SignalSetter};
 use thaw::Select;
 
-pub fn enum_select<T>(
-    class: &str,
-    init: T,
+#[component]
+pub fn EnumSelect<T>(
+    #[prop(optional, into)] class: Option<String>,
+    #[prop(into, name = "value")] (getter, setter): (Signal<T>, SignalSetter<T>),
     options: Vec<(T, Signal<String>)>,
-) -> (Signal<T>, impl IntoView)
+) -> impl IntoView
 where
-    T: Sized + Clone + PartialEq + Eq + Send + Sync + 'static,
+    T: Clone + Eq + Hash + Send + Sync + 'static,
 {
-    let (values, names): (Vec<_>, Vec<_>) = options.into_iter().unzip();
+    let values = options.iter().map(|(v, _)| v.clone()).collect::<Vec<_>>();
 
-    let init = values
-        .iter()
-        .position(|v| v == &init)
-        .expect("Initial value must be one of the enum variants");
-
-    let value_str = RwSignal::new(init.to_string());
-    let value = Signal::derive(move || {
-        value_str.with(|s| {
-            let idx = s
-                .parse::<usize>()
-                .expect("Value string should be a valid index");
-            values[idx].clone()
-        })
+    let getter_str = Signal::derive({
+        let values = values.clone();
+        move || {
+            let v = getter.get();
+            values
+                .iter()
+                .position(|opt| opt == &v)
+                .expect("Value must be one of the enum variants")
+                .to_string()
+        }
     });
 
-    let view = view! {
-        <Select value=value_str class>
-            {names
-                .into_iter()
-                .enumerate()
-                .map(|(i, n)| {
-                    let id = i.to_string();
-                    view! {
-                        <option value=id.clone() selected=move || value_str.get() == id>
-                            {n}
-                        </option>
-                    }
-                })
-                .collect::<Vec<_>>()}
-        </Select>
-    };
+    let setter_str = SignalSetter::<String>::map(move |s: String| {
+        let idx = s
+            .parse::<usize>()
+            .expect("Value string should be a valid index");
+        if getter.get_untracked() != values[idx] {
+            setter.set(values[idx].clone());
+        }
+    });
 
-    (value, view)
+    view! {
+        <Select value=(getter_str, setter_str) class>
+            <For
+                each=move || options.clone().into_iter().enumerate()
+                key=|(i, _)| i.clone()
+                let:((i, (v, n)))
+            >
+                <option value=i.to_string() selected=move || getter.get() == v>
+                    {n}
+                </option>
+            </For>
+        </Select>
+    }
 }
