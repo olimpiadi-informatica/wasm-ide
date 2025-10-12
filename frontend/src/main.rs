@@ -21,7 +21,7 @@ use thaw::{
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{MessageEvent, MouseEvent, Worker, WorkerOptions, WorkerType};
+use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
 
 use i18n::*;
 
@@ -100,6 +100,18 @@ impl RunState {
             | RunState::FetchingCompiler
             | RunState::InProgress(_, true)
             | RunState::CompilationInProgress(_, true) => true,
+        }
+    }
+    fn is_running(&self) -> bool {
+        match self {
+            RunState::Loading
+            | RunState::NotStarted
+            | RunState::Complete(_)
+            | RunState::Error(_, _) => false,
+            RunState::MessageSent
+            | RunState::FetchingCompiler
+            | RunState::InProgress(_, _)
+            | RunState::CompilationInProgress(_, _) => true,
         }
     }
 }
@@ -389,7 +401,7 @@ fn App() -> impl IntoView {
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
-    let is_running = Memo::new(move |_| state.with(|s| s.can_stop() || !s.can_start()));
+    let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
     let lang = RwSignal::new(load("language").unwrap_or(Language::CPP));
     let lang_options = [Language::CPP, Language::C, Language::Python]
@@ -464,9 +476,9 @@ fn App() -> impl IntoView {
         }
     };
 
-    let on_stop = {
+    let do_stop = {
         let send_worker_message = send_worker_message.clone();
-        move |_: MouseEvent| {
+        move |_| {
             state.update(|x| {
                 if let RunState::CompilationInProgress(_, accept)
                 | RunState::InProgress(_, accept) = x
@@ -516,23 +528,36 @@ fn App() -> impl IntoView {
                     value=(lang.into(), lang.into())
                     options=lang_options
                 />
-                <Button
-                    disabled=disable_stop
-                    class="red"
-                    icon=icondata::AiCloseOutlined
-                    on_click=on_stop
-                >
-                    {t!(i18n, stop)}
-                </Button>
-                <Button
-                    disabled=disable_start
-                    class="green"
-                    loading=is_running
-                    icon=icondata::AiCaretRightFilled
-                    on_click=move |_| do_run()
-                >
-                    {t!(i18n, run)}
-                </Button>
+                {move || match is_running.get() {
+                    true => {
+                        let do_stop = do_stop.clone();
+                        view! {
+                            <Button
+                                disabled=disable_stop
+                                class="red"
+                                loading=disable_stop
+                                icon=icondata::AiCloseOutlined
+                                on_click=do_stop
+                            >
+                                {t!(i18n, stop)}
+                            </Button>
+                        }
+                    }
+                    false => {
+                        let do_run = do_run.clone();
+                        view! {
+                            <Button
+                                disabled=disable_start
+                                class="green"
+                                loading=disable_start
+                                icon=icondata::AiCaretRightFilled
+                                on_click=move |_| do_run()
+                            >
+                                {t!(i18n, run)}
+                            </Button>
+                        }
+                    }
+                }}
                 <OutputControl
                     signal=show_stdout
                     icon=icondata::VsOutput

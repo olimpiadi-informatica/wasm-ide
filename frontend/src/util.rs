@@ -75,4 +75,3 @@ pub fn load<T: Stringifiable>(key: &str) -> Option<T> {
         .expect("error fetching from local storage")
         .and_then(|x| T::from_string(x))
 }
-
