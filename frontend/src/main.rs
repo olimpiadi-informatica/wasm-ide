@@ -403,6 +403,9 @@ fn App() -> impl IntoView {
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
     let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
+    let disable_start = Signal::from(disable_start);
+    let disable_stop = Signal::from(disable_stop);
+
     let lang = RwSignal::new(load("language").unwrap_or(Language::CPP));
     let lang_options = [Language::CPP, Language::C, Language::Python]
         .into_iter()
@@ -533,7 +536,6 @@ fn App() -> impl IntoView {
                         let do_stop = do_stop.clone();
                         view! {
                             <Button
-                                disabled=disable_stop
                                 class="red"
                                 loading=disable_stop
                                 icon=icondata::AiCloseOutlined
@@ -547,7 +549,6 @@ fn App() -> impl IntoView {
                         let do_run = do_run.clone();
                         view! {
                             <Button
-                                disabled=disable_start
                                 class="green"
                                 loading=disable_start
                                 icon=icondata::AiCaretRightFilled
@@ -634,9 +635,8 @@ fn App() -> impl IntoView {
         </div>
     };
 
-    let disable_input_editor = {
-        Memo::new(move |_| disable_start.get() || input_mode.get() == InputMode::FullInteractive)
-    };
+    let disable_input_editor =
+        Memo::new(move |_| is_running.get() || input_mode.get() == InputMode::FullInteractive);
 
     let body = {
         let do_run = Box::new(do_run);
@@ -652,8 +652,8 @@ fn App() -> impl IntoView {
                                 contents=code
                                 cache_key="code"
                                 syntax=Signal::derive(move || Some(lang.get()))
-                                readonly=disable_start
-                                ctrl_enter=do_run.clone()
+                                readonly=is_running
+                                ctrl_enter=do_run
                                 kb_mode=kb_mode
                                 ls_interface=Some((
                                     receiver,
