@@ -3,6 +3,7 @@
     "@babel/runtime": "^7.26.10",
     "@codemirror/lang-cpp": "^6.0.2",
     "@codemirror/lang-python": "^6.1.6",
+    "@codemirror/lsp-client": "^6.1.2",
     "@replit/codemirror-emacs": "^6.0.1",
     "@replit/codemirror-vim": "^6.2.1",
     "@rollup/plugin-node-resolve": "^15.2.3",
