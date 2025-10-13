@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use thaw::{Button, ButtonAppearance, Icon, Text, Theme};
 
-use crate::{load, save};
+use crate::util::{load, save};
 
 #[component]
 pub fn ThemeSelector() -> impl IntoView {

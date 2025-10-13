@@ -1,42 +1,42 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::{borrow::Cow, collections::HashSet, str::Chars, time::Duration};
+use std::ops::Deref;
+use std::{collections::HashSet, time::Duration};
 
-use anyhow::{bail, ensure, Result};
+use anyhow::Result;
 use async_channel::{unbounded, Sender};
 use common::{
     init_logging, File, Language, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
 use gloo_timers::future::sleep;
-use icondata::Icon;
 use leptos::{context::Provider, prelude::*};
-use leptos_use::signal_throttled;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use thaw::{
-    Button, ButtonAppearance, ButtonType, ComponentRef, ConfigProvider, Divider, Flex, FlexAlign,
-    Grid, GridItem, Icon, Input, Layout, LayoutHeader, LayoutPosition, MessageBar,
-    MessageBarActions, MessageBarBody, MessageBarIntent, MessageBarLayout, MessageBarTitle,
-    Popover, PopoverTrigger, Scrollbar, ScrollbarRef, Upload,
+    Button, ButtonType, ConfigProvider, Flex, FlexAlign, Grid, GridItem, Input, Layout,
+    LayoutHeader, LayoutPosition, MessageBar, MessageBarActions, MessageBarBody, MessageBarIntent,
+    MessageBarLayout, MessageBarTitle,
 };
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::{
-    FileList, HtmlAnchorElement, MessageEvent, MouseEvent, ScrollToOptions, Worker, WorkerOptions,
-    WorkerType,
-};
+use wasm_bindgen_futures::spawn_local;
+use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
 
 use i18n::*;
 
 mod editor;
 mod enum_select;
+mod output;
+mod settings;
 mod theme;
+mod util;
 
 use crate::editor::{Editor, EditorText};
-use crate::enum_select::enum_select;
-use crate::theme::ThemeSelector;
+use crate::enum_select::EnumSelect;
+use crate::output::{OutputControl, OutputView};
+use crate::settings::Settings;
+use crate::util::{load, save};
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
 pub enum KeyboardMode {
@@ -77,59 +77,6 @@ enum RunState {
     Error(String, Outcome),
 }
 
-trait Stringifiable: Sized {
-    fn stringify(&self) -> Cow<'_, str>;
-    fn from_string(data: String) -> Option<Self>;
-}
-
-impl Stringifiable for EditorText {
-    fn stringify(&self) -> Cow<'_, str> {
-        Cow::Borrowed(self.text())
-    }
-    fn from_string(data: String) -> Option<EditorText> {
-        Some(EditorText::from_text(data))
-    }
-}
-
-impl<T: Serialize + DeserializeOwned> Stringifiable for T {
-    fn stringify(&self) -> Cow<'_, str> {
-        Cow::Owned(serde_json::to_string(self).expect("serialization error"))
-    }
-    fn from_string(data: String) -> Option<Self> {
-        serde_json::from_str(&data).ok()
-    }
-}
-
-fn save<T: Stringifiable>(key: &str, value: &T) {
-    let s = value.stringify();
-    let large_files = expect_context::<RwSignal<LargeFileSet>>();
-    if s.len() >= 3_000_000 {
-        large_files.update(|x| {
-            x.0.insert(key.to_owned());
-        });
-        return;
-    }
-    large_files.update(|x| {
-        x.0.remove(key);
-    });
-    window()
-        .local_storage()
-        .expect("no local storage")
-        .unwrap()
-        .set(key, &s)
-        .expect("could not save data");
-}
-
-fn load<T: Stringifiable>(key: &str) -> Option<T> {
-    window()
-        .local_storage()
-        .expect("no local storage")
-        .unwrap()
-        .get(key)
-        .expect("error fetching from local storage")
-        .and_then(|x| T::from_string(x))
-}
-
 impl RunState {
     fn can_start(&self) -> bool {
         match self {
@@ -144,26 +91,27 @@ impl RunState {
     fn can_stop(&self) -> bool {
         match self {
             RunState::Loading
-            | RunState::MessageSent
-            | RunState::FetchingCompiler
             | RunState::Complete(_)
             | RunState::Error(_, _)
             | RunState::InProgress(_, false)
             | RunState::CompilationInProgress(_, false)
             | RunState::NotStarted => false,
-            RunState::InProgress(_, true) | RunState::CompilationInProgress(_, true) => true,
+            RunState::MessageSent
+            | RunState::FetchingCompiler
+            | RunState::InProgress(_, true)
+            | RunState::CompilationInProgress(_, true) => true,
         }
     }
-    fn has_output(&self) -> bool {
+    fn is_running(&self) -> bool {
         match self {
             RunState::Loading
-            | RunState::MessageSent
+            | RunState::NotStarted
+            | RunState::Complete(_)
+            | RunState::Error(_, _) => false,
+            RunState::MessageSent
             | RunState::FetchingCompiler
-            | RunState::CompilationInProgress(_, _)
             | RunState::InProgress(_, _)
-            | RunState::Error(_, _)
-            | RunState::NotStarted => false,
-            RunState::Complete(_) => true,
+            | RunState::CompilationInProgress(_, _) => true,
         }
     }
 }
@@ -187,47 +135,36 @@ fn StatusView(
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    let state2 = state;
-    let state_to_view = move |state: &RunState| {
-        match state {
-        RunState::Complete(_) => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, execution_completed)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::CompilationInProgress(_, true) => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::InProgress(_, true) => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
-            <MessageBar intent=MessageBarIntent::Warning>
-                <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::Error(err, _) => {
-            let err = err.clone();
-            if err.is_empty() {
+
+    move || {
+        match state.read().deref() {
+            RunState::Complete(_) => ().into_any(),
+            RunState::CompilationInProgress(_, true) => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Success>
+                    <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::InProgress(_, true) => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Success>
+                    <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Warning>
+                    <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
+                </MessageBar>
+            }
+            .into_any(),
+            RunState::Error(err, _) => {
+                let err = err.clone();
                 view! {
-                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
-                        <MessageBarBody>
-                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
-                        </MessageBarBody>
-                    </MessageBar>
-                }
-                .into_any()
-            } else {
-                view! {
-                    <MessageBar intent=MessageBarIntent::Error layout=MessageBarLayout::Multiline>
+                    <MessageBar
+                        class="status-view"
+                        intent=MessageBarIntent::Error
+                        layout=MessageBarLayout::Multiline
+                    >
                         <MessageBarBody>
                             <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
                             <pre>{err}</pre>
@@ -237,10 +174,10 @@ fn StatusView(
                                 class="red"
                                 icon=icondata::AiCloseOutlined
                                 on_click=move |_| {
-                                    state2
+                                    state
                                         .update(|s| {
-                                            if let RunState::Error(err, _) = s {
-                                                *err = String::new();
+                                            if let RunState::Error(_, o) = s {
+                                                *s = RunState::Complete(std::mem::take(o));
                                             }
                                         })
                                 }
@@ -253,246 +190,42 @@ fn StatusView(
                 }
                 .into_any()
             }
-        }
-        RunState::NotStarted => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, click_to_run)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::Loading => view! {
-            <MessageBar intent=MessageBarIntent::Success>
-                <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-        RunState::FetchingCompiler | RunState::MessageSent => view! {
-            <MessageBar intent=MessageBarIntent::Success layout=MessageBarLayout::Multiline>
-                <MessageBarBody>
-                    <MessageBarTitle>{t!(i18n, downloading_runtime)}</MessageBarTitle>
-                    <For
-                        each=move || fetching_compiler_progress.get()
-                        key=|x| x.clone()
-                        let((name, progress))
-                    >
-                        <div style="display: flex; flex-direction: row; align-items: center; gap: 20px;">
-                            <pre>{name}</pre>
-                            <progress value=progress.map(|x| x.0) max=progress.map(|x| x.1) />
-                            <span style="width: 3em; text-align: right;">
-                                {progress
-                                    .map(|(cur, tot)| {
-                                        format!("{:.1}%", 100. * cur as f64 / tot as f64)
-                                    })}
-                            </span>
-                        </div>
-                    </For>
-                </MessageBarBody>
-            </MessageBar>
-        }
-        .into_any(),
-    }
-    };
-
-    view! { <div class="status-view">{move || state.with(state_to_view)}</div> }
-}
-
-fn output_for_display(s: &[u8]) -> String {
-    const LEN_LIMIT: usize = 16 * 1024;
-    let (data, extra) = if s.len() < LEN_LIMIT {
-        (s, "")
-    } else {
-        (&s[..LEN_LIMIT], "...")
-    };
-    format!("{}{}", String::from_utf8_lossy(data), extra)
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-struct Style {
-    bold: bool,
-    fg: Option<&'static str>,
-}
-
-impl Style {
-    fn style_str(&self) -> String {
-        let mut parts = Vec::new();
-        if self.bold {
-            parts.push("font-weight: bold".to_string());
-        }
-        if let Some(fg) = self.fg {
-            parts.push(format!("color: {fg}"));
-        }
-        parts.join("; ")
-    }
-}
-
-fn ansi(text: &str) -> Vec<(Style, String)> {
-    fn parse(style: &mut Style, iter: &mut Chars) -> Result<()> {
-        ensure!(
-            iter.next() == Some('['),
-            "expected '[' at start of ANSI sequence"
-        );
-        let mut num = 0;
-        for c in iter {
-            if c.is_ascii_digit() {
-                num = num * 10 + (c as u8 - b'0') as usize;
-            } else if c == 'm' || c == ';' {
-                match num {
-                    0 => *style = Style::default(),
-                    1 => style.bold = true,
-                    30 => style.fg = Some("black"),
-                    31 => style.fg = Some("red"),
-                    32 => style.fg = Some("green"),
-                    33 => style.fg = Some("yellow"),
-                    34 => style.fg = Some("blue"),
-                    35 => style.fg = Some("magenta"),
-                    36 => style.fg = Some("cyan"),
-                    37 => style.fg = Some("white"),
-                    _ => bail!("unsupported ANSI code: {num}"),
-                }
-                num = 0;
-                if c == 'm' {
-                    break;
-                }
-            } else {
-                bail!("unexpected character '{c}' in ANSI escape sequence");
+            RunState::NotStarted => ().into_any(),
+            RunState::Loading => view! {
+                <MessageBar class="status-view" intent=MessageBarIntent::Success>
+                    <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
+                </MessageBar>
             }
-        }
-        Ok(())
-    }
-
-    let mut style = Style::default();
-    let mut iter = text.chars();
-    let mut fragments: Vec<(Style, String)> = Vec::new();
-
-    while let Some(c) = iter.next() {
-        if c == '\x1b' {
-            let style_backup = style;
-            let iter_backup = iter.clone();
-            match parse(&mut style, &mut iter) {
-                Ok(()) => continue,
-                Err(e) => {
-                    warn!("error parsing ANSI escape sequence: {e}");
-                    style = style_backup;
-                    iter = iter_backup;
-                }
+            .into_any(),
+            RunState::FetchingCompiler | RunState::MessageSent => view! {
+                <MessageBar
+                    class="status-view"
+                    intent=MessageBarIntent::Success
+                    layout=MessageBarLayout::Multiline
+                >
+                    <MessageBarBody>
+                        <MessageBarTitle>{t!(i18n, downloading_runtime)}</MessageBarTitle>
+                        <For
+                            each=move || fetching_compiler_progress.get()
+                            key=|x| x.clone()
+                            let((name, progress))
+                        >
+                            <div style="display: flex; flex-direction: row; align-items: center; gap: 20px;">
+                                <pre>{name}</pre>
+                                <progress value=progress.map(|x| x.0) max=progress.map(|x| x.1) />
+                                <span style="width: 3em; text-align: right;">
+                                    {progress
+                                        .map(|(cur, tot)| {
+                                            format!("{:.1}%", 100. * cur as f64 / tot as f64)
+                                        })}
+                                </span>
+                            </div>
+                        </For>
+                    </MessageBarBody>
+                </MessageBar>
             }
+            .into_any(),
         }
-        if let Some(last) = fragments.last_mut() {
-            if last.0 == style {
-                last.1.push(c);
-                continue;
-            }
-        }
-        fragments.push((style, c.to_string()));
-    }
-
-    fragments
-}
-
-#[component]
-fn OutDivInner(
-    #[prop(into)] state: Signal<RunState>,
-    get_data: fn(&Outcome) -> &Vec<u8>,
-    icon: Icon,
-) -> impl IntoView {
-    let i18n = use_i18n();
-    let scrollbar = ComponentRef::<ScrollbarRef>::new();
-
-    let style_and_text = Signal::derive(move || {
-        state.with(move |s| match s {
-            RunState::InProgress(o, _) | RunState::Error(_, o) | RunState::Complete(o) => {
-                ("", output_for_display(get_data(o)))
-            }
-            _ => (
-                "color: #888;",
-                t_display!(i18n, not_yet_executed).to_string(),
-            ),
-        })
-    });
-
-    let style = Signal::derive(move || {
-        format!("width: 100%; text-align: left; {}", style_and_text.get().0)
-    });
-
-    let text = Signal::derive(move || style_and_text.get().1);
-    let fragments = Signal::derive(move || ansi(&text.get()));
-
-    Effect::new(move |_| {
-        text.get();
-        let scroll_options = ScrollToOptions::new();
-        scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
-        if let Some(scrollbar) = scrollbar.get_untracked() {
-            let height = scrollbar
-                .content_ref
-                .get_untracked()
-                .map(|el| el.scroll_height())
-                .unwrap_or(1 << 16);
-            scroll_options.set_top(height as f64);
-            scrollbar.scroll_to_with_scroll_to_options(&scroll_options);
-        }
-    });
-
-    view! {
-        <div style="flex-grow: 1; flex-basis: 0; flex-shrink: 1; min-width: 0; text-align: center;">
-            <Icon icon style="font-size: 1.5em" />
-            <Divider class="outdivider" />
-            <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
-                <pre style=style>
-                    <For each=move || fragments.get() key=|x| x.clone() let((style, text))>
-                        <span style=style.style_str()>{text}</span>
-                    </For>
-                </pre>
-            </Scrollbar>
-        </div>
-    }
-}
-
-#[component]
-fn OutDiv(
-    #[prop(into)] state: Signal<RunState>,
-    #[prop(into)] display: Signal<bool>,
-    get_data: fn(&Outcome) -> &Vec<u8>,
-    icon: Icon,
-) -> impl IntoView {
-    view! {
-        <Show when=move || display.get()>
-            <OutDivInner state=state get_data=get_data icon=icon />
-        </Show>
-    }
-}
-
-#[component]
-fn OutputView(
-    state: RwSignal<RunState>,
-    #[prop(into)] show_stdout: Signal<bool>,
-    #[prop(into)] show_stderr: Signal<bool>,
-    #[prop(into)] show_compilation: Signal<bool>,
-) -> impl IntoView {
-    let state = signal_throttled(state, 100.0);
-    let when = move || show_stdout.get() || show_stderr.get() || show_compilation.get();
-    view! {
-        <Show when>
-            <div style="display: flex; flex-direction: row;">
-                <OutDiv
-                    state
-                    display=show_stdout
-                    get_data=|outcome| &outcome.stdout
-                    icon=icondata::VsOutput
-                />
-                <OutDiv
-                    state
-                    display=show_stderr
-                    get_data=|outcome| &outcome.stderr
-                    icon=icondata::BiErrorSolid
-                />
-                <OutDiv
-                    state
-                    display=show_compilation
-                    get_data=|outcome| &outcome.compile_stderr
-                    icon=icondata::BiCommentErrorSolid
-                />
-            </div>
-        </Show>
     }
 }
 
@@ -554,7 +287,7 @@ fn handle_message(
             (WorkerExecResponse::CompilationDone, RunState::CompilationInProgress(cur, _)) => {
                 *state = RunState::InProgress(std::mem::take(cur), true);
             }
-            (WorkerExecResponse::Error(s), RunState::FetchingCompiler) => {
+            (WorkerExecResponse::Error(s), RunState::MessageSent | RunState::FetchingCompiler) => {
                 *state = RunState::Error(s, Outcome::default());
             }
             (
@@ -599,66 +332,6 @@ fn handle_message(
     Ok(())
 }
 
-#[component]
-fn OutputControl(
-    signal: RwSignal<bool>,
-    icon: Icon,
-    tooltip: Signal<String>,
-    #[prop(into)] color: String,
-) -> impl IntoView {
-    let appearance = Signal::derive(move || {
-        if signal.get() {
-            ButtonAppearance::Secondary
-        } else {
-            ButtonAppearance::Subtle
-        }
-    });
-    view! {
-        <Popover>
-            <PopoverTrigger slot>
-                <Button class=color icon on_click=move |_| signal.update(|x| *x = !*x) appearance />
-            </PopoverTrigger>
-            {tooltip}
-        </Popover>
-    }
-}
-
-fn download(name: &str, data: &[u8]) {
-    use base64::prelude::*;
-    let b64 = BASE64_STANDARD.encode(data);
-    let url = format!("data:text/plain;base64,{b64}");
-    let w = window();
-    let d = w.document().expect("no document");
-    let a = d
-        .create_element("a")
-        .unwrap()
-        .dyn_into::<HtmlAnchorElement>()
-        .unwrap();
-    a.set_download(name);
-    a.set_href(&url);
-    d.body().expect("no body").append_child(&a).unwrap();
-    a.click(); // TODO: this causes a panic for some reason
-    a.remove();
-}
-
-fn locale_name(locale: Locale) -> &'static str {
-    match locale {
-        Locale::en => "English",
-        Locale::it => "Italiano",
-        Locale::es => "Español",
-        Locale::ca => "Català",
-    }
-}
-
-fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
-    match kb_mode {
-        KeyboardMode::Vim => td_display!(locale, vim_mode),
-        KeyboardMode::Emacs => td_display!(locale, emacs_mode),
-        KeyboardMode::Standard => td_display!(locale, standard_mode),
-    }
-    .to_string()
-}
-
 fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
     match input_mode {
         InputMode::Batch => td_display!(locale, batch_input),
@@ -666,39 +339,6 @@ fn input_mode_string(locale: Locale, input_mode: InputMode) -> String {
         InputMode::FullInteractive => td_display!(locale, full_interactive_input),
     }
     .to_string()
-}
-
-#[component]
-fn LocaleSelector() -> impl IntoView {
-    let i18n = use_i18n();
-
-    let init = load("locale").unwrap_or_else(|| {
-        let window = web_sys::window().expect("Missing Window");
-        let navigator = window.navigator();
-        let preferences: Vec<_> = navigator
-            .languages()
-            .into_iter()
-            .map(|x| x.as_string().unwrap())
-            .collect();
-        Locale::find_locale(&preferences)
-    });
-
-    let (locale, view) = enum_select(
-        "locale-selector",
-        init,
-        Locale::get_all()
-            .iter()
-            .map(|&x| (x, Signal::stored(locale_name(x).to_string())))
-            .collect::<Vec<_>>(),
-    );
-
-    Effect::new(move |_| {
-        let loc = locale.get();
-        save("locale", &loc);
-        i18n.set_locale(loc);
-    });
-
-    view
 }
 
 #[component]
@@ -761,57 +401,13 @@ fn App() -> impl IntoView {
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
-    let is_running = Memo::new(move |_| state.with(|s| s.can_stop() || !s.can_start()));
-    let disable_output = Memo::new(move |_| state.with(|s| !s.has_output()));
+    let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
-    let owner = Owner::current().unwrap();
-    let upload_input = move |files: FileList| {
-        let file = files.get(0).expect("0 files?");
-        let owner = owner.clone();
-        spawn_local(async move {
-            let promise = file.text();
-            let text = JsFuture::from(promise).await;
-            match text {
-                Ok(text) => {
-                    let text =
-                        EditorText::from_text(text.as_string().expect("did not read a string"));
-                    owner.with(|| save("stdin", &text));
-                    stdin.set(text)
-                }
-                Err(err) => warn!("could not read file: {err:?}"),
-            }
-        });
-    };
-
-    let download_output = move |_| {
-        let data = state.with(|s| {
-            let RunState::Complete(outcome) = s else {
-                warn!("requested download in invalid state");
-                return None;
-            };
-            Some(outcome.stdout.clone())
-        });
-        let Some(data) = data else {
-            return;
-        };
-        download("output.txt", &data);
-    };
-
-    let (lang, lang_selector) = enum_select(
-        "language-selector",
-        load("language").unwrap_or(Language::CPP),
-        [Language::CPP, Language::C, Language::Python]
-            .into_iter()
-            .map(|lng| (lng, Signal::stored(lng.into())))
-            .collect::<Vec<_>>(),
-    );
-
-    let download_code = move |_| {
-        let code = code.with_untracked(|x| x.text().clone());
-        let lng = lang.get_untracked();
-        let name = format!("code.{}", lng.ext());
-        download(&name, code.as_bytes());
-    };
+    let lang = RwSignal::new(load("language").unwrap_or(Language::CPP));
+    let lang_options = [Language::CPP, Language::C, Language::Python]
+        .into_iter()
+        .map(|lng| (lng, Signal::stored(lng.into())))
+        .collect::<Vec<_>>();
 
     {
         let send_worker_message = send_worker_message.clone();
@@ -822,23 +418,20 @@ fn App() -> impl IntoView {
         });
     }
 
-    let (input_mode, input_mode_select) = enum_select(
-        "input-selector",
-        load("input_mode").unwrap_or(InputMode::Batch),
-        [
-            InputMode::Batch,
-            InputMode::MixedInteractive,
-            InputMode::FullInteractive,
-        ]
-        .into_iter()
-        .map(|mode| {
-            (
-                mode,
-                Signal::derive(move || input_mode_string(i18n.get_locale(), mode)),
-            )
-        })
-        .collect::<Vec<_>>(),
-    );
+    let input_mode = RwSignal::new(load("input_mode").unwrap_or(InputMode::Batch));
+    let input_options = [
+        InputMode::Batch,
+        InputMode::MixedInteractive,
+        InputMode::FullInteractive,
+    ]
+    .into_iter()
+    .map(|mode| {
+        (
+            mode,
+            Signal::derive(move || input_mode_string(i18n.get_locale(), mode)),
+        )
+    })
+    .collect::<Vec<_>>();
     Effect::new(move |_| save("input_mode", &input_mode.get()));
 
     let do_run = {
@@ -883,9 +476,9 @@ fn App() -> impl IntoView {
         }
     };
 
-    let on_stop = {
+    let do_stop = {
         let send_worker_message = send_worker_message.clone();
-        move |_: MouseEvent| {
+        move |_| {
             state.update(|x| {
                 if let RunState::CompilationInProgress(_, accept)
                 | RunState::InProgress(_, accept) = x
@@ -917,24 +510,7 @@ fn App() -> impl IntoView {
         }
     });
 
-    let (kb_mode, kb_mode_select) = enum_select(
-        "kb-selector",
-        load("kb_mode").unwrap_or(KeyboardMode::Standard),
-        [
-            KeyboardMode::Standard,
-            KeyboardMode::Vim,
-            KeyboardMode::Emacs,
-        ]
-        .into_iter()
-        .map(|mode| {
-            (
-                mode,
-                Signal::derive(move || kb_mode_string(i18n.get_locale(), mode)),
-            )
-        })
-        .collect::<Vec<_>>(),
-    );
-
+    let kb_mode = RwSignal::new(load("kb_mode").unwrap_or(KeyboardMode::Standard));
     Effect::new(move |_| save("kb_mode", &kb_mode.get()));
 
     let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
@@ -946,42 +522,42 @@ fn App() -> impl IntoView {
         let do_run = do_run.clone();
         view! {
             <Flex align=FlexAlign::Center style="padding: 0 20px; height: 64px;">
-                <ThemeSelector />
-                <LocaleSelector />
-                {lang_selector}
-                <Upload custom_request=upload_input>
-                    <Button class="blue" disabled=disable_start icon=icondata::AiUploadOutlined>
-                        {t!(i18n, load_input)}
-                    </Button>
-                </Upload>
-                <Button
-                    disabled=disable_stop
-                    class="red"
-                    icon=icondata::AiCloseOutlined
-                    on_click=on_stop
-                >
-                    {t!(i18n, stop)}
-                </Button>
-                <Button
-                    disabled=disable_start
-                    class="green"
-                    loading=is_running
-                    icon=icondata::AiCaretRightFilled
-                    on_click=move |_| do_run()
-                >
-                    {t!(i18n, run)}
-                </Button>
-                <Button
-                    disabled=disable_output
-                    class="green"
-                    icon=icondata::AiDownloadOutlined
-                    on_click=download_output
-                >
-                    {t!(i18n, download_output)}
-                </Button>
-                <Button class="green" icon=icondata::AiDownloadOutlined on_click=download_code>
-                    {t!(i18n, download_code)}
-                </Button>
+                <Settings kb_mode />
+                <EnumSelect
+                    class="language-selector"
+                    value=(lang.into(), lang.into())
+                    options=lang_options
+                />
+                {move || match is_running.get() {
+                    true => {
+                        let do_stop = do_stop.clone();
+                        view! {
+                            <Button
+                                disabled=disable_stop
+                                class="red"
+                                loading=disable_stop
+                                icon=icondata::AiCloseOutlined
+                                on_click=do_stop
+                            >
+                                {t!(i18n, stop)}
+                            </Button>
+                        }
+                    }
+                    false => {
+                        let do_run = do_run.clone();
+                        view! {
+                            <Button
+                                disabled=disable_start
+                                class="green"
+                                loading=disable_start
+                                icon=icondata::AiCaretRightFilled
+                                on_click=move |_| do_run()
+                            >
+                                {t!(i18n, run)}
+                            </Button>
+                        }
+                    }
+                }}
                 <OutputControl
                     signal=show_stdout
                     icon=icondata::VsOutput
@@ -1000,8 +576,7 @@ fn App() -> impl IntoView {
                     tooltip=show_compileerr_tooltip
                     color="yellow"
                 />
-                {kb_mode_select}
-                {input_mode_select}
+                <EnumSelect value=(input_mode.into(), input_mode.into()) options=input_options />
             </Flex>
         }
     };
@@ -1076,7 +651,7 @@ fn App() -> impl IntoView {
                             <Editor
                                 contents=code
                                 cache_key="code"
-                                syntax=lang
+                                syntax=Signal::derive(move || Some(lang.get()))
                                 readonly=disable_start
                                 ctrl_enter=do_run.clone()
                                 kb_mode=kb_mode
