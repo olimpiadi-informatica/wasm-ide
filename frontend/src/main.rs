@@ -34,7 +34,7 @@ mod util;
 
 use crate::editor::{Editor, EditorText};
 use crate::enum_select::EnumSelect;
-use crate::output::{OutputControl, OutputView};
+use crate::output::OutputView;
 use crate::settings::Settings;
 use crate::util::{load, save};
 
@@ -496,30 +496,10 @@ fn App() -> impl IntoView {
         }
     };
 
-    let show_stdout = RwSignal::new(true);
-    let show_stderr = RwSignal::new(false);
-    let show_compilation = RwSignal::new(true);
-
-    Effect::new(move |_| {
-        save("language", &lang.get());
-        if lang.get() == Language::Python {
-            if show_compilation.get_untracked() && !show_stderr.get_untracked() {
-                show_stderr.set(true);
-                show_compilation.set(false);
-            }
-        } else if !show_compilation.get_untracked() && show_stderr.get_untracked() {
-            show_stderr.set(false);
-            show_compilation.set(true);
-        }
-    });
+    Effect::new(move |_| save("language", &lang.get()));
 
     let kb_mode = RwSignal::new(load("kb_mode").unwrap_or(KeyboardMode::Standard));
     Effect::new(move |_| save("kb_mode", &kb_mode.get()));
-
-    let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
-    let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, show_stderr).to_string());
-    let show_compileerr_tooltip =
-        Signal::derive(move || t_display!(i18n, show_compileerr).to_string());
 
     let navbar = {
         let do_run = do_run.clone();
@@ -559,24 +539,6 @@ fn App() -> impl IntoView {
                         }
                     }
                 }}
-                <OutputControl
-                    signal=show_stdout
-                    icon=icondata::VsOutput
-                    tooltip=show_output_tooltip
-                    color="blue"
-                />
-                <OutputControl
-                    signal=show_stderr
-                    icon=icondata::BiErrorSolid
-                    tooltip=show_stderr_tooltip
-                    color="yellow"
-                />
-                <OutputControl
-                    signal=show_compilation
-                    icon=icondata::BiCommentErrorSolid
-                    tooltip=show_compileerr_tooltip
-                    color="yellow"
-                />
                 <EnumSelect value=(input_mode.into(), input_mode.into()) options=input_options />
             </Flex>
         }
@@ -681,7 +643,7 @@ fn App() -> impl IntoView {
                     </Grid>
                 </div>
                 <div>
-                    <OutputView state show_stdout show_stderr show_compilation />
+                    <OutputView state />
                 </div>
             </div>
         }
