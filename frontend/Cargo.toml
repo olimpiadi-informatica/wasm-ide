@@ -26,4 +26,4 @@ send_wrapper = "0.6.0"
 
 [package.metadata.leptos-i18n]
 default = "en"
-locales = ["en", "it", "es", "ca"]
+locales = ["en", "it", "es", "ca", "vec"]

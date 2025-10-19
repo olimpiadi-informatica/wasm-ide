@@ -8,8 +8,8 @@ use crate::{enum_select::EnumSelect, i18n::*, theme::ThemeSelector, KeyboardMode
 
 #[component]
 pub fn Settings(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
+    let i18n = use_i18n();
     let open = RwSignal::new(false);
-
     let theme_selector = ThemeSelector();
 
     view! {
@@ -23,16 +23,16 @@ pub fn Settings(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
         <Dialog open>
             <DialogSurface attr:style="width: fit-content;">
                 <DialogBody>
-                    <DialogTitle>"Settings"</DialogTitle>
+                    <DialogTitle>{t!(i18n, settings)}</DialogTitle>
                     <DialogContent>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px; align-items: center;">
-                            <span>"Theme"</span>
+                            <span>{t!(i18n, theme)}</span>
                             {theme_selector}
 
-                            <span>"Language"</span>
+                            <span>{t!(i18n, language)}</span>
                             <LocaleSelector />
 
-                            <span>"Keyboard mode"</span>
+                            <span>{t!(i18n, keyboard_mode)}</span>
                             <KbModeSelector kb_mode />
                         </div>
                     </DialogContent>
@@ -50,6 +50,7 @@ fn LocaleSelector() -> impl IntoView {
             Locale::it => "Italiano",
             Locale::es => "Español",
             Locale::ca => "Català",
+            Locale::vec => "Vèneto",
         }
     }
 

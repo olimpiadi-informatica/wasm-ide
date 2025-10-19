@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use thaw::{Button, ButtonAppearance, Icon, Text, Theme};
 
+use crate::i18n::*;
 use crate::util::{load, save};
 
 #[component]
@@ -12,6 +13,8 @@ pub fn ThemeSelector() -> impl IntoView {
         Light,
         Dark,
     }
+
+    let i18n = use_i18n();
 
     let preferred_dark = leptos_use::use_preferred_dark();
     let theme_plus = RwSignal::new(load("theme").unwrap_or(ThemePlus::System));
@@ -33,11 +36,11 @@ pub fn ThemeSelector() -> impl IntoView {
 
     let theme_name_and_icon = Memo::new(move |_| match theme_plus.get() {
         ThemePlus::System => match preferred_dark.get() {
-            true => ("System", icondata::BiMoonSolid),
-            false => ("System", icondata::BiSunSolid),
+            true => (t_string!(i18n, theme_system), icondata::BiMoonSolid),
+            false => (t_string!(i18n, theme_system), icondata::BiSunSolid),
         },
-        ThemePlus::Light => ("Light", icondata::BiSunSolid),
-        ThemePlus::Dark => ("Dark", icondata::BiMoonSolid),
+        ThemePlus::Light => (t_string!(i18n, theme_light), icondata::BiSunSolid),
+        ThemePlus::Dark => (t_string!(i18n, theme_dark), icondata::BiMoonSolid),
     });
 
     let name = Signal::derive(move || theme_name_and_icon.get().0);

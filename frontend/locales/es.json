@@ -1,28 +1,39 @@
 {
-  "execution_completed": "¡Ejecución completada!",
+  "loading": "Cargando...",
+  "downloading_runtime": "Descargando runtime...",
   "compiling": "Compilando...",
   "executing": "Ejecutando...",
   "stopping_execution": "Interrupción de la ejecucion...",
   "error": "Error",
   "hide_error": "Ocultar error",
-  "click_to_run": "Haz clic en \"Ejecutar\" para ejecutar",
-  "loading": "Cargando...",
-  "downloading_runtime": "Descargando runtime...",
-  "not_yet_executed": "programa todavía no ejecutado",
-  "load_input": "Cargar entrada",
-  "stop": "Parar",
+
+  "not_yet_executed": "Programa todavía no ejecutado.",
+
   "run": "Ejecutar",
-  "download_output": "Descargar salida",
-  "download_code": "Descargar código",
+  "stop": "Parar",
+
   "show_output": "Mostrar salida",
   "show_stderr": "Mostrar errores de ejecución",
   "show_compileerr": "Mostrar errores de compilación",
-  "additional_input": "entrada adicional...",
-  "vim_mode": "Modo Vim",
-  "emacs_mode": "Modo Emacs",
-  "standard_mode": "Modo estándar",
+
+  "additional_input": "Entrada adicional...",
+
   "batch_input": "Entrada fija",
   "mixed_interactive_input": "Entrada mixta",
   "full_interactive_input": "Entrada interactiva",
-  "files_too_big": "Algunos archivos son demasiado grandes y no pueden ser guardados."
+
+  "files_too_big": "Algunos archivos son demasiado grandes y no pueden ser guardados.",
+
+  "settings": "Configuración",
+  "language": "Idioma",
+
+  "theme": "Tema",
+  "theme_system": "Sistema",
+  "theme_light": "Claro",
+  "theme_dark": "Oscuro",
+
+  "keyboard_mode": "Modo de teclado",
+  "vim_mode": "Modo Vim",
+  "emacs_mode": "Modo Emacs",
+  "standard_mode": "Modo estándar"
 }

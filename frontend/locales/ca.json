@@ -1,28 +1,39 @@
 {
-  "execution_completed": "Execució completada!",
+  "loading": "Carregant...",
+  "downloading_runtime": "Descaregant runtime...",
   "compiling": "Compilant...",
   "executing": "Ejecutant...",
   "stopping_execution": "Interrupció de l'execució...",
   "error": "Error",
   "hide_error": "Ocultar error",
-  "click_to_run": "Fes clic a \"Executar\" per executar",
-  "loading": "Carregant...",
-  "downloading_runtime": "Descaregant runtime...",
-  "not_yet_executed": "programa encara no executat",
-  "load_input": "Carregar entrada",
-  "stop": "Aturar",
+
+  "not_yet_executed": "Programa encara no executat.",
+
   "run": "Executar",
-  "download_output": "Descarregar sortida",
-  "download_code": "Descarregar codi",
+  "stop": "Aturar",
+
   "show_output": "Mostrar sortida",
   "show_stderr": "Mostrar errors d'execució",
   "show_compileerr": "Mostrar errors de compilació",
-  "additional_input": "entrada addicional...",
-  "vim_mode": "Mode Vim",
-  "emacs_mode": "Mode Emacs",
-  "standard_mode": "Mode estàndar",
+
+  "additional_input": "Entrada addicional...",
+
   "batch_input": "Entrada fixe",
   "mixed_interactive_input": "Entrada mixta",
   "full_interactive_input": "Entrada interactiva",
-  "files_too_big": "Alguns arxius són massa grans i es poden ser desats."
+
+  "files_too_big": "Alguns arxius són massa grans i es poden ser desats.",
+
+  "settings": "Configuració",
+  "language": "Llengua",
+
+  "theme": "Tema",
+  "theme_system": "Sistema",
+  "theme_light": "Clar",
+  "theme_dark": "Fosc",
+
+  "keyboard_mode": "Mode de teclat",
+  "vim_mode": "Mode Vim",
+  "emacs_mode": "Mode Emacs",
+  "standard_mode": "Mode estàndar"
 }
