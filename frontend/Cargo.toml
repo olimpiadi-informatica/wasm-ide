@@ -22,6 +22,7 @@ gloo-timers = { version = "0.3.0", features = ["futures"] }
 leptos_i18n = { version = "0.5.11", features = ["interpolate_display"] }
 tracing = { version = "0.1.41" }
 js-sys = "0.3.77"
+send_wrapper = "0.6.0"
 
 [package.metadata.leptos-i18n]
 default = "en"

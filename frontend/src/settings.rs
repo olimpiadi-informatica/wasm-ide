@@ -55,10 +55,11 @@ fn LocaleSelector() -> impl IntoView {
 
     let i18n = use_i18n();
 
-    let options = Locale::get_all()
+    let mut options = Locale::get_all()
         .iter()
         .map(|&x| (x, Signal::stored(locale_name(x).to_string())))
         .collect::<Vec<_>>();
+    options.sort_by_key(|&(loc, _)| locale_name(loc));
 
     view! {
         <EnumSelect

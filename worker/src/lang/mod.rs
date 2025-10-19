@@ -1,5 +1,6 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use common::{File, Language};
+use tracing::warn;
 
 use crate::os::Pipe;
 
@@ -18,6 +19,9 @@ pub async fn run_ls(language: Language, stdin: Pipe, stdout: Pipe, stderr: Pipe)
     match language {
         Language::C => cpp::run_ls(false, stdin, stdout, stderr).await,
         Language::CPP => cpp::run_ls(true, stdin, stdout, stderr).await,
-        Language::Python => bail!("Language not supported for LS: {:?}", language),
+        _ => {
+            warn!("Language not supported for LS: {:?}", language);
+            Ok(())
+        }
     }
 }

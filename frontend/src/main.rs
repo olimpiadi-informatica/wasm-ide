@@ -1,22 +1,21 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::ops::Deref;
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
+use std::ops::DerefMut;
 
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
 use common::{
-    init_logging, File, Language, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest,
-    WorkerLSResponse, WorkerRequest, WorkerResponse,
+    init_logging, File, Language, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
+    WorkerLSRequest, WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
-use gloo_timers::future::sleep;
 use leptos::{context::Provider, prelude::*};
+use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 use thaw::{
     Button, ButtonType, ConfigProvider, Flex, FlexAlign, Grid, GridItem, Input, Layout,
-    LayoutHeader, LayoutPosition, MessageBar, MessageBarActions, MessageBarBody, MessageBarIntent,
-    MessageBarLayout, MessageBarTitle,
+    LayoutHeader, LayoutPosition, MessageBar, MessageBarBody, MessageBarIntent,
 };
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
@@ -29,6 +28,7 @@ mod editor;
 mod enum_select;
 mod output;
 mod settings;
+mod status_view;
 mod theme;
 mod util;
 
@@ -36,6 +36,7 @@ use crate::editor::{Editor, EditorText};
 use crate::enum_select::EnumSelect;
 use crate::output::OutputView;
 use crate::settings::Settings;
+use crate::status_view::StatusView;
 use crate::util::{load, save};
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
@@ -68,50 +69,67 @@ type FetchingCompilerProgress = HashMap<String, Option<(u64, u64)>>;
 #[derive(Clone, Debug)]
 enum RunState {
     Loading,
-    NotStarted,
-    MessageSent,
+    Ready { exec: StateExec, ls: StateLS },
+}
+
+#[derive(Clone, Debug)]
+enum StateExec {
+    Ready,
+    Processing {
+        status: Option<WorkerExecStatus>,
+        outcome: Outcome,
+        stopping: bool,
+    },
+    Complete {
+        outcome: Outcome,
+        error: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug)]
+enum StateLS {
+    Ready,
+    Requested,
     FetchingCompiler,
-    CompilationInProgress(Outcome, bool),
-    InProgress(Outcome, bool),
-    Complete(Outcome),
-    Error(String, Outcome),
+    Running,
+    Error(String),
 }
 
 impl RunState {
     fn can_start(&self) -> bool {
-        match self {
-            RunState::Loading
-            | RunState::MessageSent
-            | RunState::FetchingCompiler
-            | RunState::InProgress(_, _)
-            | RunState::CompilationInProgress(_, _) => false,
-            RunState::Complete(_) | RunState::Error(_, _) | RunState::NotStarted => true,
+        let exec = match self {
+            RunState::Ready { exec, .. } => exec,
+            _ => return false,
+        };
+        match exec {
+            StateExec::Processing { .. } => false,
+            StateExec::Ready | StateExec::Complete { .. } => true,
         }
     }
+
     fn can_stop(&self) -> bool {
-        match self {
-            RunState::Loading
-            | RunState::Complete(_)
-            | RunState::Error(_, _)
-            | RunState::InProgress(_, false)
-            | RunState::CompilationInProgress(_, false)
-            | RunState::NotStarted => false,
-            RunState::MessageSent
-            | RunState::FetchingCompiler
-            | RunState::InProgress(_, true)
-            | RunState::CompilationInProgress(_, true) => true,
+        let exec = match self {
+            RunState::Ready { exec, .. } => exec,
+            _ => return false,
+        };
+        match exec {
+            StateExec::Ready
+            | StateExec::Complete { .. }
+            | StateExec::Processing { stopping: true, .. } => false,
+            StateExec::Processing {
+                stopping: false, ..
+            } => true,
         }
     }
+
     fn is_running(&self) -> bool {
-        match self {
-            RunState::Loading
-            | RunState::NotStarted
-            | RunState::Complete(_)
-            | RunState::Error(_, _) => false,
-            RunState::MessageSent
-            | RunState::FetchingCompiler
-            | RunState::InProgress(_, _)
-            | RunState::CompilationInProgress(_, _) => true,
+        let exec = match self {
+            RunState::Ready { exec, .. } => exec,
+            _ => return false,
+        };
+        match exec {
+            StateExec::Ready | StateExec::Complete { .. } => false,
+            StateExec::Processing { .. } => true,
         }
     }
 }
@@ -126,106 +144,6 @@ fn StorageErrorView() -> impl IntoView {
                 <MessageBarBody>{t!(i18n, files_too_big)}</MessageBarBody>
             </MessageBar>
         </Show>
-    }
-}
-
-#[component]
-fn StatusView(
-    state: RwSignal<RunState>,
-    fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
-) -> impl IntoView {
-    let i18n = use_i18n();
-
-    move || {
-        match state.read().deref() {
-            RunState::Complete(_) => ().into_any(),
-            RunState::CompilationInProgress(_, true) => view! {
-                <MessageBar class="status-view" intent=MessageBarIntent::Success>
-                    <MessageBarBody>{t!(i18n, compiling)}</MessageBarBody>
-                </MessageBar>
-            }
-            .into_any(),
-            RunState::InProgress(_, true) => view! {
-                <MessageBar class="status-view" intent=MessageBarIntent::Success>
-                    <MessageBarBody>{t!(i18n, executing)}</MessageBarBody>
-                </MessageBar>
-            }
-            .into_any(),
-            RunState::InProgress(_, false) | RunState::CompilationInProgress(_, false) => view! {
-                <MessageBar class="status-view" intent=MessageBarIntent::Warning>
-                    <MessageBarBody>{t!(i18n, stopping_execution)}</MessageBarBody>
-                </MessageBar>
-            }
-            .into_any(),
-            RunState::Error(err, _) => {
-                let err = err.clone();
-                view! {
-                    <MessageBar
-                        class="status-view"
-                        intent=MessageBarIntent::Error
-                        layout=MessageBarLayout::Multiline
-                    >
-                        <MessageBarBody>
-                            <MessageBarTitle>{t!(i18n, error)}</MessageBarTitle>
-                            <pre>{err}</pre>
-                        </MessageBarBody>
-                        <MessageBarActions>
-                            <Button
-                                class="red"
-                                icon=icondata::AiCloseOutlined
-                                on_click=move |_| {
-                                    state
-                                        .update(|s| {
-                                            if let RunState::Error(_, o) = s {
-                                                *s = RunState::Complete(std::mem::take(o));
-                                            }
-                                        })
-                                }
-                                block=true
-                            >
-                                {t!(i18n, hide_error)}
-                            </Button>
-                        </MessageBarActions>
-                    </MessageBar>
-                }
-                .into_any()
-            }
-            RunState::NotStarted => ().into_any(),
-            RunState::Loading => view! {
-                <MessageBar class="status-view" intent=MessageBarIntent::Success>
-                    <MessageBarBody>{t!(i18n, loading)}</MessageBarBody>
-                </MessageBar>
-            }
-            .into_any(),
-            RunState::FetchingCompiler | RunState::MessageSent => view! {
-                <MessageBar
-                    class="status-view"
-                    intent=MessageBarIntent::Success
-                    layout=MessageBarLayout::Multiline
-                >
-                    <MessageBarBody>
-                        <MessageBarTitle>{t!(i18n, downloading_runtime)}</MessageBarTitle>
-                        <For
-                            each=move || fetching_compiler_progress.get()
-                            key=|x| x.clone()
-                            let((name, progress))
-                        >
-                            <div style="display: flex; flex-direction: row; align-items: center; gap: 20px;">
-                                <pre>{name}</pre>
-                                <progress value=progress.map(|x| x.0) max=progress.map(|x| x.1) />
-                                <span style="width: 3em; text-align: right;">
-                                    {progress
-                                        .map(|(cur, tot)| {
-                                            format!("{:.1}%", 100. * cur as f64 / tot as f64)
-                                        })}
-                                </span>
-                            </div>
-                        </For>
-                    </MessageBarBody>
-                </MessageBar>
-            }
-            .into_any(),
-        }
     }
 }
 
@@ -244,91 +162,125 @@ fn handle_message(
         }
     };
     debug!("{msg:?}");
-    let msg = match msg {
-        WorkerResponse::Execution(msg) => msg,
+    match msg {
+        WorkerResponse::Ready => {
+            state.set(RunState::Ready {
+                exec: StateExec::Ready,
+                ls: StateLS::Ready,
+            });
+        }
+        WorkerResponse::Execution(msg) => {
+            handle_exec_message(msg, state)?;
+        }
         WorkerResponse::LS(msg) => {
-            ls_message_chan.try_send(msg)?;
-            return Ok(());
+            handle_ls_message(msg, state, ls_message_chan)?;
         }
         WorkerResponse::FetchingCompiler(name, progress) => {
             fetching_compiler_progress.update(|x| {
                 x.insert(name, progress);
             });
-            return Ok(());
         }
         WorkerResponse::CompilerFetchDone(name) => {
             fetching_compiler_progress.update(|x| {
                 x.remove(&name);
             });
+        }
+    };
+    Ok(())
+}
+
+fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Result<()> {
+    let mut state = state.write();
+    let exec = match state.deref_mut() {
+        RunState::Ready { exec, .. } => exec,
+        _ => {
+            warn!("received execution message while not ready: {msg:?}");
             return Ok(());
         }
     };
-    // Avoid running state.update if it is not changing the actual state. This helps avoiding too
-    // many slowdowns due to the reactive system recomputing state.
-    if state.with_untracked(|s| {
-        matches!(
-            (&msg, s),
-            (
-                WorkerExecResponse::StdoutChunk(_)
-                    | WorkerExecResponse::StderrChunk(_)
-                    | WorkerExecResponse::CompilationMessageChunk(_),
-                RunState::InProgress(_, false),
-            )
-        )
-    }) {
-        return Ok(());
+
+    match (msg, &mut *exec) {
+        (WorkerExecResponse::Status(new), StateExec::Processing { status, .. }) => {
+            *status = Some(new);
+        }
+
+        (
+            WorkerExecResponse::CompilationMessageChunk(chunk),
+            StateExec::Processing { outcome, .. },
+        ) => {
+            outcome.compile_stderr.extend_from_slice(&chunk);
+        }
+        (WorkerExecResponse::StdoutChunk(chunk), StateExec::Processing { outcome, .. }) => {
+            outcome.stdout.extend_from_slice(&chunk);
+        }
+        (WorkerExecResponse::StderrChunk(chunk), StateExec::Processing { outcome, .. }) => {
+            outcome.stderr.extend_from_slice(&chunk);
+        }
+
+        (WorkerExecResponse::Success, StateExec::Processing { outcome, .. }) => {
+            *exec = StateExec::Complete {
+                outcome: std::mem::take(outcome),
+                error: None,
+            };
+        }
+
+        (WorkerExecResponse::Error(s), StateExec::Processing { outcome, .. }) => {
+            *exec = StateExec::Complete {
+                outcome: std::mem::take(outcome),
+                error: Some(s),
+            };
+        }
+
+        (msg, _) => {
+            warn!("unexpected msg & state combination: {msg:?} {exec:?}");
+        }
+    };
+
+    Ok(())
+}
+
+fn handle_ls_message(
+    msg: WorkerLSResponse,
+    state: RwSignal<RunState>,
+    ls_message_chan: &Sender<WorkerLSResponse>,
+) -> Result<()> {
+    let mut state = state.write();
+    let ls = match state.deref_mut() {
+        RunState::Ready { ls, .. } => ls,
+        _ => {
+            warn!("received execution message while not ready: {msg:?}");
+            return Ok(());
+        }
+    };
+
+    let msg2 = msg.clone();
+    match (msg, &mut *ls) {
+        (WorkerLSResponse::FetchingCompiler, StateLS::Requested | StateLS::Error(_)) => {
+            *ls = StateLS::FetchingCompiler;
+        }
+
+        (WorkerLSResponse::Started, StateLS::Requested | StateLS::FetchingCompiler) => {
+            *ls = StateLS::Running;
+            ls_message_chan.try_send(msg2)?;
+        }
+
+        (WorkerLSResponse::Message(_), StateLS::Running) => {
+            ls_message_chan.try_send(msg2)?;
+        }
+
+        (WorkerLSResponse::Stopped, StateLS::Requested) => {}
+
+        (
+            WorkerLSResponse::Error(msg),
+            StateLS::Requested | StateLS::FetchingCompiler | StateLS::Running,
+        ) => {
+            *ls = StateLS::Error(msg);
+        }
+
+        (msg, _) => {
+            warn!("unexpected msg & state combination: {msg:?} {ls:?}");
+        }
     }
-
-    state.update(|mut state| {
-        match (msg, &mut state) {
-            (WorkerExecResponse::Done, RunState::InProgress(cur, _)) => {
-                *state = RunState::Complete(std::mem::take(cur));
-            }
-            (WorkerExecResponse::CompilationDone, RunState::CompilationInProgress(cur, _)) => {
-                *state = RunState::InProgress(std::mem::take(cur), true);
-            }
-            (WorkerExecResponse::Error(s), RunState::MessageSent | RunState::FetchingCompiler) => {
-                *state = RunState::Error(s, Outcome::default());
-            }
-            (
-                WorkerExecResponse::Error(s),
-                RunState::InProgress(cur, _) | RunState::CompilationInProgress(cur, _),
-            ) => {
-                *state = RunState::Error(s, std::mem::take(cur));
-            }
-            (
-                WorkerExecResponse::StdoutChunk(chunk),
-                RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
-            ) => {
-                cur.stdout.extend_from_slice(&chunk);
-            }
-            (
-                WorkerExecResponse::StderrChunk(chunk),
-                RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
-            ) => {
-                cur.stderr.extend_from_slice(&chunk);
-            }
-            (
-                WorkerExecResponse::CompilationMessageChunk(chunk),
-                RunState::InProgress(cur, true) | RunState::CompilationInProgress(cur, true),
-            ) => {
-                cur.compile_stderr.extend_from_slice(&chunk);
-            }
-            (WorkerExecResponse::Ready, RunState::Loading) => {
-                *state = RunState::NotStarted;
-            }
-            (WorkerExecResponse::Started, RunState::MessageSent) => {
-                *state = RunState::FetchingCompiler;
-            }
-            (WorkerExecResponse::CompilerFetched, RunState::FetchingCompiler) => {
-                *state = RunState::CompilationInProgress(Outcome::default(), true);
-            }
-            (msg, _) => {
-                warn!("unexpected msg & state combination: {msg:?} {state:?}");
-            }
-        };
-    });
-
     Ok(())
 }
 
@@ -352,40 +304,31 @@ fn App() -> impl IntoView {
 
     let state = RwSignal::new(RunState::Loading);
 
-    let (sender, receiver) = unbounded();
+    let (ls_sender, ls_receiver) = unbounded();
 
     let fetching_compiler_progress = RwSignal::new(FetchingCompilerProgress::default());
 
     worker.set_onmessage(Some(
-        Closure::<dyn Fn(_)>::new(move |msg| {
-            handle_message(msg, state, fetching_compiler_progress, &sender).unwrap();
+        Closure::<dyn Fn(_)>::new({
+            let ls_sender = ls_sender.clone();
+            move |msg| {
+                handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
+            }
         })
         .into_js_value()
         .unchecked_ref(),
     ));
 
     let send_worker_message = {
-        let (sender, receiver) = unbounded::<WorkerRequest>();
-        spawn_local(async move {
-            loop {
-                if !matches!(state.get_untracked(), RunState::Loading) {
-                    break;
-                }
-                sleep(Duration::from_millis(50)).await;
-            }
-            loop {
-                let msg = receiver.recv().await.expect("frontend died?");
-                debug!("send to worker: {:?}", msg);
-                worker
-                    .post_message(
-                        &serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker"),
-                    )
-                    .expect("worker died");
-            }
-        });
-
-        move |m: WorkerRequest| {
-            sender.try_send(m).expect("worker died?");
+        let worker = SendWrapper::new(worker);
+        move |msg: WorkerRequest| {
+            debug_assert!(
+                matches!(*state.read_untracked(), RunState::Ready { .. }),
+                "sending message to worker while not ready: {msg:?}"
+            );
+            debug!("send to worker: {:?}", msg);
+            let js_msg = serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker");
+            worker.post_message(&js_msg).expect("worker died");
         }
     };
 
@@ -413,10 +356,23 @@ fn App() -> impl IntoView {
         .collect::<Vec<_>>();
 
     {
+        let worker_ready = Memo::new(move |_| matches!(*state.read(), RunState::Ready { .. }));
+
         let send_worker_message = send_worker_message.clone();
+        let ls_sender = ls_sender.clone();
         Effect::new(move |_| {
+            if !worker_ready.get() {
+                return;
+            }
+
             let lang = lang.get();
             info!("Requesting language server for {lang:?}");
+            state.update(|s| {
+                if let RunState::Ready { ls, .. } = s {
+                    *ls = StateLS::Requested;
+                }
+            });
+            ls_sender.try_send(WorkerLSResponse::Stopped).unwrap();
             send_worker_message(WorkerLSRequest::Start(lang).into());
         });
     }
@@ -440,7 +396,23 @@ fn App() -> impl IntoView {
     let do_run = {
         let send_worker_message = send_worker_message.clone();
         move || {
-            state.set(RunState::MessageSent);
+            match state.write().deref_mut() {
+                RunState::Ready {
+                    exec: exec @ (StateExec::Ready | StateExec::Complete { .. }),
+                    ..
+                } => {
+                    *exec = StateExec::Processing {
+                        status: None,
+                        outcome: Outcome::default(),
+                        stopping: false,
+                    };
+                }
+                _ => {
+                    warn!("asked to run while already running");
+                    return;
+                }
+            }
+
             let send_worker_message = send_worker_message.clone();
             spawn_local(async move {
                 if input_mode.get_untracked() == InputMode::FullInteractive {
@@ -482,15 +454,18 @@ fn App() -> impl IntoView {
     let do_stop = {
         let send_worker_message = send_worker_message.clone();
         move |_| {
-            state.update(|x| {
-                if let RunState::CompilationInProgress(_, accept)
-                | RunState::InProgress(_, accept) = x
-                {
-                    *accept = false;
-                } else {
-                    warn!("asked to stop while not running");
+            match state.write().deref_mut() {
+                RunState::Ready {
+                    exec: StateExec::Processing { stopping, .. },
+                    ..
+                } => {
+                    *stopping = true;
                 }
-            });
+                _ => {
+                    warn!("asked to stop while not running");
+                    return;
+                }
+            }
             info!("Stopping execution");
             send_worker_message(WorkerExecRequest::Cancel.into());
         }
@@ -618,7 +593,7 @@ fn App() -> impl IntoView {
                                 ctrl_enter=do_run
                                 kb_mode=kb_mode
                                 ls_interface=Some((
-                                    receiver,
+                                    ls_receiver,
                                     Box::new(move |s| send_worker_message(
                                         WorkerLSRequest::Message(s).into(),
                                     )),

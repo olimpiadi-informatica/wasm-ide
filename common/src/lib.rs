@@ -25,6 +25,9 @@ pub enum WorkerRequest {
 /// Messages emitted by the worker back to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize, From)]
 pub enum WorkerResponse {
+    /// The worker finished initialization and is ready to receive messages.
+    Ready,
+
     /// A message related to program execution.
     Execution(WorkerExecResponse),
     /// A message related to the language server.
@@ -59,25 +62,20 @@ pub enum WorkerExecRequest {
 /// execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkerExecResponse {
-    /// The worker finished initialization and is ready to receive messages.
-    Ready,
+    /// The current status of program execution.
+    Status(WorkerExecStatus),
+
+    /// A chunk of messages produced by the compiler while compiling the program.
+    CompilationMessageChunk(Vec<u8>),
     /// A chunk of bytes produced on the program's standard output.
     StdoutChunk(Vec<u8>),
     /// A chunk of bytes produced on the program's standard error.
     StderrChunk(Vec<u8>),
-    /// A chunk of messages produced by the compiler while compiling the
-    /// program.
-    CompilationMessageChunk(Vec<u8>),
-    /// An unrecoverable error occurred.
+
+    /// The program finished execution with an error.
     Error(String),
-    /// Program execution finished.
-    Done,
-    /// The worker has begun processing a `CompileAndRun` request.
-    Started,
-    /// The compiler has been downloaded and is ready to use.
-    CompilerFetched,
-    /// Compilation has completed successfully.
-    CompilationDone,
+    /// The program finished execution successfully.
+    Success,
 }
 
 /// Messages sent from the frontend to the worker to control the language server.
@@ -93,12 +91,29 @@ pub enum WorkerLSRequest {
 /// language server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkerLSResponse {
+    /// The language server is downloading the compiler.
+    FetchingCompiler,
     /// The language server finished starting and is ready.
     Started,
-    /// The language server is shutting down.
-    Stopping,
     /// A Language Server Protocol message produced by the worker.
     Message(String),
+    /// The language server is shutting down.
+    Stopped,
+    /// The language server encountered an error.
+    Error(String),
+}
+
+/// The current status of program execution in the worker.
+///
+/// Each status corresponds to a phase in the program execution lifecycle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerExecStatus {
+    /// The worker is downloading the compiler.
+    FetchingCompiler,
+    /// The program is being compiled.
+    Compiling,
+    /// The program is currently running.
+    Running,
 }
 
 /// A source code file.

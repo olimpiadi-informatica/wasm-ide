@@ -13,7 +13,7 @@ use futures::{
     select, FutureExt, StreamExt,
 };
 use send_wrapper::SendWrapper;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent};
@@ -63,7 +63,7 @@ fn main() {
     });
 
     // This message will only be sent once this function returns.
-    send_msg(WorkerExecResponse::Ready);
+    send_msg(WorkerResponse::Ready);
 
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
@@ -150,7 +150,7 @@ fn handle_exec_request(req: WorkerExecRequest) {
                         res = running.fuse() => {
                             info!("Execution finished");
                             match res {
-                                Ok(()) => send_msg(WorkerExecResponse::Done),
+                                Ok(()) => send_msg(WorkerExecResponse::Success),
                                 Err(e) => send_msg(WorkerExecResponse::Error(format!("{e:?}"))),
                             }
                         }
@@ -200,12 +200,13 @@ fn handle_ls_request(req: WorkerLSRequest) {
     match req {
         WorkerLSRequest::Start(lang) => {
             if let Some(s) = worker_state().ls_stop.borrow_mut().take() {
-                send_msg(WorkerLSResponse::Stopping);
                 let _ = s.send(());
             }
             if let Some(stdin) = worker_state().ls_stdin.borrow_mut().take() {
                 stdin.close();
             }
+
+            // TODO: wait for previous LS to stop?
 
             info!("Starting LS for {:?}", lang);
 
@@ -224,12 +225,16 @@ fn handle_ls_request(req: WorkerLSRequest) {
                     select! {
                         _ = receiver => {
                             info!("Received stop command, stopping LS");
+                            send_msg(WorkerLSResponse::Stopped);
                         }
                         res = running.fuse() => {
                             info!("LS finished");
                             match res {
-                                Ok(()) => {}
-                                Err(e) => error!("LS error: {e:?}"),
+                                Ok(()) => {
+                                    tracing::warn!("LS exited unexpectedly");
+                                    send_msg(WorkerLSResponse::Stopped);
+                                }
+                                Err(e) => send_msg(WorkerLSResponse::Error(format!("{e:?}"))),
                             }
                         }
                     }

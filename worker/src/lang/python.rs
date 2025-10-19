@@ -14,7 +14,6 @@ pub async fn run(files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
         .await
         .context("Failed to get Python filesystem")?;
 
-    send_compiling();
     send_running();
     let main = files[0].name.clone();
     for file in files {

@@ -172,6 +172,7 @@ pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Resul
         false => "-std=c17",
     };
 
+    crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
     let mut fs = get_fs("cpp")
         .await
         .context("Failed to get C/C++ filesystem")?;

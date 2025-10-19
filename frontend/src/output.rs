@@ -1,4 +1,4 @@
-use std::str::Chars;
+use std::{ops::Deref, str::Chars};
 
 use anyhow::{bail, ensure, Result};
 use icondata::Icon;
@@ -11,7 +11,7 @@ use thaw::{
 use tracing::warn;
 use web_sys::ScrollToOptions;
 
-use crate::{i18n::*, util::download, Outcome, RunState};
+use crate::{i18n::*, util::download, Outcome, RunState, StateExec};
 
 fn output_for_display(s: &[u8]) -> String {
     const LEN_LIMIT: usize = 16 * 1024;
@@ -114,16 +114,15 @@ fn OutDivInner(
     let i18n = use_i18n();
     let scrollbar = ComponentRef::<ScrollbarRef>::new();
 
-    let style_and_text = Signal::derive(move || {
-        state.with(move |s| match s {
-            RunState::InProgress(o, _) | RunState::Error(_, o) | RunState::Complete(o) => {
-                ("", output_for_display(get_data(o)))
-            }
-            _ => (
-                "color: #888;",
-                t_display!(i18n, not_yet_executed).to_string(),
-            ),
-        })
+    let style_and_text = Signal::derive(move || match state.read().deref() {
+        RunState::Ready {
+            exec: StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. },
+            ..
+        } => ("", output_for_display(get_data(outcome))),
+        _ => (
+            "color: #888;",
+            t_display!(i18n, not_yet_executed).to_string(),
+        ),
     });
 
     let style = Signal::derive(move || {
@@ -167,36 +166,48 @@ fn OutDiv(
     tooltip: Signal<String>,
 ) -> impl IntoView {
     let disable_download = Signal::derive(move || {
-        state.with(|s| !matches!(s, RunState::Complete(_) | RunState::Error(_, _)))
+        !matches!(
+            state.read().deref(),
+            RunState::Ready {
+                exec: StateExec::Complete { .. },
+                ..
+            }
+        )
     });
 
     let do_download = move |_| {
-        state.with(|s| {
-            let RunState::Complete(outcome) = s else {
-                warn!("requested download in invalid state");
-                return;
-            };
-            let data = get_data(outcome);
-            download(&format!("{name}.txt"), data);
-        });
+        let state = state.read_untracked();
+        let RunState::Ready {
+            exec: StateExec::Complete { outcome, .. },
+            ..
+        } = state.deref()
+        else {
+            warn!("requested download in invalid state");
+            return;
+        };
+        let data = get_data(outcome);
+        download(&format!("{name}.txt"), data);
     };
 
     let open = RwSignal::new(false);
 
-    let has_data = Signal::derive(move || {
-        state.with(|s| match s {
-            RunState::InProgress(o, _) | RunState::Error(_, o) | RunState::Complete(o) => {
-                !get_data(o).is_empty()
-            }
-            _ => false,
-        })
+    let has_data = Signal::derive(move || match state.read().deref() {
+        RunState::Ready {
+            exec: StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. },
+            ..
+        } => !get_data(outcome).is_empty(),
+        _ => false,
     });
 
     Effect::new(move |old: Option<bool>| {
-        let old = old.unwrap_or(false);
-        let s = state.read();
-        let complete = matches!(*s, RunState::Complete(_) | RunState::Error(_, _));
-        if complete && !old {
+        let complete = matches!(
+            state.read().deref(),
+            RunState::Ready {
+                exec: StateExec::Complete { .. },
+                ..
+            }
+        );
+        if complete && !old.unwrap_or(false) {
             open.set(has_data.get_untracked());
         }
         complete

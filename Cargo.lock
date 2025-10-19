@@ -619,6 +619,7 @@ dependencies = [
  "leptos",
  "leptos-use",
  "leptos_i18n",
+ "send_wrapper",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

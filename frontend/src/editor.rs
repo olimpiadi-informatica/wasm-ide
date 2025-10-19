@@ -171,9 +171,11 @@ pub fn Editor(
                     loop {
                         let msg = receiver.recv().await.unwrap();
                         match msg {
+                            WorkerLSResponse::FetchingCompiler => {}
                             WorkerLSResponse::Started => ls.ready(),
-                            WorkerLSResponse::Stopping => ls.stopping(),
+                            WorkerLSResponse::Stopped => ls.stopping(),
                             WorkerLSResponse::Message(s) => ls.message(s),
+                            WorkerLSResponse::Error(_) => ls.stopping(),
                         }
                     }
                 });

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::Read, rc::Rc};
 
 use anyhow::{anyhow, Context, Result};
-use common::{WorkerExecResponse, WorkerResponse};
+use common::{WorkerExecResponse, WorkerExecStatus, WorkerResponse};
 use futures::StreamExt;
 use gloo_net::http::Request;
 use tracing::{debug, info};
@@ -83,12 +83,14 @@ pub async fn get_fs(name: &str) -> Result<Fs> {
 
 pub fn send_fetching_compiler() {
     debug!("send_fetching_compiler");
-    send_msg(WorkerExecResponse::Started);
+    send_msg(WorkerExecResponse::Status(
+        WorkerExecStatus::FetchingCompiler,
+    ));
 }
 
 pub fn send_compiling() {
     debug!("send_compiling");
-    send_msg(WorkerExecResponse::CompilerFetched);
+    send_msg(WorkerExecResponse::Status(WorkerExecStatus::Compiling));
 }
 
 pub fn send_compiler_message(data: &[u8]) {
@@ -98,7 +100,7 @@ pub fn send_compiler_message(data: &[u8]) {
 
 pub fn send_running() {
     debug!("send_running");
-    send_msg(WorkerExecResponse::CompilationDone);
+    send_msg(WorkerExecResponse::Status(WorkerExecStatus::Running));
 }
 
 pub fn send_stdout(data: &[u8]) {
