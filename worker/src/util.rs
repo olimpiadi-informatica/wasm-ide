@@ -1,11 +1,13 @@
 use std::{collections::HashMap, io::Read, rc::Rc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use common::{WorkerExecResponse, WorkerExecStatus, WorkerResponse};
-use futures::StreamExt;
 use gloo_net::http::Request;
+use js_sys::{Reflect, Uint8Array};
 use tracing::{debug, info};
-use wasm_bindgen_futures::stream::JsStream;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::ReadableStreamDefaultReader;
 
 use crate::{os::Fs, send_msg, WORKER_STATE};
 
@@ -19,17 +21,30 @@ async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
     send_msg(WorkerResponse::FetchingCompiler(name.to_owned(), None));
     let url = format!("./compilers/{name}.tar");
     let res = Request::get(&url).send().await?;
-    let reader = res.body().context("missing body")?;
-    let mut js_stream = JsStream::from(reader.values());
+    let readable = res.body().context("missing body")?;
+    let reader = readable
+        .get_reader()
+        .dyn_into::<ReadableStreamDefaultReader>()
+        .expect("failed to cast to ReadableStreamDefaultReader");
 
     let manifest = manifest().await?;
     let size = *manifest.get(name).unwrap();
 
     let mut body = vec![];
-    while let Some(chunk) = js_stream.next().await {
-        let chunk = chunk.map_err(|_| anyhow!("stream error"))?;
-        let chunk = js_sys::Uint8Array::new(&chunk).to_vec();
-        body.extend_from_slice(&chunk);
+    loop {
+        let data = JsFuture::from(reader.read())
+            .await
+            .expect("failed to read from stream");
+
+        let done = Reflect::get(&data, &"done".into()).expect("failed to get done");
+        let done = done.as_bool().expect("done is not a bool");
+        if done {
+            break;
+        }
+
+        let value = Reflect::get(&data, &"value".into()).expect("failed to get value");
+        let value = Uint8Array::new(&value).to_vec();
+        body.extend_from_slice(&value);
         send_msg(WorkerResponse::FetchingCompiler(
             name.to_owned(),
             Some((body.len() as u64, size)),

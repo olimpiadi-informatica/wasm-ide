@@ -15,8 +15,8 @@ serde-wasm-bindgen = "0.6.5"
 serde_repr = "0.1.20"
 tar = "0.4.44"
 wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = { version = "0.4.50", features = ["futures-core-03-stream"] }
-web-sys = { version = "0.3.77", features = ["DedicatedWorkerGlobalScope", "WorkerLocation", "MessageEvent", "Worker", "WorkerOptions", "WorkerType"] }
+wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3.77", features = ["DedicatedWorkerGlobalScope", "WorkerLocation", "MessageEvent", "Worker", "WorkerOptions", "WorkerType", "ReadableStreamDefaultReader"] }
 web-time = "1.1.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 gloo-net = "0.6.0"
