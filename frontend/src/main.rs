@@ -441,6 +441,7 @@ fn App() -> impl IntoView {
                         }],
                         language: lng,
                         input,
+                        config: Default::default(),
                     }
                     .into(),
                 );

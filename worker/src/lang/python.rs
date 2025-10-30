@@ -1,14 +1,14 @@
 use std::rc::Rc;
 
 use anyhow::{Context, Result};
-use common::File;
+use common::{ExecConfig, File};
 
 use crate::{
     os::{FdEntry, FsEntry, Pipe, ProcessHandle},
     util::*,
 };
 
-pub async fn run(files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
+pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
     send_fetching_compiler();
     let mut fs = get_fs("python")
         .await
@@ -35,6 +35,7 @@ pub async fn run(files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
         .env(b"PYTHONHOME=/".to_vec())
         .arg("/bin/python3.13.wasm")
         .arg(format!("/tmp/{main}"))
+        .max_memory(config.mem_limit)
         .spawn_with_path(b"bin/python3.13.wasm");
 
     let status_code = proc.proc.wait().await;

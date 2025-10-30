@@ -7,7 +7,7 @@ use futures::{
     lock::Mutex,
 };
 use js_sys::{
-    Object, SharedArrayBuffer,
+    Object, Reflect, SharedArrayBuffer,
     WebAssembly::{Memory, Module},
 };
 use wasm_bindgen::{closure::Closure, JsCast};
@@ -50,7 +50,7 @@ impl Drop for Process {
 pub struct ProcessInner {
     pub fds: Vec<Option<FdEntry>>,
     pub status_code: StatusCode,
-    pub threads: Vec<(Worker, SharedArrayBuffer)>,
+    pub threads: Vec<Worker>,
     pub termination_recv: Receiver<()>,
     pub fs: Fs,
 }
@@ -72,7 +72,7 @@ impl Process {
     pub fn kill(&self, status_code: StatusCode) {
         let mut inner = self.inner.borrow_mut();
         inner.status_code = status_code;
-        for (worker, _) in inner.threads.drain(..) {
+        for worker in inner.threads.drain(..) {
             worker.terminate();
         }
         inner.termination_recv.close();
@@ -95,12 +95,12 @@ impl Process {
         let worker = Worker::new_with_options(&path, &options).expect("couldn't start thread");
 
         let msg = Object::new();
-        js_sys::Reflect::set(&msg, &"module".into(), &self.module).expect("could not set module");
-        js_sys::Reflect::set(&msg, &"memory".into(), &self.memory).expect("could not set memory");
-        js_sys::Reflect::set(&msg, &"channel".into(), &channel).expect("could not set channel");
+        Reflect::set(&msg, &"module".into(), &self.module).expect("could not set module");
+        Reflect::set(&msg, &"memory".into(), &self.memory).expect("could not set memory");
+        Reflect::set(&msg, &"channel".into(), &channel).expect("could not set channel");
         if let Some(arg) = arg {
-            js_sys::Reflect::set(&msg, &"tid".into(), &tid.into()).expect("could not set argument");
-            js_sys::Reflect::set(&msg, &"arg".into(), &arg.into()).expect("could not set argument");
+            Reflect::set(&msg, &"tid".into(), &tid.into()).expect("could not set argument");
+            Reflect::set(&msg, &"arg".into(), &arg.into()).expect("could not set argument");
         }
         worker
             .post_message(&msg)
@@ -110,14 +110,14 @@ impl Process {
         worker.set_onmessage(Some(
             Closure::<dyn Fn(_)>::new(move |msg| {
                 if let Some(proc) = proc.upgrade() {
-                    syscall::handle_message(proc.clone(), tid, msg);
+                    syscall::handle_message(proc, channel.clone(), msg);
                 }
             })
             .into_js_value()
             .unchecked_ref(),
         ));
 
-        self.inner.borrow_mut().threads.push((worker, channel));
+        self.inner.borrow_mut().threads.push(worker);
 
         tid
     }
@@ -137,6 +137,7 @@ pub struct Builder {
     stderr: Option<FdEntry>,
     args: Vec<Vec<u8>>,
     env: Vec<Vec<u8>>,
+    max_memory: Option<u32>,
 }
 
 impl Builder {
@@ -187,27 +188,38 @@ impl Builder {
         self
     }
 
+    /// Set the maximum memory (in pages of 64KiB) for the process.
+    pub fn max_memory(mut self, max_memory: Option<u32>) -> Self {
+        self.max_memory = max_memory;
+        self
+    }
+
     pub fn spawn_with_module(self, module: Module) -> ProcessHandle {
         let imports_memory = Module::imports(&module).iter().any(|import| {
-            let kind =
-                js_sys::Reflect::get(&import, &"kind".into()).expect("could not get import kind");
-            let module = js_sys::Reflect::get(&import, &"module".into())
-                .expect("could not get import module");
-            let name =
-                js_sys::Reflect::get(&import, &"name".into()).expect("could not get import name");
+            let kind = Reflect::get(&import, &"kind".into()).expect("could not get import kind");
+            let module =
+                Reflect::get(&import, &"module".into()).expect("could not get import module");
+            let name = Reflect::get(&import, &"name".into()).expect("could not get import name");
             kind.as_string() == Some("memory".to_string())
                 && module.as_string() == Some("env".to_string())
                 && name.as_string() == Some("memory".to_string())
         });
-        assert!(imports_memory);
+        assert!(
+            imports_memory,
+            "module should import memory from env.memory"
+        );
 
         // TODO: get the opts from the module
         let mem_opts = Object::new();
-        js_sys::Reflect::set(&mem_opts, &"initial".into(), &640.into())
+        Reflect::set(&mem_opts, &"initial".into(), &640.into())
             .expect("could not set initial memory size");
-        js_sys::Reflect::set(&mem_opts, &"maximum".into(), &65536.into())
-            .expect("could not set maximum memory size");
-        js_sys::Reflect::set(&mem_opts, &"shared".into(), &true.into())
+        Reflect::set(
+            &mem_opts,
+            &"maximum".into(),
+            &self.max_memory.unwrap_or(65536).into(),
+        )
+        .expect("could not set maximum memory size");
+        Reflect::set(&mem_opts, &"shared".into(), &true.into())
             .expect("could not set shared memory option");
         let memory = Memory::new(&mem_opts).expect("could not create memory");
 
@@ -231,7 +243,7 @@ impl Builder {
         let inner = ProcessInner {
             fds,
             status_code: StatusCode::Signaled,
-            threads: vec![],
+            threads: Vec::new(),
             termination_recv,
             fs,
         };

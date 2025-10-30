@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use bitflags::bitflags;
-use js_sys::{Atomics, Int32Array, Uint8Array};
+use js_sys::{Atomics, Int32Array, SharedArrayBuffer, Uint8Array};
 use serde::Deserialize;
 use serde_repr::Deserialize_repr;
 use wasm_bindgen::{JsCast, JsValue};
@@ -150,7 +150,7 @@ enum ProcMsg {
     RuntimeError { re: String },
 }
 
-pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
+pub fn handle_message(proc: Rc<Process>, channel: SharedArrayBuffer, msg: JsValue) {
     let msg = msg
         .dyn_into::<MessageEvent>()
         .expect("message event expected")
@@ -162,7 +162,6 @@ pub fn handle_message(proc: Rc<Process>, tid: u32, msg: JsValue) {
         let ret = handle_message_inner(&proc, msg).await;
         match ret {
             Some(Some(ret)) => {
-                let channel = proc.inner.borrow().threads[tid as usize - 1].1.clone();
                 let array = Int32Array::new(&channel);
                 Atomics::store(&array, 0, ret).expect("failed to store result in channel");
                 Atomics::notify(&array, 0).expect("failed to notify main thread about result");

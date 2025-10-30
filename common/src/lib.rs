@@ -14,24 +14,24 @@ use tracing_subscriber::{fmt::format::Pretty, prelude::*};
 use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
 /// Messages sent from the frontend to the worker.
-#[derive(Debug, Clone, Serialize, Deserialize, From)]
+#[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerRequest {
     /// Control program execution.
-    Execution(WorkerExecRequest),
+    Execution(#[from] WorkerExecRequest),
     /// Control the language server.
-    LS(WorkerLSRequest),
+    LS(#[from] WorkerLSRequest),
 }
 
 /// Messages emitted by the worker back to the frontend.
-#[derive(Debug, Clone, Serialize, Deserialize, From)]
+#[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerResponse {
     /// The worker finished initialization and is ready to receive messages.
     Ready,
 
     /// A message related to program execution.
-    Execution(WorkerExecResponse),
+    Execution(#[from] WorkerExecResponse),
     /// A message related to the language server.
-    LS(WorkerLSResponse),
+    LS(#[from] WorkerLSResponse),
 
     /// The worker is downloading the compiler, with an optional progress
     /// report (bytes downloaded, total bytes).
@@ -41,7 +41,7 @@ pub enum WorkerResponse {
 }
 
 /// Messages sent from the frontend to the worker to control program execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
@@ -51,6 +51,8 @@ pub enum WorkerExecRequest {
         language: Language,
         /// Optional data written to the program's standard input before execution.
         input: Option<Vec<u8>>,
+        /// Configuration for program execution.
+        config: ExecConfig,
     },
     /// Additional chunk of data for the running program's standard input.
     StdinChunk(Vec<u8>),
@@ -58,9 +60,16 @@ pub enum WorkerExecRequest {
     Cancel,
 }
 
+/// Configuration for program execution.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ExecConfig {
+    /// Optional maximum memory (in 64KB pages) the program is allowed to use.
+    pub mem_limit: Option<u32>,
+}
+
 /// Messages emitted by the worker back to the frontend to report on program
 /// execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerExecResponse {
     /// The current status of program execution.
     Status(WorkerExecStatus),
@@ -79,7 +88,7 @@ pub enum WorkerExecResponse {
 }
 
 /// Messages sent from the frontend to the worker to control the language server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerLSRequest {
     /// Start the language server for the given language.
     Start(Language),
@@ -106,7 +115,7 @@ pub enum WorkerLSResponse {
 /// The current status of program execution in the worker.
 ///
 /// Each status corresponds to a phase in the program execution lifecycle.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum WorkerExecStatus {
     /// The worker is downloading the compiler.
     FetchingCompiler,
@@ -117,7 +126,7 @@ pub enum WorkerExecStatus {
 }
 
 /// A source code file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct File {
     /// The file's name.
     pub name: String,

@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{Context, Result};
-use common::File;
+use common::{ExecConfig, File};
 use js_sys::WebAssembly::Module;
 
 use crate::{
@@ -116,7 +116,13 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<Vec<u8>>) -> Result<Vec<u8
     Ok(linked)
 }
 
-pub async fn run(cpp: bool, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
+pub async fn run(
+    cpp: bool,
+    config: ExecConfig,
+    files: Vec<File>,
+    stdin: Pipe,
+    stdout: Pipe,
+) -> Result<()> {
     send_fetching_compiler();
     let fs = get_fs("cpp")
         .await
@@ -159,6 +165,7 @@ pub async fn run(cpp: bool, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Resu
             send_stderr(buf);
             buf.len()
         })))
+        .max_memory(config.mem_limit)
         .spawn_with_code(&linked);
 
     let status_code = proc.proc.wait().await;

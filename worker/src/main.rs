@@ -125,6 +125,7 @@ fn handle_exec_request(req: WorkerExecRequest) {
             files,
             language,
             input,
+            config,
         } => {
             info!("Starting execution of {:?} code", language);
 
@@ -141,7 +142,7 @@ fn handle_exec_request(req: WorkerExecRequest) {
             spawn_local({
                 let stdout = stdout.clone();
                 async move {
-                    let running = lang::run(language, files, stdin, stdout);
+                    let running = lang::run(language, config, files, stdin, stdout);
                     select! {
                         _ = receiver => {
                             info!("Received stop command, cancelling execution");

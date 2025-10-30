@@ -1,5 +1,5 @@
 use anyhow::Result;
-use common::{File, Language};
+use common::{ExecConfig, File, Language};
 use tracing::warn;
 
 use crate::os::Pipe;
@@ -7,11 +7,17 @@ use crate::os::Pipe;
 mod cpp;
 mod python;
 
-pub async fn run(language: Language, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
+pub async fn run(
+    language: Language,
+    config: ExecConfig,
+    files: Vec<File>,
+    stdin: Pipe,
+    stdout: Pipe,
+) -> Result<()> {
     match language {
-        Language::C => cpp::run(false, files, stdin, stdout).await,
-        Language::CPP => cpp::run(true, files, stdin, stdout).await,
-        Language::Python => python::run(files, stdin, stdout).await,
+        Language::C => cpp::run(false, config, files, stdin, stdout).await,
+        Language::CPP => cpp::run(true, config, files, stdin, stdout).await,
+        Language::Python => python::run(config, files, stdin, stdout).await,
     }
 }
 
