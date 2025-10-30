@@ -29,5 +29,6 @@ command_arguments = ["-c", """
         done
         echo '}'
     }
+    mkdir -p $TRUNK_STAGING_DIR/compilers/
     gen_manifest | sed 's/,}/}/' > $TRUNK_STAGING_DIR/compilers/manifest.json
     """]
