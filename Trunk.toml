@@ -2,6 +2,10 @@
 public_url = "."
 minify = "on_release"
 
+[serve.headers]
+Cross-Origin-Embedder-Policy = "require-corp"
+Cross-Origin-Opener-Policy = "same-origin"
+
 [[hooks]]
 stage = "build"
 command = "bash"
