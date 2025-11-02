@@ -1,22 +1,18 @@
-use std::{
-    future::Future,
-    sync::{Arc, Mutex},
-};
+use std::future::Future;
+use std::sync::{Arc, Mutex};
 
 use async_channel::{unbounded, Receiver, Sender};
 use common::{Language, WorkerLSResponse};
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
-use thaw::{Button, ButtonAppearance, FileList, Theme, Upload};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::js_sys::Function;
+use web_sys::HtmlInputElement;
 
-use crate::{
-    util::{download, save},
-    KeyboardMode,
-};
+use crate::settings::{use_settings, KeyboardMode, Theme};
+use crate::util::{download, save, Icon};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
@@ -108,8 +104,8 @@ pub fn Editor(
     cache_key: &'static str,
     #[prop(into)] syntax: Signal<Option<Language>>,
     #[prop(into)] readonly: Signal<bool>,
-    ctrl_enter: Box<dyn Fn()>,
-    #[prop(into)] kb_mode: Signal<KeyboardMode>,
+    ctrl_enter: Callback<()>,
+    #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
     let cm6 = RwSignal::new_local(None);
@@ -156,7 +152,11 @@ pub fn Editor(
         let id = id.clone();
         queue_microtask(move || {
             let editor = CM6Editor::new(&id);
-            editor.set_exec(Closure::wrap(ctrl_enter).into_js_value().unchecked_into());
+            editor.set_exec(
+                Closure::wrap(Box::new(move || ctrl_enter.run(())) as Box<dyn Fn()>)
+                    .into_js_value()
+                    .unchecked_into(),
+            );
             editor.set_onchange(
                 Closure::<dyn Fn(_)>::new(onchange)
                     .into_js_value()
@@ -184,13 +184,13 @@ pub fn Editor(
         });
     }
 
-    let theme = Theme::use_rw_theme();
+    let settings = use_settings();
     Effect::new(move |_| {
         cm6.with(|x| {
             let Some(cm6) = x else {
                 return;
             };
-            cm6.set_dark(theme.get().name != *"light");
+            cm6.set_dark(settings.theme.get() != Theme::Light);
         });
     });
 
@@ -234,7 +234,7 @@ pub fn Editor(
             let Some(cm6) = x else {
                 return;
             };
-            match kb_mode.get() {
+            match keyboard_mode.get() {
                 KeyboardMode::Standard => cm6.set_keymap(""),
                 KeyboardMode::Vim => cm6.set_keymap("vim"),
                 KeyboardMode::Emacs => cm6.set_keymap("emacs"),
@@ -249,10 +249,16 @@ pub fn Editor(
         download(&name, contents.text().as_bytes());
     };
 
-    let owner = Owner::current().unwrap();
-    let do_upload = move |files: FileList| {
-        let file = files.get(0).expect("0 files?");
-        let owner = owner.clone();
+    let upload_el = NodeRef::new();
+
+    let do_upload = move |_| {
+        let input: HtmlInputElement = upload_el.get().unwrap();
+        let files = input.files().unwrap();
+        let Some(file) = files.get(0) else {
+            info!("file selection cancelled");
+            return;
+        };
+        let owner = Owner::current().unwrap();
         spawn_local(async move {
             let promise = file.text();
             let text = JsFuture::from(promise).await;
@@ -269,19 +275,29 @@ pub fn Editor(
     };
 
     view! {
-        <div id=id style="height: 100%; width: 100%; font-size: 1.2em; position: relative;">
-            <div style="position: absolute; top: 0; right: 0; display: flex; flex-direction: row; z-index: 100; opacity: 0.5;">
-                <Upload custom_request=do_upload>
-                    <Button
-                        appearance=ButtonAppearance::Transparent
-                        icon=icondata::ChUpload
-                        disabled=readonly
-                    />
-                </Upload>
-                <Button
-                    appearance=ButtonAppearance::Transparent
-                    icon=icondata::ChDownload
-                    on_click=do_download
+        <div id=id class:is-height-100 class:is-size-6 class:is-relative>
+            <div
+                class:is-size-4
+                class:is-opacity-50
+                style:position="absolute"
+                style:top="0"
+                style:right="1.0rem"
+                style:z-index="50"
+                class:is-flex
+                class:is-flex-direction-row
+            >
+                <Icon icon=icondata::ChDownload on:click=do_download class:is-clickable class:m-1 />
+                <input type="file" class:is-hidden node_ref=upload_el on:change=do_upload />
+                <Icon
+                    icon=icondata::ChUpload
+                    on:click=move |_| {
+                        if !readonly.get() {
+                            upload_el.get().unwrap().click()
+                        }
+                    }
+                    class:is-clickable=move || !readonly.get()
+                    class:is-opacity-50=move || readonly.get()
+                    class:m-1
                 />
             </div>
         </div>

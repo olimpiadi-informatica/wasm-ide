@@ -12,9 +12,9 @@
   "run": "Run",
   "stop": "Stop",
 
-  "show_output": "Show output",
-  "show_stderr": "Show runtime errors",
-  "show_compileerr": "Show compilation errors",
+  "output": "Output",
+  "stderr": "Runtime errors",
+  "compileerr": "Compilation errors",
 
   "additional_input": "Additional input...",
 

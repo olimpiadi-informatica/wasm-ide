@@ -2,11 +2,13 @@ use std::borrow::Cow;
 
 use js_sys::Uint8Array;
 use leptos::prelude::*;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use wasm_bindgen::JsCast;
 use web_sys::{Blob, HtmlAnchorElement, Url};
 
-use crate::{editor::EditorText, LargeFileSet};
+use crate::editor::EditorText;
+use crate::LargeFileSet;
 
 pub fn download(name: &str, data: &[u8]) {
     let array8 = Uint8Array::from(data);
@@ -74,4 +76,23 @@ pub fn load<T: Stringifiable>(key: &str) -> Option<T> {
         .get(key)
         .expect("error fetching from local storage")
         .and_then(|x| T::from_string(x))
+}
+
+#[component]
+pub fn Icon(#[prop(into)] icon: Signal<icondata::Icon>) -> impl IntoView {
+    view! {
+        <svg
+            inner_html=move || icon.get().data
+            viewBox=move || icon.get().view_box
+            stroke-linecap=move || icon.get().stroke_linecap
+            stroke-linejoin=move || icon.get().stroke_linejoin
+            stroke-width=move || icon.get().stroke_width
+            stroke=move || icon.get().stroke
+            width="1em"
+            height="1em"
+            x=move || icon.get().x
+            y=move || icon.get().y
+            fill=move || icon.get().fill.unwrap_or("currentColor")
+        />
+    }
 }

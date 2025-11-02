@@ -9,9 +9,8 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::MessageEvent;
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
-use crate::os::{FsEntry, FsError, ProcessInner};
-
 use super::{FdEntry, Process, StatusCode};
+use crate::os::{FsEntry, FsError, ProcessInner};
 
 type Addr = u32;
 type Size = u32;

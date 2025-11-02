@@ -1,27 +1,57 @@
-use std::hash::Hash;
+use common::Language;
+use leptos::prelude::*;
+use leptos::reactive::wrappers::write::SignalSetter;
+use strum::VariantArray;
 
-use leptos::{prelude::*, reactive::wrappers::write::SignalSetter};
-use thaw::Select;
+use crate::i18n::{use_i18n, Locale};
+
+pub trait DisplayLocalized {
+    fn to_localized_string(&self, locale: Locale) -> String;
+}
+
+impl VariantArray for Locale {
+    const VARIANTS: &'static [Self] =
+        &[Locale::en, Locale::it, Locale::es, Locale::ca, Locale::vec];
+}
+
+impl DisplayLocalized for Locale {
+    fn to_localized_string(&self, _locale: Locale) -> String {
+        match self {
+            Locale::en => "English",
+            Locale::it => "Italiano",
+            Locale::es => "Español",
+            Locale::ca => "Català",
+            Locale::vec => "Vèneto",
+        }
+        .to_owned()
+    }
+}
+
+impl DisplayLocalized for Language {
+    fn to_localized_string(&self, _locale: Locale) -> String {
+        self.to_string()
+    }
+}
 
 #[component]
 pub fn EnumSelect<T>(
-    #[prop(optional, into)] class: Option<String>,
     #[prop(into, name = "value")] (getter, setter): (Signal<T>, SignalSetter<T>),
-    options: Vec<(T, Signal<String>)>,
 ) -> impl IntoView
 where
-    T: Clone + Eq + Hash + Send + Sync + 'static,
+    T: DisplayLocalized + VariantArray + Send + Sync + Clone + PartialEq + 'static,
 {
-    let values = options.iter().map(|(v, _)| v.clone()).collect::<Vec<_>>();
+    let i18n = use_i18n();
 
     let getter_str = Signal::derive({
-        let values = values.clone();
         move || {
-            let v = getter.get();
-            values
+            let val = getter.get();
+            T::VARIANTS
                 .iter()
-                .position(|opt| opt == &v)
-                .expect("Value must be one of the enum variants")
+                .cloned()
+                .enumerate()
+                .find(|(_, t)| *t == val)
+                .unwrap()
+                .0
                 .to_string()
         }
     });
@@ -30,22 +60,25 @@ where
         let idx = s
             .parse::<usize>()
             .expect("Value string should be a valid index");
-        if getter.get_untracked() != values[idx] {
-            setter.set(values[idx].clone());
+        if getter.get_untracked() != T::VARIANTS[idx] {
+            setter.set(T::VARIANTS[idx].clone());
         }
     });
 
     view! {
-        <Select value=(getter_str, setter_str) class>
-            <For
-                each=move || options.clone().into_iter().enumerate()
-                key=|&(i, (ref v, _))| (i, v.clone())
-                let:((i, (v, n)))
+        <div class:select>
+            <select
+                on:change:target=move |ev| {
+                    setter_str.set(ev.target().value());
+                }
+                prop:value=move || getter_str.get()
             >
-                <option value=i.to_string() selected=move || getter.get() == v>
-                    {n}
-                </option>
-            </For>
-        </Select>
+                <For each=move || 0..T::VARIANTS.len() key=|i| *i let:i>
+                    <option value=i.to_string() selected=move || getter.get() == T::VARIANTS[i]>
+                        {move || T::VARIANTS[i].to_localized_string(i18n.get_locale())}
+                    </option>
+                </For>
+            </select>
+        </div>
     }
 }

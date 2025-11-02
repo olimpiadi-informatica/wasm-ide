@@ -1,107 +1,282 @@
-use leptos::{prelude::*, reactive::wrappers::write::SignalSetter};
-use thaw::{
-    Button, ButtonAppearance, ButtonShape, ButtonSize, Dialog, DialogBody, DialogContent,
-    DialogSurface, DialogTitle,
-};
+use common::Language;
+use leptos::ev::keydown;
+use leptos::prelude::*;
+use leptos::reactive::wrappers::write::SignalSetter;
+use leptos::server::codee::string::JsonSerdeCodec;
+use leptos_use::storage::use_local_storage;
+use leptos_use::{on_click_outside, use_document, use_event_listener, use_preferred_dark};
+use serde::{Deserialize, Serialize};
+use strum::VariantArray;
+use tracing::info;
 
-use crate::{enum_select::EnumSelect, i18n::*, theme::ThemeSelector, KeyboardMode};
+use crate::enum_select::{DisplayLocalized, EnumSelect};
+use crate::i18n::*;
+use crate::util::Icon;
 
-#[component]
-pub fn Settings(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
-    let i18n = use_i18n();
-    let open = RwSignal::new(false);
-    let theme_selector = ThemeSelector();
-
-    view! {
-        <Button
-            appearance=ButtonAppearance::Subtle
-            shape=ButtonShape::Circular
-            icon=icondata::LuSettings
-            size=ButtonSize::Large
-            on_click=move |_| open.set(true)
-        />
-        <Dialog open>
-            <DialogSurface attr:style="width: fit-content;">
-                <DialogBody>
-                    <DialogTitle>{t!(i18n, settings)}</DialogTitle>
-                    <DialogContent>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px; align-items: center;">
-                            <span>{t!(i18n, theme)}</span>
-                            {theme_selector}
-
-                            <span>{t!(i18n, language)}</span>
-                            <LocaleSelector />
-
-                            <span>{t!(i18n, keyboard_mode)}</span>
-                            <KbModeSelector kb_mode />
-                        </div>
-                    </DialogContent>
-                </DialogBody>
-            </DialogSurface>
-        </Dialog>
-    }
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Theme {
+    Light,
+    Dark,
 }
 
-#[component]
-fn LocaleSelector() -> impl IntoView {
-    fn locale_name(locale: Locale) -> &'static str {
-        match locale {
-            Locale::en => "English",
-            Locale::it => "Italiano",
-            Locale::es => "Español",
-            Locale::ca => "Català",
-            Locale::vec => "Vèneto",
-        }
-    }
-
-    let i18n = use_i18n();
-
-    let mut options = Locale::get_all()
-        .iter()
-        .map(|&x| (x, Signal::stored(locale_name(x).to_string())))
-        .collect::<Vec<_>>();
-    options.sort_by_key(|&(loc, _)| locale_name(loc));
-
-    view! {
-        <EnumSelect
-            class="locale-selector"
-            value=(
-                Signal::derive(move || i18n.get_locale()),
-                SignalSetter::map(move |new_locale: Locale| {
-                    i18n.set_locale(new_locale);
-                }),
-            )
-            options
-        />
-    }
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
+pub enum KeyboardMode {
+    Standard,
+    Vim,
+    Emacs,
 }
 
-#[component]
-fn KbModeSelector(kb_mode: RwSignal<KeyboardMode>) -> impl IntoView {
-    fn kb_mode_string(locale: Locale, kb_mode: KeyboardMode) -> String {
-        match kb_mode {
+impl DisplayLocalized for KeyboardMode {
+    fn to_localized_string(&self, locale: Locale) -> String {
+        match self {
             KeyboardMode::Vim => td_display!(locale, vim_mode),
             KeyboardMode::Emacs => td_display!(locale, emacs_mode),
             KeyboardMode::Standard => td_display!(locale, standard_mode),
         }
         .to_string()
     }
+}
 
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
+pub enum InputMode {
+    Batch,
+    MixedInteractive,
+    FullInteractive,
+}
+
+impl DisplayLocalized for InputMode {
+    fn to_localized_string(&self, locale: Locale) -> String {
+        match self {
+            InputMode::Batch => td_display!(locale, batch_input),
+            InputMode::MixedInteractive => td_display!(locale, mixed_interactive_input),
+            InputMode::FullInteractive => td_display!(locale, full_interactive_input),
+        }
+        .to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+struct StoredSettings {
+    theme: Option<Theme>,
+    keyboard_mode: KeyboardMode,
+    input_mode: InputMode,
+    editor_width_percent: f32,
+    language: Language,
+}
+
+impl Default for StoredSettings {
+    fn default() -> Self {
+        Self {
+            theme: None,
+            keyboard_mode: KeyboardMode::Standard,
+            input_mode: InputMode::Batch,
+            editor_width_percent: 65.0,
+            language: Language::CPP,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SettingsProvider {
+    write: WriteSignal<StoredSettings>,
+    read: Signal<StoredSettings>,
+    pub theme: Signal<Theme>,
+    pub editor_width_percent: Signal<f32>,
+    pub keyboard_mode: Signal<KeyboardMode>,
+    pub input_mode: Signal<InputMode>,
+    pub language: Signal<Language>,
+}
+
+impl SettingsProvider {
+    pub fn install() {
+        let (read_settings, write_settings, _) =
+            use_local_storage::<StoredSettings, JsonSerdeCodec>("wasm_ide_settings");
+        let prefers_dark = use_preferred_dark();
+        let theme = Memo::new(move |_| {
+            read_settings.get().theme.unwrap_or(if prefers_dark.get() {
+                Theme::Dark
+            } else {
+                Theme::Light
+            })
+        });
+        // Sync the theme to the entire page
+        Effect::new(move || {
+            info!(theme = ?theme.get());
+            document()
+                .document_element()
+                .unwrap()
+                .class_list()
+                .set_value(if theme.get() == Theme::Dark {
+                    "theme-dark"
+                } else {
+                    "theme-light"
+                });
+        });
+        provide_context(Self {
+            write: write_settings,
+            read: read_settings,
+            theme: theme.into(),
+            editor_width_percent: Memo::new(move |_| read_settings.get().editor_width_percent)
+                .into(),
+            keyboard_mode: Memo::new(move |_| read_settings.get().keyboard_mode).into(),
+            input_mode: Memo::new(move |_| read_settings.get().input_mode).into(),
+            language: Memo::new(move |_| read_settings.get().language).into(),
+        });
+    }
+}
+
+pub fn use_settings() -> SettingsProvider {
+    expect_context()
+}
+
+pub const MIN_EDITOR_WIDTH: f32 = 35.0;
+pub const MAX_EDITOR_WIDTH: f32 = 75.0;
+
+pub fn set_editor_width(val: f32) {
+    use_settings().write.update(|v| {
+        v.editor_width_percent = val.clamp(MIN_EDITOR_WIDTH, MAX_EDITOR_WIDTH);
+    });
+}
+
+pub fn set_language(language: Language) {
+    use_settings().write.update(|v| v.language = language);
+}
+
+pub fn set_input_mode(input_mode: InputMode) {
+    use_settings().write.update(|v| v.input_mode = input_mode);
+}
+
+#[component]
+pub fn Settings() -> impl IntoView {
     let i18n = use_i18n();
+    let open = RwSignal::new(false);
 
-    let options = [
-        KeyboardMode::Standard,
-        KeyboardMode::Vim,
-        KeyboardMode::Emacs,
-    ]
-    .into_iter()
-    .map(|mode| {
-        (
-            mode,
-            Signal::derive(move || kb_mode_string(i18n.get_locale(), mode)),
-        )
-    })
-    .collect::<Vec<_>>();
+    let SettingsProvider { keyboard_mode, .. } = use_settings();
 
-    view! { <EnumSelect class="kb-selector" value=(kb_mode.into(), kb_mode.into()) options /> }
+    let set_kb_mode = move |kb_mode| {
+        expect_context::<SettingsProvider>()
+            .write
+            .update(|v| v.keyboard_mode = kb_mode);
+    };
+
+    let locale_value = (
+        Signal::derive(move || i18n.get_locale()),
+        SignalSetter::map(move |new_locale: Locale| {
+            i18n.set_locale(new_locale);
+        }),
+    );
+
+    let content = NodeRef::new();
+
+    let _ = on_click_outside(content, move |_| open.set(false));
+    let _ = use_event_listener(use_document(), keydown, move |evt| {
+        if evt.key_code() == 27 {
+            open.set(false);
+        }
+    });
+
+    view! {
+        <Icon
+            class:is-size-3
+            class:mx-2
+            class:is-clickable
+            icon=icondata::LuSettings
+            on:click=move |_| open.set(true)
+        />
+        <div class:modal class:is-active=move || open.get() style:--bulma-modal-z="10000" style:--bulma-modal-content-width="50rem">
+            <div class="modal-background" />
+            <div class="modal-content" node_ref=content>
+                <div class="box">
+                    <div class:field class:is-horizontal>
+                        <div class:field-label class:is-normal>
+                            <label class="label">{t!(i18n, language)}</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="control">
+                                <EnumSelect value=locale_value />
+                            </div>
+                        </div>
+                    </div>
+                    <div class:field class:is-horizontal>
+                        <div class:field-label class:is-normal>
+                            <label class="label">{t!(i18n, keyboard_mode)}</label>
+                        </div>
+                        <div class="field-body">
+                            <div class="control">
+                                <EnumSelect value=(keyboard_mode, SignalSetter::map(set_kb_mode)) />
+                            </div>
+                        </div>
+                    </div>
+                    <ThemeControl />
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn ThemeControl() -> impl IntoView {
+    let SettingsProvider { read, .. } = use_settings();
+    let i18n = use_i18n();
+    let theme = Signal::derive(move || read.get().theme);
+    let set_theme = move |theme| {
+        expect_context::<SettingsProvider>()
+            .write
+            .update(|v| v.theme = theme);
+    };
+
+    let preferred_dark = leptos_use::use_preferred_dark();
+    let system_theme = Signal::derive(move || {
+        if preferred_dark.get() {
+            icondata::BiMoonSolid
+        } else {
+            icondata::BiSunSolid
+        }
+    });
+
+    const WIDTH: &str = "12em";
+
+    view! {
+        <div class:field class:is-horizontal>
+            <div class:field-label class:is-normal>
+                <label class="label">{t!(i18n, theme)}</label>
+            </div>
+            <div class="field-body">
+                <div class="control">
+                    <div class:buttons class:has-addons>
+                        <button
+                            class:has-icons-left
+                            class:button
+                            class:is-info=move || theme.get() == Some(Theme::Dark)
+                            style:width=WIDTH
+                            on:click=move |_| set_theme(Some(Theme::Dark))
+                        >
+                            <Icon class:icon class:is-left class:mr-1 icon=icondata::BiMoonSolid />
+                            {t!(i18n, theme_dark)}
+                        </button>
+                        <button
+                            class:has-icons-left
+                            class:button
+                            class:is-info=move || theme.get() == Some(Theme::Light)
+                            style:width=WIDTH
+                            on:click=move |_| set_theme(Some(Theme::Light))
+                        >
+                            <Icon class:icon class:is-left class:mr-1 icon=icondata::BiSunSolid />
+                            {t!(i18n, theme_light)}
+                        </button>
+                        <button
+                            class:has-icons-left
+                            class:button
+                            class:is-info=move || theme.get().is_none()
+                            style:width=WIDTH
+                            on:click=move |_| set_theme(None)
+                        >
+                            <Icon class:icon class:is-left class:mr-1 icon=system_theme />
+                            {t!(i18n, theme_system)}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 }

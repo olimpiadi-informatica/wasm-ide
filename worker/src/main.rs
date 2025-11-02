@@ -1,20 +1,19 @@
-use std::{cell::RefCell, collections::HashMap, sync::OnceLock};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use common::{
     init_logging, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse,
     WorkerRequest, WorkerResponse,
 };
-use futures::{
-    channel::{
-        mpsc::{unbounded, UnboundedSender},
-        oneshot::{channel, Sender},
-    },
-    lock::Mutex,
-    select, FutureExt, StreamExt,
-};
+use futures::channel::mpsc::{unbounded, UnboundedSender};
+use futures::channel::oneshot::{channel, Sender};
+use futures::lock::Mutex;
+use futures::{select, FutureExt, StreamExt};
 use send_wrapper::SendWrapper;
 use tracing::{debug, info, warn};
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent};
 

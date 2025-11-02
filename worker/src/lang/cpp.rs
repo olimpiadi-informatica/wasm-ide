@@ -1,13 +1,12 @@
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use anyhow::{Context, Result};
 use common::{ExecConfig, File};
 use js_sys::WebAssembly::Module;
 
-use crate::{
-    os::{FdEntry, Fs, FsEntry, Pipe, ProcessHandle},
-    util::*,
-};
+use crate::os::{FdEntry, Fs, FsEntry, Pipe, ProcessHandle};
+use crate::util::*;
 
 async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
     let lang = match cpp {

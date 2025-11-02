@@ -1,12 +1,10 @@
-use std::{
-    cell::RefCell,
-    collections::VecDeque,
-    future::poll_fn,
-    io::{Read, Write},
-    ops::Deref,
-    rc::Rc,
-    task::{Poll, Waker},
-};
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::future::poll_fn;
+use std::io::{Read, Write};
+use std::ops::Deref;
+use std::rc::Rc;
+use std::task::{Poll, Waker};
 
 use futures::lock::Mutex;
 

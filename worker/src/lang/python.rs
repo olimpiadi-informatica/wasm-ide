@@ -3,10 +3,8 @@ use std::rc::Rc;
 use anyhow::{Context, Result};
 use common::{ExecConfig, File};
 
-use crate::{
-    os::{FdEntry, FsEntry, Pipe, ProcessHandle},
-    util::*,
-};
+use crate::os::{FdEntry, FsEntry, Pipe, ProcessHandle};
+use crate::util::*;
 
 pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
     send_fetching_compiler();

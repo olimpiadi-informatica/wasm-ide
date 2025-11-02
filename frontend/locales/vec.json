@@ -12,9 +12,9 @@
   "run": "Esegui",
   "stop": "Ferma",
 
-  "show_output": "Mostra l'output",
-  "show_stderr": "Mostra i erori de esecuzión",
-  "show_compileerr": "Mostra i erori de compiłazión",
+  "output": "Output",
+  "stderr": "Erori de esecuzión",
+  "compileerr": "Erori de compiłazión",
 
   "additional_input": "Zonta input",
 

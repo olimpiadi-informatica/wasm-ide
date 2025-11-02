@@ -5,24 +5,24 @@ authors = ["Luca Versari <veluca93@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.99"
-leptos = { version = "0.7.8", features = ["csr"] }
+anyhow = "1.0.100"
+leptos = { version = "0.8.12", features = ["csr"] }
 common = { path = "../common" }
-web-sys = { version = "0.3.77", features = ["Worker", "WorkerOptions", "WorkerType", "Storage"] }
-wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3.82", features = ["Worker", "WorkerOptions", "WorkerType", "Storage"] }
+wasm-bindgen-futures = "0.4.55"
 serde-wasm-bindgen = "0.6.5"
-thaw = { version = "0.4.8", features = ["csr"] }
 icondata = "0.6.0"
-serde_json = "1.0.143"
-serde = "1.0.219"
+serde_json = "1.0.145"
+serde = "1.0.228"
 wasm-bindgen = "0.2.100"
-leptos-use = "0.15.10"
+leptos-use = "0.16.3"
 async-channel = "2.5.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-leptos_i18n = { version = "0.5.11", features = ["interpolate_display"] }
+leptos_i18n = "0.6.0-rc.2"
 tracing = { version = "0.1.41" }
-js-sys = "0.3.77"
+js-sys = "0.3.82"
 send_wrapper = "0.6.0"
+strum = { version = "0.27.2", features = ["derive"] }
 
 [package.metadata.leptos-i18n]
 default = "en"

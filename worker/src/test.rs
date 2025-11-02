@@ -1,13 +1,13 @@
-use std::{collections::HashMap, rc::Rc, sync::Once};
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Once;
 
 use common::init_logging;
 use serde::Deserialize;
 use wasm_bindgen_test::*;
 
-use crate::{
-    os::{FdEntry, FsEntry, ProcessHandle, StatusCode},
-    util::fs_from_tar,
-};
+use crate::os::{FdEntry, FsEntry, ProcessHandle, StatusCode};
+use crate::util::fs_from_tar;
 
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
