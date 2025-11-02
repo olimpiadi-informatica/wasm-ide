@@ -1,17 +1,15 @@
-use std::{ops::Deref, str::Chars};
+use std::ops::Deref;
+use std::str::Chars;
 
 use anyhow::{bail, ensure, Result};
-use icondata::Icon;
 use leptos::prelude::*;
-use leptos_use::signal_throttled;
-use thaw::{
-    Button, ButtonAppearance, ComponentRef, Divider, Popover, PopoverTrigger, Scrollbar,
-    ScrollbarRef,
-};
+use leptos_use::{signal_throttled, use_mouse_in_element, UseMouseInElementReturn};
 use tracing::warn;
 use web_sys::ScrollToOptions;
 
-use crate::{i18n::*, util::download, Outcome, RunState, StateExec};
+use crate::i18n::*;
+use crate::util::{download, Icon};
+use crate::{Outcome, RunState, StateExec};
 
 fn output_for_display(s: &[u8]) -> String {
     const LEN_LIMIT: usize = 16 * 1024;
@@ -110,61 +108,31 @@ fn ansi(text: &str) -> Vec<(Style, String)> {
 fn OutDivInner(
     #[prop(into)] state: Signal<RunState>,
     get_data: fn(&Outcome) -> &Vec<u8>,
+    name: &'static str,
+    #[prop(into)] visible: Signal<bool>,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    let scrollbar = ComponentRef::<ScrollbarRef>::new();
 
-    let style_and_text = Signal::derive(move || match state.read().deref() {
+    let did_execute = Signal::derive(move || {
+        matches!(
+            &*state.read(),
+            RunState::Ready {
+                exec: StateExec::Processing { .. } | StateExec::Complete { .. },
+                ..
+            }
+        )
+    });
+
+    let text = Signal::derive(move || match state.read().deref() {
         RunState::Ready {
             exec: StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. },
             ..
-        } => ("", output_for_display(get_data(outcome))),
-        _ => (
-            "color: #888;",
-            t_display!(i18n, not_yet_executed).to_string(),
-        ),
+        } => output_for_display(get_data(outcome)),
+        _ => t_display!(i18n, not_yet_executed).to_string(),
     });
 
-    let style = Signal::derive(move || {
-        format!("width: 100%; text-align: left; {}", style_and_text.get().0)
-    });
+    let fragments = Signal::derive(move || ansi(&text.get()));
 
-    let fragments = Signal::derive(move || ansi(&style_and_text.get().1));
-
-    Effect::new(move |_| {
-        fragments.track();
-        let scroll_options = ScrollToOptions::new();
-        scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
-        if let Some(scrollbar) = scrollbar.get_untracked() {
-            let height = scrollbar
-                .content_ref
-                .get_untracked()
-                .map(|el| el.scroll_height())
-                .unwrap_or(1 << 16);
-            scroll_options.set_top(height as f64);
-            scrollbar.scroll_to_with_scroll_to_options(&scroll_options);
-        }
-    });
-
-    view! {
-        <Scrollbar style="height: 18vh;" comp_ref=scrollbar>
-            <pre style=style>
-                <For each=move || fragments.get() key=|x| x.clone() let((style, text))>
-                    <span style=style.style_str()>{text}</span>
-                </For>
-            </pre>
-        </Scrollbar>
-    }
-}
-
-#[component]
-fn OutDiv(
-    #[prop(into)] state: Signal<RunState>,
-    get_data: fn(&Outcome) -> &Vec<u8>,
-    icon: Icon,
-    name: &'static str,
-    tooltip: Signal<String>,
-) -> impl IntoView {
     let disable_download = Signal::derive(move || {
         !matches!(
             state.read().deref(),
@@ -189,6 +157,64 @@ fn OutDiv(
         download(&format!("{name}.txt"), data);
     };
 
+    let content = NodeRef::<leptos::html::Pre>::new();
+
+    Effect::new(move |_| {
+        fragments.track();
+        // We want this to run *after* the DOM updates.
+        queue_microtask(move || {
+            let scroll_options = ScrollToOptions::new();
+            scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
+            if let Some(content) = content.get_untracked() {
+                let height = content.scroll_height();
+                scroll_options.set_top(height as f64);
+                content.scroll_to_with_scroll_to_options(&scroll_options);
+            }
+        });
+    });
+
+    view! {
+        <div style:height="18vh" class:is-relative class:is-hidden=move || !visible.get()>
+            <Show when=move || !disable_download.get()>
+                <div
+                    class:is-size-4
+                    class:is-opacity-50
+                    style:position="absolute"
+                    style:top="0"
+                    style:right="0.5em"
+                    style:z-index="50"
+                >
+                    <Icon
+                        icon=icondata::ChDownload
+                        on:click=do_download
+                        class:is-clickable
+                        class:m-1
+                    />
+                </div>
+            </Show>
+            <pre
+                style:width="100%"
+                style:max-height="100%"
+                class:has-text-left
+                class:faint-text=move || !did_execute.get()
+                node_ref=content
+            >
+                <For each=move || fragments.get() key=|x| x.clone() let((style, text))>
+                    <span style=style.style_str()>{text}</span>
+                </For>
+            </pre>
+        </div>
+    }
+}
+
+#[component]
+fn OutDiv(
+    #[prop(into)] state: Signal<RunState>,
+    get_data: fn(&Outcome) -> &Vec<u8>,
+    icon: icondata::Icon,
+    name: &'static str,
+    tooltip: Signal<String>,
+) -> impl IntoView {
     let open = RwSignal::new(false);
 
     let has_data = Signal::derive(move || match state.read().deref() {
@@ -200,6 +226,7 @@ fn OutDiv(
     });
 
     Effect::new(move |old: Option<bool>| {
+        // TODO(veluca): open the output early for non-batch input.
         let complete = matches!(
             state.read().deref(),
             RunState::Ready {
@@ -214,45 +241,40 @@ fn OutDiv(
     });
 
     let warn = Memo::new(move |_| has_data.get() && !open.get());
+    let icon_ref = NodeRef::new();
+    let UseMouseInElementReturn { is_outside, .. } = use_mouse_in_element(icon_ref);
 
     view! {
         <div
-            style="transition: flex 0.3s;"
+            style:transition="flex 0.3s 0ms"
             style:flex=move || if open.get() { "1" } else { "" }
-            style:min-width=move || if open.get() { "0" } else { "" }
+            style:min-width=move || if open.get() { "15rem" } else { "" }
         >
-            <div style="display: flex; align-items: center; justify-content: center; position: relative;">
-                <div />
-                <Popover>
-                    <PopoverTrigger slot>
-                        <div style="position: relative;">
-                            <Button
-                                icon
-                                on_click=move |_| open.update(|v| *v = !*v)
-                                appearance=ButtonAppearance::Subtle
-                            />
-                            <div
-                                style="position: absolute; top: 4px; right: 4px; background-color: red; width: 8px; height: 8px; border-radius: 50%;"
-                                hidden=move || !warn.get()
-                            />
-                        </div>
-                    </PopoverTrigger>
-                    {tooltip}
-                </Popover>
-                <Show when=move || open.get()>
-                    <Button
-                        disabled=disable_download
-                        appearance=ButtonAppearance::Transparent
-                        icon=icondata::ChDownload
-                        on_click=do_download
-                        attr:style="position: absolute; right: 8px;"
+            <div
+                class:is-flex
+                class:is-align-items-center
+                class:is-justify-content-center
+                class:m-1
+                class:mt-2
+            >
+                <div class:is-relative node_ref=icon_ref class:is-clickable>
+                    <div class:is-hidden=move || is_outside.get() class:box class:output-tooltip>
+                        {tooltip}
+                    </div>
+                    <div
+                        style:position="absolute"
+                        style:top="0"
+                        style:right="0"
+                        style:width="0.5em"
+                        style:height="0.5em"
+                        style:border-radius="50%"
+                        style:background-color="var(--bulma-danger)"
+                        hidden=move || !warn.get()
                     />
-                </Show>
+                    <Icon class:icon on:click=move |_| open.update(|v| *v = !*v) icon=icon />
+                </div>
             </div>
-            <Divider class="outdivider" />
-            <Show when=move || open.get()>
-                <OutDivInner state get_data />
-            </Show>
+            <OutDivInner state get_data name visible=open />
         </div>
     }
 }
@@ -262,13 +284,17 @@ pub fn OutputView(state: RwSignal<RunState>) -> impl IntoView {
     let i18n = use_i18n();
     let state = signal_throttled(state, 100.0);
 
-    let show_output_tooltip = Signal::derive(move || t_display!(i18n, show_output).to_string());
-    let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, show_stderr).to_string());
-    let show_compileerr_tooltip =
-        Signal::derive(move || t_display!(i18n, show_compileerr).to_string());
+    let show_output_tooltip = Signal::derive(move || t_display!(i18n, output).to_string());
+    let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, stderr).to_string());
+    let show_compileerr_tooltip = Signal::derive(move || t_display!(i18n, compileerr).to_string());
 
     view! {
-        <div style="display: flex; justify-content: space-around; gap: 8px;">
+        <div
+            class:is-flex
+            class:is-justify-content-space-around
+            style:gap="1em"
+            style:padding="0 1em 0 1em"
+        >
             <OutDiv
                 state
                 get_data=|outcome| &outcome.stdout

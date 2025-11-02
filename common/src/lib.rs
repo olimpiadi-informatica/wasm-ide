@@ -8,9 +8,13 @@
 //! compilation or language-server lifecycle that drives the IDE.
 #![warn(missing_docs)]
 
+use std::fmt::Display;
+
 use derive_more::From;
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::{fmt::format::Pretty, prelude::*};
+use strum::VariantArray;
+use tracing_subscriber::fmt::format::Pretty;
+use tracing_subscriber::prelude::*;
 use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
 /// Messages sent from the frontend to the worker.
@@ -135,7 +139,7 @@ pub struct File {
 }
 
 /// Languages supported by the IDE.
-#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
 pub enum Language {
     /// C code.
     C,
@@ -169,6 +173,13 @@ impl From<Language> for &'static str {
 impl From<Language> for String {
     fn from(val: Language) -> Self {
         Into::<&'static str>::into(val).to_owned()
+    }
+}
+
+impl Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let l: &str = (*self).into();
+        write!(f, "{l}")
     }
 }
 

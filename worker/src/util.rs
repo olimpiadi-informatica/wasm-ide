@@ -1,4 +1,6 @@
-use std::{collections::HashMap, io::Read, rc::Rc};
+use std::collections::HashMap;
+use std::io::Read;
+use std::rc::Rc;
 
 use anyhow::{Context, Result};
 use common::{WorkerExecResponse, WorkerExecStatus, WorkerResponse};
@@ -9,7 +11,8 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::ReadableStreamDefaultReader;
 
-use crate::{os::Fs, send_msg, WORKER_STATE};
+use crate::os::Fs;
+use crate::{send_msg, WORKER_STATE};
 
 async fn manifest() -> Result<HashMap<String, u64>> {
     let res = Request::get("./compilers/manifest.json").send().await?;

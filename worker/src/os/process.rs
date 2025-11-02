@@ -1,16 +1,14 @@
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
 use enum_as_inner::EnumAsInner;
-use futures::{
-    channel::oneshot::{channel, Receiver, Sender},
-    lock::Mutex,
-};
-use js_sys::{
-    Object, Reflect, SharedArrayBuffer,
-    WebAssembly::{Memory, Module},
-};
-use wasm_bindgen::{closure::Closure, JsCast};
+use futures::channel::oneshot::{channel, Receiver, Sender};
+use futures::lock::Mutex;
+use js_sys::WebAssembly::{Memory, Module};
+use js_sys::{Object, Reflect, SharedArrayBuffer};
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
 use web_sys::{Worker, WorkerOptions, WorkerType};
 use web_time::Instant;
 

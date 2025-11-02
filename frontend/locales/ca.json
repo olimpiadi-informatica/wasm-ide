@@ -12,9 +12,9 @@
   "run": "Executar",
   "stop": "Aturar",
 
-  "show_output": "Mostrar sortida",
-  "show_stderr": "Mostrar errors d'execució",
-  "show_compileerr": "Mostrar errors de compilació",
+  "output": "Sortida",
+  "stderr": "Errors d'execució",
+  "compileerr": "Errors de compilació",
 
   "additional_input": "Entrada addicional...",
 
