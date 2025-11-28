@@ -141,7 +141,7 @@ fn ErrorMessageBar(
     clear: impl Fn() + Send + Sync + 'static + Clone,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    let title = t_string!(i18n, hide_error);
+    let title = move || t_string!(i18n, hide_error);
     let clear = move |_| clear();
     view! {
         <Message kind="is-danger">

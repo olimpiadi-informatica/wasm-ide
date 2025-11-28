@@ -1,3 +1,5 @@
+use std::num::IntErrorKind;
+
 use common::Language;
 use leptos::ev::keydown;
 use leptos::prelude::*;
@@ -62,6 +64,7 @@ struct StoredSettings {
     input_mode: InputMode,
     editor_width_percent: f32,
     language: Language,
+    mem_limit: Option<u32>,
 }
 
 impl Default for StoredSettings {
@@ -72,6 +75,7 @@ impl Default for StoredSettings {
             input_mode: InputMode::Batch,
             editor_width_percent: 65.0,
             language: Language::CPP,
+            mem_limit: None,
         }
     }
 }
@@ -85,6 +89,7 @@ pub struct SettingsProvider {
     pub keyboard_mode: Signal<KeyboardMode>,
     pub input_mode: Signal<InputMode>,
     pub language: Signal<Language>,
+    pub mem_limit: Signal<Option<u32>>,
 }
 
 impl SettingsProvider {
@@ -121,6 +126,7 @@ impl SettingsProvider {
             keyboard_mode: Memo::new(move |_| read_settings.get().keyboard_mode).into(),
             input_mode: Memo::new(move |_| read_settings.get().input_mode).into(),
             language: Memo::new(move |_| read_settings.get().language).into(),
+            mem_limit: Memo::new(move |_| read_settings.get().mem_limit).into(),
         });
     }
 }
@@ -208,6 +214,8 @@ pub fn Settings() -> impl IntoView {
                         </div>
                     </div>
                     <ThemeControl />
+                    <hr />
+                    <MemLimit />
                 </div>
             </div>
         </div>
@@ -274,6 +282,101 @@ fn ThemeControl() -> impl IntoView {
                             <Icon class:icon class:is-left class:mr-1 icon=system_theme />
                             {t!(i18n, theme_system)}
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn MemLimit() -> impl IntoView {
+    let settings = use_settings();
+
+    #[derive(Debug, Clone, Copy)]
+    enum Error {
+        NotANumber,
+        TooSmall,
+        TooLarge,
+    }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Error::NotANumber => write!(f, "Please enter a valid number"),
+                Error::TooSmall => write!(f, "Value must be at least 40"),
+                Error::TooLarge => write!(f, "Value must be at most 4096"),
+            }
+        }
+    }
+
+    let error = RwSignal::new(None);
+    let input_ref = NodeRef::<leptos::html::Input>::new();
+
+    let on_input = move |_| {
+        let input = input_ref.get().unwrap();
+        let value = input.value();
+        let value = value.trim();
+
+        match value.parse() {
+            Ok(..40) => {
+                error.set(Some(Error::TooSmall));
+            }
+            Ok(4097..) => {
+                error.set(Some(Error::TooLarge));
+            }
+            Ok(v) => {
+                settings.write.update(|s| s.mem_limit = Some(v));
+                error.set(None);
+            }
+            Err(e) => match e.kind() {
+                IntErrorKind::Empty => {
+                    settings.write.update(|s| s.mem_limit = None);
+                    error.set(None);
+                }
+                IntErrorKind::InvalidDigit => {
+                    error.set(Some(Error::NotANumber));
+                }
+                IntErrorKind::PosOverflow => {
+                    error.set(Some(Error::TooLarge));
+                }
+                IntErrorKind::NegOverflow => {
+                    error.set(Some(Error::TooSmall));
+                }
+                _ => {
+                    error.set(Some(Error::NotANumber));
+                }
+            },
+        };
+    };
+
+    view! {
+        <div class:field class:is-horizontal>
+            <div class:field-label class:is-normal>
+                <label class="label">{"Memory limit"}</label>
+            </div>
+            <div class="field-body">
+                <div class="field has-addons">
+                    <div class="control">
+                        <input
+                            class:input
+                            class:is-danger=move || error.get().is_some()
+                            on:input=on_input
+                            type="text"
+                            node_ref=input_ref
+                            value=settings
+                                .mem_limit
+                                .get_untracked()
+                                .map_or("".to_string(), |v| v.to_string())
+                        />
+                        <ShowLet some=error let:value>
+                            <p class:help class:is-danger>
+                                {value.to_string()}
+                            </p>
+                        </ShowLet>
+                    </div>
+                    <div class="control">
+                        <a class="button is-static">MiB</a>
                     </div>
                 </div>
             </div>

@@ -7,8 +7,8 @@ use std::ops::DerefMut;
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
 use common::{
-    init_logging, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
-    WorkerLSResponse, WorkerRequest, WorkerResponse,
+    init_logging, ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
+    WorkerLSRequest, WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
 use editor_view::EditorView;
 use i18n::*;
@@ -293,6 +293,7 @@ fn App() -> impl IntoView {
     let SettingsProvider {
         language,
         input_mode,
+        mem_limit,
         ..
     } = use_settings();
 
@@ -404,7 +405,9 @@ fn App() -> impl IntoView {
                         }],
                         language: lng,
                         input,
-                        config: Default::default(),
+                        config: ExecConfig {
+                            mem_limit: mem_limit.get_untracked().map(|x| x * 16),
+                        },
                     }
                     .into(),
                 );
