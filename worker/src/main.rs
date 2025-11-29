@@ -266,6 +266,7 @@ fn handle_ls_request(req: WorkerLSRequest) {
                             break;
                         }
                         let msg = String::from_utf8(line.clone()).unwrap();
+                        debug!("LS response: {}", msg);
                         send_msg(WorkerLSResponse::Message(msg));
                     }
                 }
