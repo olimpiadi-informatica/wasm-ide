@@ -182,9 +182,6 @@ pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Resul
     let mut fs = get_fs("cpp")
         .await
         .context("Failed to get C/C++ filesystem")?;
-    let clangd = fs
-        .get_file_with_path(b"bin/clangd")
-        .context("Failed to get clangd executable")?;
     fs.add_file_with_path(
         b"compile_flags.txt",
         Rc::new(
@@ -208,7 +205,7 @@ pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Resul
         .stderr(FdEntry::Pipe(stderr))
         .arg("clangd")
         .arg("--pch-storage=memory")
-        .spawn_with_code(&clangd);
+        .spawn_with_path(b"bin/clangd");
 
     crate::send_msg(common::WorkerLSResponse::Started);
     let status_code = proc.proc.wait().await;

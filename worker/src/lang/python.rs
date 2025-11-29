@@ -40,3 +40,23 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
     status_code.check_success().context("Execution failed")?;
     Ok(())
 }
+
+pub async fn run_ls(stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
+    crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
+    let fs = get_fs("python")
+        .await
+        .context("Failed to get Python filesystem")?;
+    let proc = ProcessHandle::builder()
+        .fs(fs)
+        .stdin(FdEntry::Pipe(stdin))
+        .stdout(FdEntry::Pipe(stdout))
+        .stderr(FdEntry::Pipe(stderr))
+        .arg("ruff")
+        .arg("server")
+        .spawn_with_path(b"bin/ruff.wasm");
+
+    crate::send_msg(common::WorkerLSResponse::Started);
+    let status_code = proc.proc.wait().await;
+    status_code.check_success().context("ruff failed")?;
+    Ok(())
+}
