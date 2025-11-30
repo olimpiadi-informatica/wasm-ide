@@ -43,9 +43,10 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
 
 pub async fn run_ls(stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
     crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
-    let fs = get_fs("python")
+    let mut fs = get_fs("python")
         .await
         .context("Failed to get Python filesystem")?;
+    fs.add_file_with_path(b"/ruff.toml", Rc::new(b"indent-width = 2".to_vec()));
     let proc = ProcessHandle::builder()
         .fs(fs)
         .stdin(FdEntry::Pipe(stdin))
