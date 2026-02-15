@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
 use leptos_i18n::t_display;
@@ -9,14 +11,14 @@ use crate::editor::{Editor, LSRecv};
 use crate::i18n::use_i18n;
 use crate::settings::{set_editor_width, use_settings, InputMode, SettingsProvider};
 use crate::util::Icon;
-use crate::EditorText;
+use crate::EditorController;
 
 #[component]
 pub fn EditorView(
     ls_receiver: LSRecv,
     send_worker_message: Callback<WorkerRequest>,
-    code: RwSignal<EditorText, LocalStorage>,
-    stdin: RwSignal<EditorText, LocalStorage>,
+    code: Arc<EditorController>,
+    stdin: Arc<EditorController>,
     ctrl_enter: Callback<()>,
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
@@ -32,21 +34,24 @@ pub fn EditorView(
 
     let additional_input = RwSignal::new(String::from(""));
 
-    let add_input = move || {
-        let mut extra = additional_input.get_untracked();
-        if extra.is_empty() {
-            return;
+    let add_input = {
+        let stdin = stdin.clone();
+        move || {
+            let mut extra = additional_input.get_untracked();
+            if extra.is_empty() {
+                return;
+            }
+            additional_input.set(String::new());
+            let cur_stdin = stdin.get_text();
+            if !cur_stdin.is_empty() && !cur_stdin.ends_with('\n') {
+                extra = format!("\n{extra}");
+            }
+            if !extra.ends_with('\n') {
+                extra = format!("{extra}\n");
+            }
+            stdin.set_text(&(cur_stdin + &extra));
+            send_worker_message.run(WorkerExecRequest::StdinChunk(extra.into_bytes()).into());
         }
-        additional_input.set(String::new());
-        let cur_stdin = stdin.with_untracked(|x| x.text().clone());
-        if !cur_stdin.is_empty() && !cur_stdin.ends_with('\n') {
-            extra = format!("\n{extra}");
-        }
-        if !extra.ends_with('\n') {
-            extra = format!("{extra}\n");
-        }
-        stdin.set(EditorText::from_text(cur_stdin + &extra));
-        send_worker_message.run(WorkerExecRequest::StdinChunk(extra.into_bytes()).into());
     };
 
     let i18n = use_i18n();
@@ -116,8 +121,7 @@ pub fn EditorView(
         <div class:is-flex class:is-flex-direction-row class:is-flex-grow-1 style:height="0">
             <div style:width=move || format!("calc({}% - 0.35em)", editor_width_percent.get())>
                 <Editor
-                    contents=code
-                    cache_key="code"
+                    controller=code
                     syntax=language
                     readonly=code_readonly
                     ctrl_enter=ctrl_enter
@@ -152,8 +156,7 @@ pub fn EditorView(
                 {additional_input_line}
                 <div class:is-flex-grow-1 class:is-flex-shrink-1 style:min-height="0">
                     <Editor
-                        contents=stdin
-                        cache_key="stdin"
+                        controller=stdin
                         syntax=None
                         readonly=input_readonly
                         ctrl_enter=ctrl_enter

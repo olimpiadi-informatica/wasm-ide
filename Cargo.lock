@@ -220,11 +220,16 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "derive_more",
+ "gloo-utils",
+ "js-sys",
  "serde",
  "strum",
  "tracing",
  "tracing-subscriber",
  "tracing-web",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -611,6 +616,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "common",
+ "futures-util",
  "gloo-timers",
  "icondata",
  "js-sys",

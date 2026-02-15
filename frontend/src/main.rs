@@ -1,8 +1,9 @@
 #![allow(deprecated)]
 leptos_i18n::load_locales!();
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::DerefMut;
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
@@ -11,6 +12,7 @@ use common::{
     WorkerLSRequest, WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
 use editor_view::EditorView;
+use futures_util::FutureExt;
 use i18n::*;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -21,8 +23,6 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
 
-use crate::settings::InputMode;
-
 mod editor;
 mod editor_view;
 mod enum_select;
@@ -31,15 +31,11 @@ mod settings;
 mod status_view;
 mod util;
 
-use crate::editor::EditorText;
+use crate::editor::EditorController;
 use crate::enum_select::EnumSelect;
 use crate::output::OutputView;
-use crate::settings::Settings;
+use crate::settings::{InputMode, Settings};
 use crate::status_view::StatusView;
-use crate::util::load;
-
-#[derive(Default)]
-struct LargeFileSet(HashSet<String>);
 
 #[derive(Clone, Debug, Default)]
 pub struct Outcome {
@@ -120,21 +116,28 @@ impl RunState {
 }
 
 #[component]
-fn StorageErrorView() -> impl IntoView {
+fn StoragePersistView() -> impl IntoView {
     let i18n = use_i18n();
-    let large_files = expect_context::<RwSignal<LargeFileSet>>();
+
+    let (task, handle) = common::opfs::persist().remote_handle();
+    spawn_local(task);
+
     view! {
-        <div
-            class:message
-            class:is-warning
-            class:is-hidden=move || large_files.read().0.is_empty()
-            style:position="absolute"
-            style:bottom="1px"
-            style:right="1px"
-            style:z-index="100"
-        >
-            <div class:message-body>{t!(i18n, files_too_big)}</div>
-        </div>
+        <Await future=handle let:(&persist)>
+            <Show when=move || !persist>
+                <div
+                    class:message
+                    class:is-warning
+                    style:position="absolute"
+                    style:bottom="1px"
+                    style:right="1px"
+                    style:z-index="100"
+                >
+                    // TODO(virv12): Fix message
+                    <div class:message-body>{t!(i18n, files_too_big)}</div>
+                </div>
+            </Show>
+        </Await>
     }
 }
 
@@ -323,13 +326,10 @@ fn App() -> impl IntoView {
 
     // TODO(veluca): Allow overriding the default code, possibly at runtime.
     let starting_code = include_str!("../default_code.txt");
-    let code =
-        RwSignal::new_local(load("code").unwrap_or_else(|| EditorText::from_str(starting_code)));
+    let code = Arc::new(EditorController::new("code.cpp".to_string()));
 
     let starting_stdin = include_str!("../default_stdin.txt");
-
-    let stdin =
-        RwSignal::new_local(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));
+    let stdin = Arc::new(EditorController::new("stdin.txt".to_string()));
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
@@ -359,6 +359,8 @@ fn App() -> impl IntoView {
 
     let do_run = {
         let send_worker_message = send_worker_message.clone();
+        let stdin = stdin.clone();
+        let code = code.clone();
         Callback::new(move |()| {
             match state.write().deref_mut() {
                 RunState::Ready {
@@ -378,14 +380,14 @@ fn App() -> impl IntoView {
             }
 
             let send_worker_message = send_worker_message.clone();
+            let stdin = stdin.clone();
+            let code = code.clone();
             spawn_local(async move {
                 if input_mode.get_untracked() == InputMode::FullInteractive {
-                    stdin.set(EditorText::from_str(""));
+                    stdin.set_text("");
                 }
-                code.with_untracked(|x| x.await_all_changes()).await;
-                stdin.with_untracked(|x| x.await_all_changes()).await;
-                let code = code.with_untracked(|x| x.text().clone());
-                let input = stdin.with_untracked(|x| x.text().clone());
+                let code = code.get_text();
+                let input = stdin.get_text();
                 let (input, addn_msg) = match input_mode.get_untracked() {
                     InputMode::MixedInteractive => (
                         None,
@@ -499,7 +501,7 @@ fn App() -> impl IntoView {
 
     view! {
         <StatusView state fetching_compiler_progress />
-        <StorageErrorView />
+        <StoragePersistView />
         <div class:is-flex class:is-flex-direction-column style:height="100dvh">
             {navbar}
             <EditorView
@@ -522,8 +524,6 @@ fn main() {
 
     mount_to_body(move || {
         SettingsProvider::install();
-        let files = RwSignal::new(LargeFileSet::default());
-        provide_context(files);
         view! {
             <I18nContextProvider>
                 <App />

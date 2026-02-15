@@ -17,6 +17,8 @@ use tracing_subscriber::fmt::format::Pretty;
 use tracing_subscriber::prelude::*;
 use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
+pub mod opfs;
+
 /// Messages sent from the frontend to the worker.
 #[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerRequest {
