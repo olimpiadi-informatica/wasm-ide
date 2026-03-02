@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
