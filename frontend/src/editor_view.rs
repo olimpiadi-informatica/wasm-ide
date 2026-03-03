@@ -7,18 +7,18 @@ use leptos_use::{use_mouse, use_window_size, UseMouseReturn, UseWindowSizeReturn
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
 
-use crate::editor::{Editor, LSRecv};
+use crate::editor::LSRecv;
+use crate::editor_dir::{EditorDir, EditorDirController};
 use crate::i18n::use_i18n;
 use crate::settings::{set_editor_width, use_settings, InputMode, SettingsProvider};
 use crate::util::Icon;
-use crate::EditorController;
 
 #[component]
 pub fn EditorView(
     ls_receiver: LSRecv,
     send_worker_message: Callback<WorkerRequest>,
-    code: Arc<EditorController>,
-    stdin: Arc<EditorController>,
+    code: Arc<EditorDirController>,
+    stdin: Arc<EditorDirController>,
     ctrl_enter: Callback<()>,
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
@@ -120,7 +120,7 @@ pub fn EditorView(
         <div class:covers-page=is_resizing />
         <div class:is-flex class:is-flex-direction-row class:is-flex-grow-1 style:height="0">
             <div style:width=move || format!("calc({}% - 0.35em)", editor_width_percent.get())>
-                <Editor
+                <EditorDir
                     controller=code
                     syntax=language
                     readonly=code_readonly
@@ -155,7 +155,7 @@ pub fn EditorView(
             >
                 {additional_input_line}
                 <div class:is-flex-grow-1 class:is-flex-shrink-1 style:min-height="0">
-                    <Editor
+                    <EditorDir
                         controller=stdin
                         syntax=None
                         readonly=input_readonly

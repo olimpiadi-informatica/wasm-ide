@@ -72,12 +72,15 @@ async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u
     Ok(compiled)
 }
 
-async fn link(llvm: Module, mut fs: Fs, compiled: Vec<Vec<u8>>) -> Result<Vec<u8>> {
+async fn link(llvm: Module, mut fs: Fs, compiled: Vec<(String, Vec<u8>)>) -> Result<Vec<u8>> {
     let linked = Rc::new(RefCell::new(Vec::new()));
     let linked2 = linked.clone();
-    let num_files = compiled.len();
-    for (i, data) in compiled.into_iter().enumerate() {
-        fs.add_file_with_path(format!("source{}.o", i).as_bytes(), Rc::new(data));
+    let names = compiled
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    for (name, data) in compiled.into_iter() {
+        fs.add_file_with_path(name.as_bytes(), Rc::new(data));
     }
     let proc = ProcessHandle::builder()
         .fs(fs)
@@ -106,7 +109,7 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<Vec<u8>>) -> Result<Vec<u8
         .arg("--max-memory=4294967296")
         .arg("-o")
         .arg("-")
-        .args((0..num_files).map(|i| format!("source{}.o", i)))
+        .args(names)
         .spawn_with_module(llvm);
 
     let status_code = proc.proc.wait().await;
@@ -137,16 +140,15 @@ pub async fn run(
 
     let mut compiled = Vec::new();
     for file in files {
-        compiled.push(
-            compile(
-                cpp,
-                llvm_module.clone(),
-                fs.clone(),
-                file.content.into_bytes(),
-            )
-            .await
-            .context("Compilation failed")?,
-        );
+        let bin = compile(
+            cpp,
+            llvm_module.clone(),
+            fs.clone(),
+            file.content.into_bytes(),
+        )
+        .await
+        .context("Compilation failed")?;
+        compiled.push((file.name + ".o", bin));
     }
     let linked = link(llvm_module, fs, compiled)
         .await

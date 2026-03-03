@@ -60,15 +60,15 @@ extern "C" {
 }
 
 pub struct EditorController {
-    filename: RwSignal<String>,
+    filename: RwSignal<Option<String>>,
     open_filename: RwSignal<Option<String>>,
     cm6: RwSignal<Option<CM6Editor>, LocalStorage>,
     pending_changes: RwSignal<bool>,
 }
 
 impl EditorController {
-    pub fn new(filename: String) -> EditorController {
-        let filename = RwSignal::new(filename);
+    pub fn new() -> EditorController {
+        let filename = RwSignal::new(None);
         let open_filename = RwSignal::new(None);
         let cm6 = RwSignal::new_local(None);
         let pending_changes = RwSignal::new(false);
@@ -85,8 +85,12 @@ impl EditorController {
         while pending_changes.next().await == Some(true) {}
     }
 
-    pub fn change_file(&self, filename: String) {
+    pub fn file_set(&self, filename: Option<String>) {
         self.filename.set(filename);
+    }
+
+    pub fn file_get(&self) -> Option<String> {
+        self.filename.get()
     }
 
     pub fn get_text(&self) -> String {
@@ -125,8 +129,13 @@ pub fn Editor(
         pending_changes,
     } = *controller;
 
-    let readonly =
-        Signal::derive(move || readonly.get() || open_filename.get() != Some(filename.get()));
+    let readonly = Signal::derive(move || {
+        readonly.get()
+            || open_filename
+                .get()
+                .zip(filename.get())
+                .is_none_or(|(a, b)| a != b)
+    });
 
     let onchange = {
         let controller = controller.clone();
@@ -143,8 +152,7 @@ pub fn Editor(
                 let name = open_filename.get_untracked().unwrap();
                 let text = controller.get_text();
                 debug!("onchange: writing {} bytes", text.len());
-                let root = common::opfs::root().await;
-                let file = root.open_file(&name, true).await;
+                let file = common::opfs::open_file(&name, true).await;
                 file.write(text.as_bytes()).await;
                 pending_changes.set(false);
             });
@@ -195,9 +203,13 @@ pub fn Editor(
             let name = filename.get();
             let controller = controller.clone();
             spawn_local(async move {
-                let root = common::opfs::root().await;
-                let file = root.open_file(&name, true).await;
-                let data = file.read().await;
+                let data = match &name {
+                    None => Vec::new(),
+                    Some(name) => {
+                        let file = common::opfs::open_file(name, true).await;
+                        file.read().await
+                    }
+                };
 
                 controller.wait_sync().await;
 
@@ -210,7 +222,7 @@ pub fn Editor(
                     return;
                 };
                 cm6.set_text(std::str::from_utf8(&data).unwrap());
-                open_filename.set(Some(name));
+                open_filename.set(name);
             });
         }
     });

@@ -51,8 +51,8 @@ pub enum WorkerResponse {
 pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
-        /// The user's source code to compile and run.
-        files: Vec<File>,
+        /// The name of the project to compile
+        project: String,
         /// Programming language of the source code.
         language: Language,
         /// Optional data written to the program's standard input before execution.

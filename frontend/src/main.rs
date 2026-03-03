@@ -8,7 +8,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
 use common::{
-    init_logging, ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
+    init_logging, ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
     WorkerLSRequest, WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
 use editor_view::EditorView;
@@ -24,6 +24,7 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
 
 mod editor;
+mod editor_dir;
 mod editor_view;
 mod enum_select;
 mod output;
@@ -31,7 +32,7 @@ mod settings;
 mod status_view;
 mod util;
 
-use crate::editor::EditorController;
+use crate::editor_dir::EditorDirController;
 use crate::enum_select::EnumSelect;
 use crate::output::OutputView;
 use crate::settings::{InputMode, Settings};
@@ -326,10 +327,14 @@ fn App() -> impl IntoView {
 
     // TODO(veluca): Allow overriding the default code, possibly at runtime.
     let starting_code = include_str!("../default_code.txt");
-    let code = Arc::new(EditorController::new("code.cpp".to_string()));
+    let code = Arc::new(EditorDirController::new(
+        "/project/example/code".to_string(),
+    ));
 
     let starting_stdin = include_str!("../default_stdin.txt");
-    let stdin = Arc::new(EditorController::new("stdin.txt".to_string()));
+    let stdin = Arc::new(EditorDirController::new(
+        "/project/example/stdin".to_string(),
+    ));
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
@@ -383,10 +388,10 @@ fn App() -> impl IntoView {
             let stdin = stdin.clone();
             let code = code.clone();
             spawn_local(async move {
+                code.wait_sync().await;
                 if input_mode.get_untracked() == InputMode::FullInteractive {
                     stdin.set_text("");
                 }
-                let code = code.get_text();
                 let input = stdin.get_text();
                 let (input, addn_msg) = match input_mode.get_untracked() {
                     InputMode::MixedInteractive => (
@@ -401,10 +406,7 @@ fn App() -> impl IntoView {
                 let lng = language.get_untracked();
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
-                        files: vec![File {
-                            name: format!("solution.{}", lng.ext()),
-                            content: code,
-                        }],
+                        project: "example".to_string(),
                         language: lng,
                         input,
                         config: ExecConfig {

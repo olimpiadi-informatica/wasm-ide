@@ -1,7 +1,6 @@
 //! Wrapper around the Origin Private File System (OPFS) API.
 // TODO: missing error handling
 
-use gloo_utils::window;
 use js_sys::Uint8Array;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use wasm_bindgen_futures::JsFuture;
@@ -34,6 +33,29 @@ impl OPFSDir {
         let promise = self.0.get_file_handle_with_options(name, &opts);
         let res = JsFuture::from(promise).await.unwrap_throw();
         OPFSFile::from_js_value(res)
+    }
+
+    /// List the entries in this directory.
+    pub async fn list_entries(&self) -> Vec<String> {
+        let mut entries = vec![];
+        let entries_iter = self.0.keys();
+        loop {
+            let next_promise = entries_iter.next().unwrap_throw();
+            let next_res = JsFuture::from(next_promise).await.unwrap_throw();
+            let done = js_sys::Reflect::get(&next_res, &"done".into())
+                .unwrap_throw()
+                .as_bool()
+                .expect("done should be a boolean");
+            if done {
+                break;
+            }
+            let entry = js_sys::Reflect::get(&next_res, &"value".into())
+                .unwrap_throw()
+                .as_string()
+                .expect("entry should be a string");
+            entries.push(entry);
+        }
+        entries
     }
 }
 
@@ -80,7 +102,11 @@ impl OPFSFile {
 }
 
 fn storage() -> StorageManager {
-    window().navigator().storage()
+    let global = js_sys::global();
+    let navigator = js_sys::Reflect::get(&global, &"navigator".into())
+        .unwrap_throw()
+        .unchecked_into::<web_sys::Navigator>();
+    navigator.storage()
 }
 
 /// Request persistent storage for OPFS.
@@ -97,4 +123,24 @@ pub async fn root() -> OPFSDir {
     let promise = storage().get_directory();
     let res = JsFuture::from(promise).await.unwrap_throw();
     OPFSDir::from_js_value(res)
+}
+
+/// Open a directory at the given path, optionally creating it if it doesn't exist.
+pub async fn open_dir(path: &str, create: bool) -> OPFSDir {
+    let mut dir = root().await;
+    for part in path.split('/').filter(|s| !s.is_empty()) {
+        dir = dir.open_dir(part, create).await;
+    }
+    dir
+}
+
+/// Open a file at the given path, optionally creating it if it doesn't exist.
+pub async fn open_file(path: &str, create: bool) -> OPFSFile {
+    let mut parts = path.split('/').filter(|s| !s.is_empty());
+    let filename = parts.next_back().expect("path should not be empty");
+    let mut dir = root().await;
+    for part in parts {
+        dir = dir.open_dir(part, create).await;
+    }
+    dir.open_file(filename, create).await
 }
