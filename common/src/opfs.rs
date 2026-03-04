@@ -6,7 +6,8 @@ use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     File, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemWritableFileStream, StorageManager,
+    FileSystemGetFileOptions, FileSystemRemoveOptions, FileSystemWritableFileStream,
+    StorageManager,
 };
 
 /// Directory handle in the OPFS
@@ -56,6 +57,15 @@ impl OPFSDir {
             entries.push(entry);
         }
         entries
+    }
+
+    /// Remove an entry from this directory. If `recursive` is true, directories will be removed
+    /// recursively.
+    pub async fn remove_entry(&self, name: &str, recursive: bool) {
+        let opts = FileSystemRemoveOptions::new();
+        opts.set_recursive(recursive);
+        let promise = self.0.remove_entry_with_options(name, &opts);
+        JsFuture::from(promise).await.unwrap_throw();
     }
 }
 

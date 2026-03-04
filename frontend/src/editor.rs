@@ -149,11 +149,12 @@ pub fn Editor(
             let controller = controller.clone();
             spawn_local(async move {
                 TimeoutFuture::new(100).await;
-                let name = open_filename.get_untracked().unwrap();
-                let text = controller.get_text();
-                debug!("onchange: writing {} bytes", text.len());
-                let file = common::opfs::open_file(&name, true).await;
-                file.write(text.as_bytes()).await;
+                if let Some(name) = open_filename.get_untracked() {
+                    let text = controller.get_text();
+                    debug!("onchange: writing {} bytes", text.len());
+                    let file = common::opfs::open_file(&name, true).await;
+                    file.write(text.as_bytes()).await;
+                }
                 pending_changes.set(false);
             });
         }
@@ -323,7 +324,7 @@ pub fn Editor(
                 style:position="absolute"
                 style:top="0"
                 style:right="1.0rem"
-                style:z-index="50"
+                style:z-index="20"
                 class:is-flex
                 class:is-flex-direction-row
             >

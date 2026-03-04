@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 use util::Icon;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
+use web_sys::{MessageEvent, SubmitEvent, Worker, WorkerOptions, WorkerType};
 
 mod editor;
 mod editor_dir;
@@ -280,6 +280,117 @@ fn handle_ls_message(
 }
 
 #[component]
+fn WorkspaceSelector(
+    active: RwSignal<Option<String>>,
+    #[prop(into)] readonly: Signal<bool>,
+) -> impl IntoView {
+    // TODO(veluca): Allow overriding the default code, possibly at runtime.
+    let starting_code = include_str!("../default_code.txt");
+    let starting_stdin = include_str!("../default_stdin.txt");
+
+    let workspaces = RwSignal::new(Vec::new());
+    let open = RwSignal::new(false);
+    let new_ws = RwSignal::new(String::new());
+
+    spawn_local(async move {
+        let dir = common::opfs::open_dir("projects", true).await;
+        let entries = dir.list_entries().await;
+        workspaces.set(entries);
+    });
+
+    let new_workspace = move |ev: SubmitEvent| {
+        ev.prevent_default();
+        let name = new_ws.get_untracked();
+        if name.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            let code =
+                common::opfs::open_file(&format!("projects/{name}/code/main.cpp"), true).await;
+            code.write(starting_code.as_bytes()).await;
+            let stdin =
+                common::opfs::open_file(&format!("projects/{name}/stdin/input.txt"), true).await;
+            stdin.write(starting_stdin.as_bytes()).await;
+
+            workspaces.update(|w| w.push(name.clone()));
+            active.set(Some(name));
+            open.set(false);
+            new_ws.set(String::new());
+        });
+    };
+
+    let render_ws = move |ws: String| {
+        let ws2 = ws.clone();
+        let ws3 = ws.clone();
+        view! {
+            <a on:click=move |_| {
+                active.set(Some(ws2.clone()));
+                open.set(false);
+            }>{ws}</a>
+            <Icon
+                icon=icondata::BiTrashSolid
+                class:is-clickable
+                style:height="1em"
+                style:width="1em"
+                on:click=move |_| {
+                    workspaces.update(|w| w.retain(|x| x != &ws3));
+                    active
+                        .update(|a| {
+                            if a.as_ref() == Some(&ws3) {
+                                *a = None;
+                            }
+                        });
+                    let ws3 = ws3.clone();
+                    spawn_local(async move {
+                        let dir = common::opfs::open_dir("projects", true).await;
+                        dir.remove_entry(&ws3, true).await;
+                    });
+                }
+            />
+        }
+    };
+
+    view! {
+        <button class:button on:click=move |_| open.set(true) disabled=readonly>
+            {move || active.get().unwrap_or_else(|| "Choose workspace".to_string())}
+        </button>
+
+        <div class:modal class:is-active=open>
+            <div class="modal-background" on:click=move |_| open.set(false) />
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">"Workspaces"</p>
+                    <button class="delete" aria-label="close" on:click=move |_| open.set(false) />
+                </header>
+                <section
+                    class="modal-card-body"
+                    style:display="grid"
+                    style:grid-template-columns="auto 1em"
+                >
+                    <form
+                        style:grid-column="span 2"
+                        on:submit=new_workspace
+                        class:is-flex
+                        class:is-column-gap-2
+                        class:is-align-items-center
+                        class:mb-6
+                    >
+                        <span style:white-space="nowrap">"New workspace:"</span>
+                        <input
+                            class="input"
+                            type="text"
+                            placeholder="Workspace name"
+                            bind:value=new_ws
+                        />
+                    </form>
+                    <For each=move || workspaces.get() key=|w| w.clone() children=render_ws />
+                </section>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 fn App() -> impl IntoView {
     let options = WorkerOptions::default();
     options.set_type(WorkerType::Module);
@@ -325,16 +436,21 @@ fn App() -> impl IntoView {
         }
     };
 
-    // TODO(veluca): Allow overriding the default code, possibly at runtime.
-    let starting_code = include_str!("../default_code.txt");
-    let code = Arc::new(EditorDirController::new(
-        "/project/example/code".to_string(),
-    ));
+    let workspace = RwSignal::new(None);
 
-    let starting_stdin = include_str!("../default_stdin.txt");
-    let stdin = Arc::new(EditorDirController::new(
-        "/project/example/stdin".to_string(),
-    ));
+    let code = Arc::new(EditorDirController::new(Signal::derive(move || {
+        workspace
+            .read()
+            .as_ref()
+            .map(|ws| format!("projects/{ws}/code"))
+    })));
+
+    let stdin = Arc::new(EditorDirController::new(Signal::derive(move || {
+        workspace
+            .read()
+            .as_ref()
+            .map(|ws| format!("projects/{ws}/stdin"))
+    })));
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
@@ -384,6 +500,10 @@ fn App() -> impl IntoView {
                 }
             }
 
+            let Some(ws) = workspace.get_untracked() else {
+                return;
+            };
+
             let send_worker_message = send_worker_message.clone();
             let stdin = stdin.clone();
             let code = code.clone();
@@ -406,7 +526,7 @@ fn App() -> impl IntoView {
                 let lng = language.get_untracked();
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
-                        project: "example".to_string(),
+                        project: ws,
                         language: lng,
                         input,
                         config: ExecConfig {
@@ -454,6 +574,7 @@ fn App() -> impl IntoView {
                 class:mx-3
             >
                 <Settings />
+                <WorkspaceSelector active=workspace readonly=is_running />
                 <EnumSelect value=(language, SignalSetter::map(set_language)) />
                 <div class="is-flex-grow-1" />
                 <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />

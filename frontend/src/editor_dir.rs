@@ -6,15 +6,16 @@ use leptos::{prelude::*, task::spawn_local};
 use crate::{
     editor::{Editor, EditorController, LSRecv, LSSend},
     settings::KeyboardMode,
+    util::Icon,
 };
 
 pub struct EditorDirController {
-    dir: String,
+    dir: Signal<Option<String>>,
     editor_ctrl: Arc<EditorController>,
 }
 
 impl EditorDirController {
-    pub fn new(dir: String) -> Self {
+    pub fn new(dir: Signal<Option<String>>) -> Self {
         let editor_ctrl = Arc::new(EditorController::new());
         Self { dir, editor_ctrl }
     }
@@ -45,18 +46,26 @@ pub fn EditorDir(
     let open_modal = RwSignal::new(false);
     let filename = RwSignal::new(String::new());
 
-    spawn_local({
+    Effect::new({
         let controller = controller.clone();
-        async move {
-            let dir = common::opfs::open_dir(&controller.dir, true).await;
-            let entries = dir.list_entries().await;
-            if let Some(entry) = entries.first() {
-                controller
-                    .editor_ctrl
-                    .file_set(Some(controller.dir.clone() + "/" + entry));
-            }
-            tabs.try_update(|t| {
-                *t = entries;
+        move || {
+            let dir_path = controller.dir.get();
+            let controller = controller.clone();
+            spawn_local(async move {
+                let entries = match dir_path {
+                    Some(dir_path) => {
+                        let dir = common::opfs::open_dir(&dir_path, true).await;
+                        let entries = dir.list_entries().await;
+                        controller
+                            .editor_ctrl
+                            .file_set(entries.first().map(|entry| dir_path + "/" + entry));
+                        entries
+                    }
+                    None => Vec::new(),
+                };
+                tabs.try_update(|t| {
+                    *t = entries;
+                });
             });
         }
     });
@@ -66,13 +75,22 @@ pub fn EditorDir(
         move |file: String| {
             let ctrl1 = controller.clone();
             let ctrl2 = controller.clone();
-            let file1 = controller.dir.clone() + "/" + &file;
-            let file2 = file1.clone();
+            let controller = controller.clone();
+            let file2 = file.clone();
+            let file_path = Signal::derive(move || {
+                controller
+                    .dir
+                    .get()
+                    .map(|d| d + "/" + &file2)
+                    .unwrap_or_default()
+            });
 
             view! {
-                <li class:is-active=move || ctrl1.editor_ctrl.file_get().as_deref() == Some(&file1)>
+                <li class:is-active=move || {
+                    ctrl1.editor_ctrl.file_get().as_deref() == Some(&file_path.get())
+                }>
                     <a on:click=move |_| {
-                        ctrl2.editor_ctrl.file_set(Some(file2.clone()))
+                        ctrl2.editor_ctrl.file_set(Some(file_path.get_untracked()))
                     }>{file}</a>
                 </li>
             }
@@ -84,8 +102,13 @@ pub fn EditorDir(
         move || {
             let value = filename.get();
             let name = if value.is_empty() { None } else { Some(value) };
+            let Some(dir) = controller.dir.get_untracked() else {
+                open_modal.set(false);
+                tracing::error!("Directory not set when trying to add file");
+                return;
+            };
             if let Some(name) = name {
-                let file = controller.dir.clone() + "/" + &name;
+                let file = dir + "/" + &name;
                 controller.editor_ctrl.file_set(Some(file.clone()));
                 tabs.update(|t| t.push(name));
                 open_modal.set(false);
@@ -104,7 +127,7 @@ pub fn EditorDir(
                 <div class="modal-background" on:click=move |_| open_modal.set(false) />
                 <div class="modal-card">
                     <section class="modal-card-body">
-                        <p>Create file with name:</p>
+                        <p>"Create file with name:"</p>
                         <input
                             class:input
                             class:is-danger=bad_filename
@@ -116,10 +139,10 @@ pub fn EditorDir(
                     <footer class="modal-card-foot">
                         <div class="buttons">
                             <button class="button is-success" on:click=move |_| add_file()>
-                                Create file
+                                "Create file"
                             </button>
                             <button class="button" on:click=move |_| open_modal.set(false)>
-                                Cancel
+                                "Cancel"
                             </button>
                         </div>
                     </footer>
@@ -134,7 +157,13 @@ pub fn EditorDir(
                         children=render_tab
                     />
                 </div>
-                <div on:click=move |_| open_modal.set(true)>+</div>
+                <Icon
+                    icon=icondata::CgAddR
+                    class:is-clickable
+                    style:height="1.5em"
+                    style:width="1.5em"
+                    on:click=move |_| open_modal.set(true)
+                />
             </div>
             <Editor
                 controller=controller.editor_ctrl.clone()
