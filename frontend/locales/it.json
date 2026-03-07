@@ -22,10 +22,15 @@
   "mixed_interactive_input": "Input misto",
   "full_interactive_input": "Input interattivo",
 
-  "files_too_big": "Alcuni file sono troppo grandi e non possono essere salvati.",
+  "storage_denied": "Autorizzazione negata per salvare i dati nell'archiviazione persistente.",
 
   "settings": "Impostazioni",
   "language": "Lingua",
+
+  "memory_limit": "Limite di memoria",
+  "please_enter_a_valid_number": "Inserisci un numero valido",
+  "value_must_be_at_least_40": "Il valore deve essere almeno 40",
+  "value_must_be_at_most_4096": "Il valore deve essere al massimo 4096",
 
   "theme": "Tema",
   "theme_system": "Sistema",
@@ -35,5 +40,13 @@
   "keyboard_mode": "Modalità tastiera",
   "vim_mode": "Modalità Vim",
   "emacs_mode": "Modalità Emacs",
-  "standard_mode": "Modalità standard"
+  "standard_mode": "Modalità standard",
+
+  "workspaces": "Spazi di lavoro",
+  "workspace_name": "Nome dello spazio di lavoro",
+  "create_workspace": "Crea",
+  "choose_workspace": "Scegli uno spazio di lavoro",
+
+  "create_file_title": "Crea file",
+  "create_file": "Crea"
 }

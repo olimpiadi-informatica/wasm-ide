@@ -22,10 +22,15 @@
   "mixed_interactive_input": "Input mìsto",
   "full_interactive_input": "Input interatìvo",
 
-  "files_too_big": "Qualche file xe màsa grando e no se pol salvàr.",
+  "storage_denied": "Permesso negà par salvar i dati inte l'archiviazión persistente.",
 
   "settings": "Impostasión",
   "language": "Łéngua",
+
+  "memory_limit": "Łimite de memòria",
+  "please_enter_a_valid_number": "Par piaser, inserissi un número vàłido",
+  "value_must_be_at_least_40": "El vałor el ga da èsar almanco 40",
+  "value_must_be_at_most_4096": "El vałor el ga da èsar al màsimo 4096",
 
   "theme": "Tema",
   "theme_system": "Automàtego",
@@ -35,5 +40,13 @@
   "keyboard_mode": "Modo tastièra",
   "vim_mode": "Modo Vim",
   "emacs_mode": "Modo Emacs",
-  "standard_mode": "Modo normałe"
+  "standard_mode": "Modo normałe",
+
+  "workspaces": "Spasi de lavoro",
+  "workspace_name": "Nome del spasio de lavoro",
+  "create_workspace": "Crea",
+  "choose_workspace": "Sèłi un spasio de lavoro",
+
+  "create_file_title": "Crea file",
+  "create_file": "Crea"
 }

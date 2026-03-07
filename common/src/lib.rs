@@ -52,7 +52,7 @@ pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
         /// The name of the project to compile
-        project: String,
+        workspace: String,
         /// Programming language of the source code.
         language: Language,
         /// Optional data written to the program's standard input before execution.

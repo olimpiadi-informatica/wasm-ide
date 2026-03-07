@@ -287,6 +287,7 @@ pub fn Editor(
                 return;
             };
             let text = controller.get_text();
+            let name = name.split('/').next_back().unwrap_or(name);
             download(name, text.as_bytes());
         }
     };

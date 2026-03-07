@@ -21,7 +21,7 @@ impl DisplayLocalized for Locale {
             Locale::it => "Italiano",
             Locale::es => "Español",
             Locale::ca => "Català",
-            Locale::vec => "Vèneta",
+            Locale::vec => "Vèneto",
         }
         .to_owned()
     }

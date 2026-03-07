@@ -121,7 +121,7 @@ fn handle_message(msg: JsValue) {
 fn handle_exec_request(req: WorkerExecRequest) {
     match req {
         WorkerExecRequest::CompileAndRun {
-            project,
+            workspace,
             language,
             input,
             config,
@@ -143,7 +143,7 @@ fn handle_exec_request(req: WorkerExecRequest) {
                 async move {
                     let mut files = Vec::new();
                     let dir =
-                        common::opfs::open_dir(&format!("projects/{project}/code"), false).await;
+                        common::opfs::open_dir(&format!("workspace/{workspace}/code"), false).await;
                     for name in dir.list_entries().await {
                         let file = dir.open_file(&name, false).await;
                         let content = String::from_utf8(file.read().await).unwrap();

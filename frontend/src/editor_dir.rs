@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use common::Language;
 use leptos::{prelude::*, task::spawn_local};
+use web_sys::SubmitEvent;
 
 use crate::{
     editor::{Editor, EditorController, LSRecv, LSSend},
+    i18n::*,
     settings::KeyboardMode,
     util::Icon,
 };
@@ -42,6 +44,7 @@ pub fn EditorDir(
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
+    let i18n = use_i18n();
     let tabs = RwSignal::new(Vec::new());
     let open_modal = RwSignal::new(false);
     let filename = RwSignal::new(String::new());
@@ -52,17 +55,16 @@ pub fn EditorDir(
             let dir_path = controller.dir.get();
             let controller = controller.clone();
             spawn_local(async move {
-                let entries = match dir_path {
+                let entries = match &dir_path {
                     Some(dir_path) => {
                         let dir = common::opfs::open_dir(&dir_path, true).await;
-                        let entries = dir.list_entries().await;
-                        controller
-                            .editor_ctrl
-                            .file_set(entries.first().map(|entry| dir_path + "/" + entry));
-                        entries
+                        dir.list_entries().await
                     }
                     None => Vec::new(),
                 };
+                controller
+                    .editor_ctrl
+                    .file_set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
                 tabs.try_update(|t| {
                     *t = entries;
                 });
@@ -99,7 +101,8 @@ pub fn EditorDir(
 
     let add_file = {
         let controller = controller.clone();
-        move || {
+        move |ev: SubmitEvent| {
+            ev.prevent_default();
             let value = filename.get();
             let name = if value.is_empty() { None } else { Some(value) };
             let Some(dir) = controller.dir.get_untracked() else {
@@ -121,31 +124,41 @@ pub fn EditorDir(
         value.is_empty() || tabs.get().iter().any(|f| f == &value)
     });
 
+    let controller2 = controller.clone();
+
     view! {
         <div class:is-flex class:is-flex-direction-column style:height="100%">
             <div class:modal class:is-active=open_modal>
                 <div class="modal-background" on:click=move |_| open_modal.set(false) />
                 <div class="modal-card">
-                    <section class="modal-card-body">
-                        <p>"Create file with name:"</p>
-                        <input
-                            class:input
-                            class:is-danger=bad_filename
-                            type="text"
-                            placeholder="filename.cpp"
-                            bind:value=filename
+                    <header class="modal-card-head">
+                        <p class="modal-card-title">{t!(i18n, create_file_title)}</p>
+                        <button
+                            class="delete"
+                            aria-label="close"
+                            on:click=move |_| open_modal.set(false)
                         />
+                    </header>
+                    <section class="modal-card-body">
+                        <form
+                            class:is-flex
+                            class:is-column-gap-2
+                            class:is-align-items-center
+                            class:mb-6
+                            on:submit=add_file
+                        >
+                            <input
+                                class="input"
+                                class:is-danger=bad_filename
+                                type="text"
+                                placeholder="filename.cpp"
+                                bind:value=filename
+                            />
+                            <button class="button is-primary" type="submit">
+                                {t!(i18n, create_file)}
+                            </button>
+                        </form>
                     </section>
-                    <footer class="modal-card-foot">
-                        <div class="buttons">
-                            <button class="button is-success" on:click=move |_| add_file()>
-                                "Create file"
-                            </button>
-                            <button class="button" on:click=move |_| open_modal.set(false)>
-                                "Cancel"
-                            </button>
-                        </div>
-                    </footer>
                 </div>
             </div>
 
@@ -160,6 +173,7 @@ pub fn EditorDir(
                 <Icon
                     icon=icondata::CgAddR
                     class:is-clickable
+                    class:is-hidden=move || controller2.dir.get().is_none()
                     style:height="1.5em"
                     style:width="1.5em"
                     on:click=move |_| open_modal.set(true)

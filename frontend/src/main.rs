@@ -135,7 +135,7 @@ fn StoragePersistView() -> impl IntoView {
                     style:z-index="100"
                 >
                     // TODO(virv12): Fix message
-                    <div class:message-body>{t!(i18n, files_too_big)}</div>
+                    <div class:message-body>{t!(i18n, storage_denied)}</div>
                 </div>
             </Show>
         </Await>
@@ -288,12 +288,13 @@ fn WorkspaceSelector(
     let starting_code = include_str!("../default_code.txt");
     let starting_stdin = include_str!("../default_stdin.txt");
 
+    let i18n = use_i18n();
     let workspaces = RwSignal::new(Vec::new());
     let open = RwSignal::new(false);
     let new_ws = RwSignal::new(String::new());
 
     spawn_local(async move {
-        let dir = common::opfs::open_dir("projects", true).await;
+        let dir = common::opfs::open_dir("workspace", true).await;
         let entries = dir.list_entries().await;
         workspaces.set(entries);
     });
@@ -306,10 +307,10 @@ fn WorkspaceSelector(
         }
         spawn_local(async move {
             let code =
-                common::opfs::open_file(&format!("projects/{name}/code/main.cpp"), true).await;
+                common::opfs::open_file(&format!("workspace/{name}/code/main.cpp"), true).await;
             code.write(starting_code.as_bytes()).await;
             let stdin =
-                common::opfs::open_file(&format!("projects/{name}/stdin/input.txt"), true).await;
+                common::opfs::open_file(&format!("workspace/{name}/stdin/input.txt"), true).await;
             stdin.write(starting_stdin.as_bytes()).await;
 
             workspaces.update(|w| w.push(name.clone()));
@@ -342,7 +343,7 @@ fn WorkspaceSelector(
                         });
                     let ws3 = ws3.clone();
                     spawn_local(async move {
-                        let dir = common::opfs::open_dir("projects", true).await;
+                        let dir = common::opfs::open_dir("workspace", true).await;
                         dir.remove_entry(&ws3, true).await;
                     });
                 }
@@ -352,14 +353,14 @@ fn WorkspaceSelector(
 
     view! {
         <button class:button on:click=move |_| open.set(true) disabled=readonly>
-            {move || active.get().unwrap_or_else(|| "Choose workspace".to_string())}
+            {move || active.get().unwrap_or_else(|| t_string!(i18n, choose_workspace).into())}
         </button>
 
         <div class:modal class:is-active=open>
             <div class="modal-background" on:click=move |_| open.set(false) />
             <div class="modal-card">
                 <header class="modal-card-head">
-                    <p class="modal-card-title">"Workspaces"</p>
+                    <p class="modal-card-title">{t!(i18n, workspaces)}</p>
                     <button class="delete" aria-label="close" on:click=move |_| open.set(false) />
                 </header>
                 <section
@@ -369,19 +370,21 @@ fn WorkspaceSelector(
                 >
                     <form
                         style:grid-column="span 2"
-                        on:submit=new_workspace
                         class:is-flex
                         class:is-column-gap-2
                         class:is-align-items-center
                         class:mb-6
+                        on:submit=new_workspace
                     >
-                        <span style:white-space="nowrap">"New workspace:"</span>
                         <input
                             class="input"
                             type="text"
-                            placeholder="Workspace name"
+                            placeholder=move || t_string!(i18n, workspace_name)
                             bind:value=new_ws
                         />
+                        <button class="button is-primary" type="submit">
+                            {t!(i18n, create_workspace)}
+                        </button>
                     </form>
                     <For each=move || workspaces.get() key=|w| w.clone() children=render_ws />
                 </section>
@@ -442,14 +445,14 @@ fn App() -> impl IntoView {
         workspace
             .read()
             .as_ref()
-            .map(|ws| format!("projects/{ws}/code"))
+            .map(|ws| format!("workspace/{ws}/code"))
     })));
 
     let stdin = Arc::new(EditorDirController::new(Signal::derive(move || {
         workspace
             .read()
             .as_ref()
-            .map(|ws| format!("projects/{ws}/stdin"))
+            .map(|ws| format!("workspace/{ws}/stdin"))
     })));
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
@@ -526,7 +529,7 @@ fn App() -> impl IntoView {
                 let lng = language.get_untracked();
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
-                        project: ws,
+                        workspace: ws,
                         language: lng,
                         input,
                         config: ExecConfig {
