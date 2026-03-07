@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use leptos::reactive::wrappers::write::SignalSetter;
 use strum::VariantArray;
 
-use crate::i18n::{use_i18n, Locale};
+use crate::i18n::{Locale, use_i18n};
 
 pub trait DisplayLocalized {
     fn to_localized_string(&self, locale: Locale) -> String;

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 use tracing_subscriber::fmt::format::Pretty;
 use tracing_subscriber::prelude::*;
-use tracing_web::{performance_layer, MakeWebConsoleWriter};
+use tracing_web::{MakeWebConsoleWriter, performance_layer};
 
 pub mod opfs;
 

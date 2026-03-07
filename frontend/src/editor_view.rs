@@ -1,14 +1,14 @@
 use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
 use leptos_i18n::t_display;
-use leptos_use::{use_mouse, use_window_size, UseMouseReturn, UseWindowSizeReturn};
-use wasm_bindgen::prelude::Closure;
+use leptos_use::{UseMouseReturn, UseWindowSizeReturn, use_mouse, use_window_size};
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::Closure;
 
 use crate::editor::LSRecv;
 use crate::editor_dir::{EditorDir, EditorDirController};
 use crate::i18n::use_i18n;
-use crate::settings::{set_editor_width, use_settings, InputMode, SettingsProvider};
+use crate::settings::{InputMode, SettingsProvider, set_editor_width, use_settings};
 use crate::util::Icon;
 
 #[component]

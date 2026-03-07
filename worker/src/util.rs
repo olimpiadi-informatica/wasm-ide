@@ -12,7 +12,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::ReadableStreamDefaultReader;
 
 use crate::os::Fs;
-use crate::{send_msg, WORKER_STATE};
+use crate::{WORKER_STATE, send_msg};
 
 async fn manifest() -> Result<HashMap<String, u64>> {
     let res = Request::get("./compilers/manifest.json").send().await?;

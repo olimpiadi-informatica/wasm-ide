@@ -1,14 +1,14 @@
 use std::ops::Deref;
 use std::str::Chars;
 
-use anyhow::{bail, ensure, Result};
+use anyhow::{Result, bail, ensure};
 use leptos::prelude::*;
-use leptos_use::{signal_throttled, use_mouse_in_element, UseMouseInElementReturn};
+use leptos_use::{UseMouseInElementReturn, signal_throttled, use_mouse_in_element};
 use tracing::warn;
 use web_sys::ScrollToOptions;
 
 use crate::i18n::*;
-use crate::util::{download, Icon};
+use crate::util::{Icon, download};
 use crate::{Outcome, RunState, StateExec};
 
 fn output_for_display(s: &[u8]) -> String {
@@ -92,11 +92,11 @@ fn ansi(text: &str) -> Vec<(Style, String)> {
                 }
             }
         }
-        if let Some(last) = fragments.last_mut() {
-            if last.0 == style {
-                last.1.push(c);
-                continue;
-            }
+        if let Some(last) = fragments.last_mut()
+            && last.0 == style
+        {
+            last.1.push(c);
+            continue;
         }
         fragments.push((style, c.to_string()));
     }

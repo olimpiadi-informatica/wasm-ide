@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use common::{
-    init_logging, File, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse,
-    WorkerRequest, WorkerResponse,
+    File, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse, WorkerRequest,
+    WorkerResponse, init_logging,
 };
-use futures::channel::mpsc::{unbounded, UnboundedSender};
-use futures::channel::oneshot::{channel, Sender};
+use futures::channel::mpsc::{UnboundedSender, unbounded};
+use futures::channel::oneshot::{Sender, channel};
 use futures::lock::Mutex;
-use futures::{select, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, select};
 use send_wrapper::SendWrapper;
 use tracing::{debug, info, warn};
 use wasm_bindgen::closure::Closure;

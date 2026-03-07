@@ -5,17 +5,17 @@ use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use anyhow::Result;
-use async_channel::{unbounded, Sender};
+use async_channel::{Sender, unbounded};
 use common::{
-    init_logging, ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
-    WorkerLSRequest, WorkerLSResponse, WorkerRequest, WorkerResponse,
+    ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
+    WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
 use editor_view::EditorView;
 use futures_util::FutureExt;
 use i18n::*;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
-use settings::{set_input_mode, set_language, use_settings, SettingsProvider};
+use settings::{SettingsProvider, set_input_mode, set_language, use_settings};
 use tracing::{debug, info, warn};
 use util::Icon;
 use wasm_bindgen::prelude::*;

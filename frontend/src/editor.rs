@@ -7,12 +7,12 @@ use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::js_sys::Function;
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::HtmlInputElement;
+use web_sys::js_sys::Function;
 
-use crate::settings::{use_settings, KeyboardMode, Theme};
-use crate::util::{download, Icon};
+use crate::settings::{KeyboardMode, Theme, use_settings};
+use crate::util::{Icon, download};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {

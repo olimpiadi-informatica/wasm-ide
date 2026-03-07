@@ -3,18 +3,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use enum_as_inner::EnumAsInner;
-use futures::channel::oneshot::{channel, Receiver, Sender};
+use futures::channel::oneshot::{Receiver, Sender, channel};
 use futures::lock::Mutex;
 use js_sys::WebAssembly::{Memory, Module};
 use js_sys::{Object, Reflect, SharedArrayBuffer};
-use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 use web_sys::{Worker, WorkerOptions, WorkerType};
 use web_time::Instant;
 
-use super::{syscall, Fs, Inode, Pipe};
+use super::{Fs, Inode, Pipe, syscall};
 
 type WriteFn = Rc<dyn Fn(&[u8]) -> usize>;
 
