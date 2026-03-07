@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use common::Language;
 use leptos::{prelude::*, task::spawn_local};
 use web_sys::SubmitEvent;
@@ -11,14 +9,15 @@ use crate::{
     util::Icon,
 };
 
+#[derive(Clone, Copy)]
 pub struct EditorDirController {
     dir: Signal<Option<String>>,
-    editor_ctrl: Arc<EditorController>,
+    editor_ctrl: EditorController,
 }
 
 impl EditorDirController {
     pub fn new(dir: Signal<Option<String>>) -> Self {
-        let editor_ctrl = Arc::new(EditorController::new());
+        let editor_ctrl = EditorController::new();
         Self { dir, editor_ctrl }
     }
 
@@ -37,7 +36,7 @@ impl EditorDirController {
 
 #[component]
 pub fn EditorDir(
-    controller: Arc<EditorDirController>,
+    controller: EditorDirController,
     #[prop(into)] syntax: Signal<Option<Language>>,
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Callback<()>,
@@ -49,73 +48,60 @@ pub fn EditorDir(
     let open_modal = RwSignal::new(false);
     let filename = RwSignal::new(String::new());
 
-    Effect::new({
-        let controller = controller.clone();
-        move || {
-            let dir_path = controller.dir.get();
-            let controller = controller.clone();
-            spawn_local(async move {
-                let entries = match &dir_path {
-                    Some(dir_path) => {
-                        let dir = common::opfs::open_dir(&dir_path, true).await;
-                        dir.list_entries().await
-                    }
-                    None => Vec::new(),
-                };
-                controller
-                    .editor_ctrl
-                    .file_set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
-                tabs.try_update(|t| {
-                    *t = entries;
-                });
+    Effect::new(move || {
+        let dir_path = controller.dir.get();
+        spawn_local(async move {
+            let entries = match &dir_path {
+                Some(dir_path) => {
+                    let dir = common::opfs::open_dir(dir_path, true).await;
+                    dir.list_entries().await
+                }
+                None => Vec::new(),
+            };
+            controller
+                .editor_ctrl
+                .file_set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
+            tabs.try_update(|t| {
+                *t = entries;
             });
-        }
+        });
     });
 
-    let render_tab = {
-        let controller = controller.clone();
-        move |file: String| {
-            let ctrl1 = controller.clone();
-            let ctrl2 = controller.clone();
-            let controller = controller.clone();
-            let file2 = file.clone();
-            let file_path = Signal::derive(move || {
-                controller
-                    .dir
-                    .get()
-                    .map(|d| d + "/" + &file2)
-                    .unwrap_or_default()
-            });
+    let render_tab = move |file: String| {
+        let file2 = file.clone();
+        let file_path = Signal::derive(move || {
+            controller
+                .dir
+                .get()
+                .map(|d| d + "/" + &file2)
+                .unwrap_or_default()
+        });
 
-            view! {
-                <li class:is-active=move || {
-                    ctrl1.editor_ctrl.file_get().as_deref() == Some(&file_path.get())
-                }>
-                    <a on:click=move |_| {
-                        ctrl2.editor_ctrl.file_set(Some(file_path.get_untracked()))
-                    }>{file}</a>
-                </li>
-            }
+        view! {
+            <li class:is-active=move || {
+                controller.editor_ctrl.file_get().as_deref() == Some(&file_path.get())
+            }>
+                <a on:click=move |_| {
+                    controller.editor_ctrl.file_set(Some(file_path.get_untracked()))
+                }>{file}</a>
+            </li>
         }
     };
 
-    let add_file = {
-        let controller = controller.clone();
-        move |ev: SubmitEvent| {
-            ev.prevent_default();
-            let value = filename.get();
-            let name = if value.is_empty() { None } else { Some(value) };
-            let Some(dir) = controller.dir.get_untracked() else {
-                open_modal.set(false);
-                tracing::error!("Directory not set when trying to add file");
-                return;
-            };
-            if let Some(name) = name {
-                let file = dir + "/" + &name;
-                controller.editor_ctrl.file_set(Some(file.clone()));
-                tabs.update(|t| t.push(name));
-                open_modal.set(false);
-            }
+    let add_file = move |ev: SubmitEvent| {
+        ev.prevent_default();
+        let value = filename.get();
+        let name = if value.is_empty() { None } else { Some(value) };
+        let Some(dir) = controller.dir.get_untracked() else {
+            open_modal.set(false);
+            tracing::error!("Directory not set when trying to add file");
+            return;
+        };
+        if let Some(name) = name {
+            let file = dir + "/" + &name;
+            controller.editor_ctrl.file_set(Some(file.clone()));
+            tabs.update(|t| t.push(name));
+            open_modal.set(false);
         }
     };
 
@@ -123,8 +109,6 @@ pub fn EditorDir(
         let value = filename.get();
         value.is_empty() || tabs.get().iter().any(|f| f == &value)
     });
-
-    let controller2 = controller.clone();
 
     view! {
         <div class:is-flex class:is-flex-direction-column style:height="100%">
@@ -173,14 +157,14 @@ pub fn EditorDir(
                 <Icon
                     icon=icondata::CgAddR
                     class:is-clickable
-                    class:is-hidden=move || controller2.dir.get().is_none()
+                    class:is-hidden=move || controller.dir.get().is_none()
                     style:height="1.5em"
                     style:width="1.5em"
                     on:click=move |_| open_modal.set(true)
                 />
             </div>
             <Editor
-                controller=controller.editor_ctrl.clone()
+                controller=controller.editor_ctrl
                 syntax=syntax
                 readonly=readonly
                 ctrl_enter=ctrl_enter

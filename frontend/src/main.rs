@@ -3,7 +3,6 @@ leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
 use std::ops::DerefMut;
-use std::sync::Arc;
 
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
@@ -134,7 +133,6 @@ fn StoragePersistView() -> impl IntoView {
                     style:right="1px"
                     style:z-index="100"
                 >
-                    // TODO(virv12): Fix message
                     <div class:message-body>{t!(i18n, storage_denied)}</div>
                 </div>
             </Show>
@@ -441,19 +439,19 @@ fn App() -> impl IntoView {
 
     let workspace = RwSignal::new(None);
 
-    let code = Arc::new(EditorDirController::new(Signal::derive(move || {
+    let code = EditorDirController::new(Signal::derive(move || {
         workspace
             .read()
             .as_ref()
             .map(|ws| format!("workspace/{ws}/code"))
-    })));
+    }));
 
-    let stdin = Arc::new(EditorDirController::new(Signal::derive(move || {
+    let stdin = EditorDirController::new(Signal::derive(move || {
         workspace
             .read()
             .as_ref()
             .map(|ws| format!("workspace/{ws}/stdin"))
-    })));
+    }));
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
@@ -483,8 +481,6 @@ fn App() -> impl IntoView {
 
     let do_run = {
         let send_worker_message = send_worker_message.clone();
-        let stdin = stdin.clone();
-        let code = code.clone();
         Callback::new(move |()| {
             match state.write().deref_mut() {
                 RunState::Ready {
@@ -508,8 +504,6 @@ fn App() -> impl IntoView {
             };
 
             let send_worker_message = send_worker_message.clone();
-            let stdin = stdin.clone();
-            let code = code.clone();
             spawn_local(async move {
                 code.wait_sync().await;
                 if input_mode.get_untracked() == InputMode::FullInteractive {

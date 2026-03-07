@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
 
 use async_channel::Receiver;
 use common::{Language, WorkerLSResponse};
@@ -59,6 +58,7 @@ extern "C" {
     fn set_language_server(this: &CM6Editor, send_message: Function) -> LSEventHandler;
 }
 
+#[derive(Clone, Copy)]
 pub struct EditorController {
     filename: RwSignal<Option<String>>,
     open_filename: RwSignal<Option<String>>,
@@ -115,7 +115,7 @@ pub type LSSend = Box<dyn Fn(String)>;
 
 #[component]
 pub fn Editor(
-    controller: Arc<EditorController>,
+    controller: EditorController,
     #[prop(into)] syntax: Signal<Option<Language>>,
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Callback<()>,
@@ -127,7 +127,7 @@ pub fn Editor(
         open_filename,
         cm6,
         pending_changes,
-    } = *controller;
+    } = controller;
 
     let readonly = Signal::derive(move || {
         readonly.get()
@@ -137,27 +137,23 @@ pub fn Editor(
                 .is_none_or(|(a, b)| a != b)
     });
 
-    let onchange = {
-        let controller = controller.clone();
-        move |_: JsValue| {
-            let old_pending = pending_changes
-                .try_update(|v| std::mem::replace(v, true))
-                .unwrap();
-            if old_pending {
-                return;
-            }
-            let controller = controller.clone();
-            spawn_local(async move {
-                TimeoutFuture::new(100).await;
-                if let Some(name) = open_filename.get_untracked() {
-                    let text = controller.get_text();
-                    debug!("onchange: writing {} bytes", text.len());
-                    let file = common::opfs::open_file(&name, true).await;
-                    file.write(text.as_bytes()).await;
-                }
-                pending_changes.set(false);
-            });
+    let onchange = move |_: JsValue| {
+        let old_pending = pending_changes
+            .try_update(|v| std::mem::replace(v, true))
+            .unwrap();
+        if old_pending {
+            return;
         }
+        spawn_local(async move {
+            TimeoutFuture::new(100).await;
+            if let Some(name) = open_filename.get_untracked() {
+                let text = controller.get_text();
+                debug!("onchange: writing {} bytes", text.len());
+                let file = common::opfs::open_file(&name, true).await;
+                file.write(text.as_bytes()).await;
+            }
+            pending_changes.set(false);
+        });
     };
 
     static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -198,34 +194,30 @@ pub fn Editor(
         });
     }
 
-    Effect::new({
-        let controller = controller.clone();
-        move |_| {
-            let name = filename.get();
-            let controller = controller.clone();
-            spawn_local(async move {
-                let data = match &name {
-                    None => Vec::new(),
-                    Some(name) => {
-                        let file = common::opfs::open_file(name, true).await;
-                        file.read().await
-                    }
-                };
-
-                controller.wait_sync().await;
-
-                if filename.get_untracked() != name {
-                    return;
+    Effect::new(move |_| {
+        let name = filename.get();
+        spawn_local(async move {
+            let data = match &name {
+                None => Vec::new(),
+                Some(name) => {
+                    let file = common::opfs::open_file(name, true).await;
+                    file.read().await
                 }
+            };
 
-                let cm6 = cm6.read_untracked();
-                let Some(cm6) = cm6.as_ref() else {
-                    return;
-                };
-                cm6.set_text(std::str::from_utf8(&data).unwrap());
-                open_filename.set(name);
-            });
-        }
+            controller.wait_sync().await;
+
+            if filename.get_untracked() != name {
+                return;
+            }
+
+            let cm6 = cm6.read_untracked();
+            let Some(cm6) = cm6.as_ref() else {
+                return;
+            };
+            cm6.set_text(std::str::from_utf8(&data).unwrap());
+            open_filename.set(name);
+        });
     });
 
     let settings = use_settings();
@@ -277,44 +269,36 @@ pub fn Editor(
         });
     });
 
-    let do_download = {
-        let controller = controller.clone();
-        move |_| {
-            let controller = controller.clone();
-            let name = open_filename.read();
-            let Some(name) = name.as_ref() else {
-                info!("no file open, download cancelled");
-                return;
-            };
-            let text = controller.get_text();
-            let name = name.split('/').next_back().unwrap_or(name);
-            download(name, text.as_bytes());
-        }
+    let do_download = move |_| {
+        let name = open_filename.read();
+        let Some(name) = name.as_ref() else {
+            info!("no file open, download cancelled");
+            return;
+        };
+        let text = controller.get_text();
+        let name = name.split('/').next_back().unwrap_or(name);
+        download(name, text.as_bytes());
     };
 
     let upload_el = NodeRef::new();
 
-    let do_upload = {
-        let controller = controller.clone();
-        move |_| {
-            let input: HtmlInputElement = upload_el.get().unwrap();
-            let files = input.files().unwrap();
-            let Some(file) = files.get(0) else {
-                info!("file selection cancelled");
-                return;
-            };
-            let controller = controller.clone();
-            spawn_local(async move {
-                let promise = file.text();
-                let text = JsFuture::from(promise).await;
-                match text {
-                    Ok(text) => {
-                        controller.set_text(&text.as_string().expect("did not read a string"));
-                    }
-                    Err(err) => warn!("could not read file: {err:?}"),
+    let do_upload = move |_| {
+        let input: HtmlInputElement = upload_el.get().unwrap();
+        let files = input.files().unwrap();
+        let Some(file) = files.get(0) else {
+            info!("file selection cancelled");
+            return;
+        };
+        spawn_local(async move {
+            let promise = file.text();
+            let text = JsFuture::from(promise).await;
+            match text {
+                Ok(text) => {
+                    controller.set_text(&text.as_string().expect("did not read a string"));
                 }
-            });
-        }
+                Err(err) => warn!("could not read file: {err:?}"),
+            }
+        });
     };
 
     view! {

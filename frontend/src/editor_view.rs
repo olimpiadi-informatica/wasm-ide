@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
 use leptos_i18n::t_display;
@@ -17,8 +15,8 @@ use crate::util::Icon;
 pub fn EditorView(
     ls_receiver: LSRecv,
     send_worker_message: Callback<WorkerRequest>,
-    code: Arc<EditorDirController>,
-    stdin: Arc<EditorDirController>,
+    code: EditorDirController,
+    stdin: EditorDirController,
     ctrl_enter: Callback<()>,
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
@@ -34,24 +32,21 @@ pub fn EditorView(
 
     let additional_input = RwSignal::new(String::from(""));
 
-    let add_input = {
-        let stdin = stdin.clone();
-        move || {
-            let mut extra = additional_input.get_untracked();
-            if extra.is_empty() {
-                return;
-            }
-            additional_input.set(String::new());
-            let cur_stdin = stdin.get_text();
-            if !cur_stdin.is_empty() && !cur_stdin.ends_with('\n') {
-                extra = format!("\n{extra}");
-            }
-            if !extra.ends_with('\n') {
-                extra = format!("{extra}\n");
-            }
-            stdin.set_text(&(cur_stdin + &extra));
-            send_worker_message.run(WorkerExecRequest::StdinChunk(extra.into_bytes()).into());
+    let add_input = move || {
+        let mut extra = additional_input.get_untracked();
+        if extra.is_empty() {
+            return;
         }
+        additional_input.set(String::new());
+        let cur_stdin = stdin.get_text();
+        if !cur_stdin.is_empty() && !cur_stdin.ends_with('\n') {
+            extra = format!("\n{extra}");
+        }
+        if !extra.ends_with('\n') {
+            extra = format!("{extra}\n");
+        }
+        stdin.set_text(&(cur_stdin + &extra));
+        send_worker_message.run(WorkerExecRequest::StdinChunk(extra.into_bytes()).into());
     };
 
     let i18n = use_i18n();
