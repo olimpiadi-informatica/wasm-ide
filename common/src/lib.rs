@@ -17,6 +17,8 @@ use tracing_subscriber::fmt::format::Pretty;
 use tracing_subscriber::prelude::*;
 use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
+pub mod opfs;
+
 /// Messages sent from the frontend to the worker.
 #[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerRequest {
@@ -49,8 +51,8 @@ pub enum WorkerResponse {
 pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
-        /// The user's source code to compile and run.
-        files: Vec<File>,
+        /// The name of the project to compile
+        workspace: String,
         /// Programming language of the source code.
         language: Language,
         /// Optional data written to the program's standard input before execution.

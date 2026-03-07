@@ -1,8 +1,8 @@
-use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use async_channel::{unbounded, Receiver, Sender};
+use async_channel::Receiver;
 use common::{Language, WorkerLSResponse};
+use futures_util::StreamExt;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use tracing::{debug, info, warn};
@@ -12,7 +12,7 @@ use web_sys::js_sys::Function;
 use web_sys::HtmlInputElement;
 
 use crate::settings::{use_settings, KeyboardMode, Theme};
-use crate::util::{download, save, Icon};
+use crate::util::{download, Icon};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
@@ -49,7 +49,7 @@ extern "C" {
     fn get_text(this: &CM6Editor) -> String;
 
     #[wasm_bindgen(method, js_name = "setText")]
-    fn set_text(this: &CM6Editor, value: String);
+    fn set_text(this: &CM6Editor, value: &str);
 
     #[wasm_bindgen(method, js_name = "setKeymap")]
     fn set_keymap(this: &CM6Editor, kbh: &str);
@@ -58,40 +58,55 @@ extern "C" {
     fn set_language_server(this: &CM6Editor, send_message: Function) -> LSEventHandler;
 }
 
-pub struct EditorText {
-    data: String,
-    num_pending_changes: Arc<Mutex<usize>>,
-    sender: Sender<()>,
-    receiver: Receiver<()>,
+#[derive(Clone, Copy)]
+pub struct EditorController {
+    filename: RwSignal<Option<String>>,
+    open_filename: RwSignal<Option<String>>,
+    cm6: RwSignal<Option<CM6Editor>, LocalStorage>,
+    pending_changes: RwSignal<bool>,
 }
 
-impl EditorText {
-    pub fn from_text(text: String) -> EditorText {
-        let (sender, receiver) = unbounded();
-        EditorText {
-            data: text,
-            num_pending_changes: Arc::new(Mutex::new(0)),
-            sender,
-            receiver,
+impl EditorController {
+    pub fn new() -> EditorController {
+        let filename = RwSignal::new(None);
+        let open_filename = RwSignal::new(None);
+        let cm6 = RwSignal::new_local(None);
+        let pending_changes = RwSignal::new(false);
+        EditorController {
+            filename,
+            open_filename,
+            cm6,
+            pending_changes,
         }
     }
-    pub fn from_str(text: &str) -> EditorText {
-        EditorText::from_text(text.to_string())
+
+    pub async fn wait_sync(&self) {
+        let mut pending_changes = self.pending_changes.to_stream();
+        while pending_changes.next().await == Some(true) {}
     }
-    pub fn text(&self) -> &String {
-        &self.data
+
+    pub fn file_set(&self, filename: Option<String>) {
+        self.filename.set(filename);
     }
-    pub fn await_all_changes(&self) -> impl Future<Output = ()> + 'static {
-        let num_pending_changes = self.num_pending_changes.clone();
-        let receiver = self.receiver.clone();
-        async move {
-            loop {
-                if *num_pending_changes.lock().unwrap() == 0 {
-                    return;
-                }
-                receiver.recv().await.expect("sender dropped");
-            }
-        }
+
+    pub fn file_get(&self) -> Option<String> {
+        self.filename.get()
+    }
+
+    pub fn get_text(&self) -> String {
+        self.cm6
+            .read_untracked()
+            .as_ref()
+            .expect("CM6 not initialized")
+            .get_text()
+    }
+
+    pub fn set_text(&self, text: &str) {
+        self.cm6
+            .read_untracked()
+            .as_ref()
+            .expect("CM6 not initialized")
+            .set_text(text)
     }
 }
 
@@ -100,54 +115,49 @@ pub type LSSend = Box<dyn Fn(String)>;
 
 #[component]
 pub fn Editor(
-    contents: RwSignal<EditorText, LocalStorage>,
-    cache_key: &'static str,
+    controller: EditorController,
     #[prop(into)] syntax: Signal<Option<Language>>,
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Callback<()>,
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
-    let cm6 = RwSignal::new_local(None);
+    let EditorController {
+        filename,
+        open_filename,
+        cm6,
+        pending_changes,
+    } = controller;
 
-    let owner = Owner::current().unwrap();
+    let readonly = Signal::derive(move || {
+        readonly.get()
+            || open_filename
+                .get()
+                .zip(filename.get())
+                .is_none_or(|(a, b)| a != b)
+    });
+
     let onchange = move |_: JsValue| {
-        contents.update_untracked(|val| {
-            *val.num_pending_changes.lock().unwrap() += 1;
-        });
-        let owner = owner.clone();
+        let old_pending = pending_changes
+            .try_update(|v| std::mem::replace(v, true))
+            .unwrap();
+        if old_pending {
+            return;
+        }
         spawn_local(async move {
             TimeoutFuture::new(100).await;
-            let mut do_update = false;
-            contents.update_untracked(|val| {
-                let mut v = val.num_pending_changes.lock().unwrap();
-                if *v != 0 {
-                    *v -= 1;
-                    do_update = *v == 0;
-                }
-            });
-            if !do_update {
-                return;
+            if let Some(name) = open_filename.get_untracked() {
+                let text = controller.get_text();
+                debug!("onchange: writing {} bytes", text.len());
+                let file = common::opfs::open_file(&name, true).await;
+                file.write(text.as_bytes()).await;
             }
-            cm6.with_untracked(|x: &Option<CM6Editor>| {
-                let Some(cm6) = x else {
-                    return;
-                };
-                let data = cm6.get_text();
-                contents.update_untracked(|val| {
-                    val.data = data;
-                    debug!("onchange: {cache_key} {}", val.data.len());
-                    owner.with(|| save(cache_key, val));
-                })
-            });
-            let sender = contents.with_untracked(|c| c.sender.clone());
-            for _ in 0..sender.receiver_count() {
-                sender.send(()).await.expect("receiver dropped");
-            }
+            pending_changes.set(false);
         });
     };
 
-    let id = format!("{cache_key}-editor");
+    static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+    let id = format!("{}-editor", ID_COUNTER.fetch_add(1, Ordering::Relaxed));
     {
         let id = id.clone();
         queue_microtask(move || {
@@ -184,6 +194,32 @@ pub fn Editor(
         });
     }
 
+    Effect::new(move |_| {
+        let name = filename.get();
+        spawn_local(async move {
+            let data = match &name {
+                None => Vec::new(),
+                Some(name) => {
+                    let file = common::opfs::open_file(name, true).await;
+                    file.read().await
+                }
+            };
+
+            controller.wait_sync().await;
+
+            if filename.get_untracked() != name {
+                return;
+            }
+
+            let cm6 = cm6.read_untracked();
+            let Some(cm6) = cm6.as_ref() else {
+                return;
+            };
+            cm6.set_text(std::str::from_utf8(&data).unwrap());
+            open_filename.set(name);
+        });
+    });
+
     let settings = use_settings();
     Effect::new(move |_| {
         cm6.with(|x| {
@@ -191,15 +227,6 @@ pub fn Editor(
                 return;
             };
             cm6.set_dark(settings.theme.get() != Theme::Light);
-        });
-    });
-
-    Effect::new(move |_| {
-        cm6.with(|x| {
-            let Some(cm6) = x else {
-                return;
-            };
-            cm6.set_text(contents.with(|x| x.text().to_string()));
         });
     });
 
@@ -243,10 +270,14 @@ pub fn Editor(
     });
 
     let do_download = move |_| {
-        let contents = contents.read_untracked();
-        let ext = syntax.get_untracked().map_or("txt", Language::ext);
-        let name = format!("{cache_key}.{ext}");
-        download(&name, contents.text().as_bytes());
+        let name = open_filename.read();
+        let Some(name) = name.as_ref() else {
+            info!("no file open, download cancelled");
+            return;
+        };
+        let text = controller.get_text();
+        let name = name.split('/').next_back().unwrap_or(name);
+        download(name, text.as_bytes());
     };
 
     let upload_el = NodeRef::new();
@@ -258,16 +289,12 @@ pub fn Editor(
             info!("file selection cancelled");
             return;
         };
-        let owner = Owner::current().unwrap();
         spawn_local(async move {
             let promise = file.text();
             let text = JsFuture::from(promise).await;
             match text {
                 Ok(text) => {
-                    let text =
-                        EditorText::from_text(text.as_string().expect("did not read a string"));
-                    owner.with(|| save(cache_key, &text));
-                    contents.set(text)
+                    controller.set_text(&text.as_string().expect("did not read a string"));
                 }
                 Err(err) => warn!("could not read file: {err:?}"),
             }
@@ -282,7 +309,7 @@ pub fn Editor(
                 style:position="absolute"
                 style:top="0"
                 style:right="1.0rem"
-                style:z-index="50"
+                style:z-index="20"
                 class:is-flex
                 class:is-flex-direction-row
             >

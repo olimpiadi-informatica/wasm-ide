@@ -22,10 +22,15 @@
   "mixed_interactive_input": "Entrada mixta",
   "full_interactive_input": "Entrada interactiva",
 
-  "files_too_big": "Alguns arxius són massa grans i es poden ser desats.",
+  "storage_denied": "Permís denegat per desar dades a l'emmagatzematge persistent.",
 
   "settings": "Configuració",
   "language": "Llengua",
+
+  "memory_limit": "Límit de memòria",
+  "please_enter_a_valid_number": "Si us plau, introduïu un número vàlid",
+  "value_must_be_at_least_40": "El valor ha de ser com a mínim 40",
+  "value_must_be_at_most_4096": "El valor ha de ser com a màxim 4096",
 
   "theme": "Tema",
   "theme_system": "Sistema",
@@ -35,5 +40,13 @@
   "keyboard_mode": "Mode de teclat",
   "vim_mode": "Mode Vim",
   "emacs_mode": "Mode Emacs",
-  "standard_mode": "Mode estàndar"
+  "standard_mode": "Mode estàndar",
+
+  "workspaces": "Espais de treball",
+  "workspace_name": "Nom de l'espai de treball",
+  "create_workspace": "Crea",
+  "choose_workspace": "Tria un espai de treball",
+
+  "create_file_title": "Crea un fitxer",
+  "create_file": "Crea"
 }

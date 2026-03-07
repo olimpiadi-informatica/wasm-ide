@@ -291,6 +291,7 @@ fn ThemeControl() -> impl IntoView {
 
 #[component]
 fn MemLimit() -> impl IntoView {
+    let i18n = use_i18n();
     let settings = use_settings();
 
     #[derive(Debug, Clone, Copy)]
@@ -300,12 +301,12 @@ fn MemLimit() -> impl IntoView {
         TooLarge,
     }
 
-    impl std::fmt::Display for Error {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl Error {
+        fn localized_message(&self, loc: Locale) -> String {
             match self {
-                Error::NotANumber => write!(f, "Please enter a valid number"),
-                Error::TooSmall => write!(f, "Value must be at least 40"),
-                Error::TooLarge => write!(f, "Value must be at most 4096"),
+                Error::NotANumber => td_string!(loc, please_enter_a_valid_number).into(),
+                Error::TooSmall => td_string!(loc, value_must_be_at_least_40).into(),
+                Error::TooLarge => td_string!(loc, value_must_be_at_most_4096).into(),
             }
         }
     }
@@ -353,7 +354,7 @@ fn MemLimit() -> impl IntoView {
     view! {
         <div class:field class:is-horizontal>
             <div class:field-label class:is-normal>
-                <label class="label">{"Memory limit"}</label>
+                <label class="label">{t!(i18n, memory_limit)}</label>
             </div>
             <div class="field-body">
                 <div class="field has-addons">
@@ -371,7 +372,7 @@ fn MemLimit() -> impl IntoView {
                         />
                         <ShowLet some=error let:value>
                             <p class:help class:is-danger>
-                                {value.to_string()}
+                                {move || value.localized_message(i18n.get_locale())}
                             </p>
                         </ShowLet>
                     </div>

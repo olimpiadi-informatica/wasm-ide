@@ -5,18 +5,18 @@ use leptos_use::{use_mouse, use_window_size, UseMouseReturn, UseWindowSizeReturn
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
 
-use crate::editor::{Editor, LSRecv};
+use crate::editor::LSRecv;
+use crate::editor_dir::{EditorDir, EditorDirController};
 use crate::i18n::use_i18n;
 use crate::settings::{set_editor_width, use_settings, InputMode, SettingsProvider};
 use crate::util::Icon;
-use crate::EditorText;
 
 #[component]
 pub fn EditorView(
     ls_receiver: LSRecv,
     send_worker_message: Callback<WorkerRequest>,
-    code: RwSignal<EditorText, LocalStorage>,
-    stdin: RwSignal<EditorText, LocalStorage>,
+    code: EditorDirController,
+    stdin: EditorDirController,
     ctrl_enter: Callback<()>,
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
@@ -38,14 +38,14 @@ pub fn EditorView(
             return;
         }
         additional_input.set(String::new());
-        let cur_stdin = stdin.with_untracked(|x| x.text().clone());
+        let cur_stdin = stdin.get_text();
         if !cur_stdin.is_empty() && !cur_stdin.ends_with('\n') {
             extra = format!("\n{extra}");
         }
         if !extra.ends_with('\n') {
             extra = format!("{extra}\n");
         }
-        stdin.set(EditorText::from_text(cur_stdin + &extra));
+        stdin.set_text(&(cur_stdin + &extra));
         send_worker_message.run(WorkerExecRequest::StdinChunk(extra.into_bytes()).into());
     };
 
@@ -115,9 +115,8 @@ pub fn EditorView(
         <div class:covers-page=is_resizing />
         <div class:is-flex class:is-flex-direction-row class:is-flex-grow-1 style:height="0">
             <div style:width=move || format!("calc({}% - 0.35em)", editor_width_percent.get())>
-                <Editor
-                    contents=code
-                    cache_key="code"
+                <EditorDir
+                    controller=code
                     syntax=language
                     readonly=code_readonly
                     ctrl_enter=ctrl_enter
@@ -151,9 +150,8 @@ pub fn EditorView(
             >
                 {additional_input_line}
                 <div class:is-flex-grow-1 class:is-flex-shrink-1 style:min-height="0">
-                    <Editor
-                        contents=stdin
-                        cache_key="stdin"
+                    <EditorDir
+                        controller=stdin
                         syntax=None
                         readonly=input_readonly
                         ctrl_enter=ctrl_enter

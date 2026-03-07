@@ -1,16 +1,17 @@
 #![allow(deprecated)]
 leptos_i18n::load_locales!();
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use anyhow::Result;
 use async_channel::{unbounded, Sender};
 use common::{
-    init_logging, ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
+    init_logging, ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus,
     WorkerLSRequest, WorkerLSResponse, WorkerRequest, WorkerResponse,
 };
 use editor_view::EditorView;
+use futures_util::FutureExt;
 use i18n::*;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -19,11 +20,10 @@ use tracing::{debug, info, warn};
 use util::Icon;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
-
-use crate::settings::InputMode;
+use web_sys::{MessageEvent, SubmitEvent, Worker, WorkerOptions, WorkerType};
 
 mod editor;
+mod editor_dir;
 mod editor_view;
 mod enum_select;
 mod output;
@@ -31,15 +31,11 @@ mod settings;
 mod status_view;
 mod util;
 
-use crate::editor::EditorText;
+use crate::editor_dir::EditorDirController;
 use crate::enum_select::EnumSelect;
 use crate::output::OutputView;
-use crate::settings::Settings;
+use crate::settings::{InputMode, Settings};
 use crate::status_view::StatusView;
-use crate::util::load;
-
-#[derive(Default)]
-struct LargeFileSet(HashSet<String>);
 
 #[derive(Clone, Debug, Default)]
 pub struct Outcome {
@@ -120,21 +116,27 @@ impl RunState {
 }
 
 #[component]
-fn StorageErrorView() -> impl IntoView {
+fn StoragePersistView() -> impl IntoView {
     let i18n = use_i18n();
-    let large_files = expect_context::<RwSignal<LargeFileSet>>();
+
+    let (task, handle) = common::opfs::persist().remote_handle();
+    spawn_local(task);
+
     view! {
-        <div
-            class:message
-            class:is-warning
-            class:is-hidden=move || large_files.read().0.is_empty()
-            style:position="absolute"
-            style:bottom="1px"
-            style:right="1px"
-            style:z-index="100"
-        >
-            <div class:message-body>{t!(i18n, files_too_big)}</div>
-        </div>
+        <Await future=handle let:(&persist)>
+            <Show when=move || !persist>
+                <div
+                    class:message
+                    class:is-warning
+                    style:position="absolute"
+                    style:bottom="1px"
+                    style:right="1px"
+                    style:z-index="100"
+                >
+                    <div class:message-body>{t!(i18n, storage_denied)}</div>
+                </div>
+            </Show>
+        </Await>
     }
 }
 
@@ -276,6 +278,120 @@ fn handle_ls_message(
 }
 
 #[component]
+fn WorkspaceSelector(
+    active: RwSignal<Option<String>>,
+    #[prop(into)] readonly: Signal<bool>,
+) -> impl IntoView {
+    // TODO(veluca): Allow overriding the default code, possibly at runtime.
+    let starting_code = include_str!("../default_code.txt");
+    let starting_stdin = include_str!("../default_stdin.txt");
+
+    let i18n = use_i18n();
+    let workspaces = RwSignal::new(Vec::new());
+    let open = RwSignal::new(false);
+    let new_ws = RwSignal::new(String::new());
+
+    spawn_local(async move {
+        let dir = common::opfs::open_dir("workspace", true).await;
+        let entries = dir.list_entries().await;
+        workspaces.set(entries);
+    });
+
+    let new_workspace = move |ev: SubmitEvent| {
+        ev.prevent_default();
+        let name = new_ws.get_untracked();
+        if name.is_empty() {
+            return;
+        }
+        spawn_local(async move {
+            let code =
+                common::opfs::open_file(&format!("workspace/{name}/code/main.cpp"), true).await;
+            code.write(starting_code.as_bytes()).await;
+            let stdin =
+                common::opfs::open_file(&format!("workspace/{name}/stdin/input.txt"), true).await;
+            stdin.write(starting_stdin.as_bytes()).await;
+
+            workspaces.update(|w| w.push(name.clone()));
+            active.set(Some(name));
+            open.set(false);
+            new_ws.set(String::new());
+        });
+    };
+
+    let render_ws = move |ws: String| {
+        let ws2 = ws.clone();
+        let ws3 = ws.clone();
+        view! {
+            <a on:click=move |_| {
+                active.set(Some(ws2.clone()));
+                open.set(false);
+            }>{ws}</a>
+            <Icon
+                icon=icondata::BiTrashSolid
+                class:is-clickable
+                style:height="1em"
+                style:width="1em"
+                on:click=move |_| {
+                    workspaces.update(|w| w.retain(|x| x != &ws3));
+                    active
+                        .update(|a| {
+                            if a.as_ref() == Some(&ws3) {
+                                *a = None;
+                            }
+                        });
+                    let ws3 = ws3.clone();
+                    spawn_local(async move {
+                        let dir = common::opfs::open_dir("workspace", true).await;
+                        dir.remove_entry(&ws3, true).await;
+                    });
+                }
+            />
+        }
+    };
+
+    view! {
+        <button class:button on:click=move |_| open.set(true) disabled=readonly>
+            {move || active.get().unwrap_or_else(|| t_string!(i18n, choose_workspace).into())}
+        </button>
+
+        <div class:modal class:is-active=open>
+            <div class="modal-background" on:click=move |_| open.set(false) />
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">{t!(i18n, workspaces)}</p>
+                    <button class="delete" aria-label="close" on:click=move |_| open.set(false) />
+                </header>
+                <section
+                    class="modal-card-body"
+                    style:display="grid"
+                    style:grid-template-columns="auto 1em"
+                >
+                    <form
+                        style:grid-column="span 2"
+                        class:is-flex
+                        class:is-column-gap-2
+                        class:is-align-items-center
+                        class:mb-6
+                        on:submit=new_workspace
+                    >
+                        <input
+                            class="input"
+                            type="text"
+                            placeholder=move || t_string!(i18n, workspace_name)
+                            bind:value=new_ws
+                        />
+                        <button class="button is-primary" type="submit">
+                            {t!(i18n, create_workspace)}
+                        </button>
+                    </form>
+                    <For each=move || workspaces.get() key=|w| w.clone() children=render_ws />
+                </section>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 fn App() -> impl IntoView {
     let options = WorkerOptions::default();
     options.set_type(WorkerType::Module);
@@ -321,15 +437,21 @@ fn App() -> impl IntoView {
         }
     };
 
-    // TODO(veluca): Allow overriding the default code, possibly at runtime.
-    let starting_code = include_str!("../default_code.txt");
-    let code =
-        RwSignal::new_local(load("code").unwrap_or_else(|| EditorText::from_str(starting_code)));
+    let workspace = RwSignal::new(None);
 
-    let starting_stdin = include_str!("../default_stdin.txt");
+    let code = EditorDirController::new(Signal::derive(move || {
+        workspace
+            .read()
+            .as_ref()
+            .map(|ws| format!("workspace/{ws}/code"))
+    }));
 
-    let stdin =
-        RwSignal::new_local(load("stdin").unwrap_or_else(|| EditorText::from_str(starting_stdin)));
+    let stdin = EditorDirController::new(Signal::derive(move || {
+        workspace
+            .read()
+            .as_ref()
+            .map(|ws| format!("workspace/{ws}/stdin"))
+    }));
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
@@ -377,15 +499,17 @@ fn App() -> impl IntoView {
                 }
             }
 
+            let Some(ws) = workspace.get_untracked() else {
+                return;
+            };
+
             let send_worker_message = send_worker_message.clone();
             spawn_local(async move {
+                code.wait_sync().await;
                 if input_mode.get_untracked() == InputMode::FullInteractive {
-                    stdin.set(EditorText::from_str(""));
+                    stdin.set_text("");
                 }
-                code.with_untracked(|x| x.await_all_changes()).await;
-                stdin.with_untracked(|x| x.await_all_changes()).await;
-                let code = code.with_untracked(|x| x.text().clone());
-                let input = stdin.with_untracked(|x| x.text().clone());
+                let input = stdin.get_text();
                 let (input, addn_msg) = match input_mode.get_untracked() {
                     InputMode::MixedInteractive => (
                         None,
@@ -399,10 +523,7 @@ fn App() -> impl IntoView {
                 let lng = language.get_untracked();
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
-                        files: vec![File {
-                            name: format!("solution.{}", lng.ext()),
-                            content: code,
-                        }],
+                        workspace: ws,
                         language: lng,
                         input,
                         config: ExecConfig {
@@ -450,6 +571,7 @@ fn App() -> impl IntoView {
                 class:mx-3
             >
                 <Settings />
+                <WorkspaceSelector active=workspace readonly=is_running />
                 <EnumSelect value=(language, SignalSetter::map(set_language)) />
                 <div class="is-flex-grow-1" />
                 <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
@@ -499,7 +621,7 @@ fn App() -> impl IntoView {
 
     view! {
         <StatusView state fetching_compiler_progress />
-        <StorageErrorView />
+        <StoragePersistView />
         <div class:is-flex class:is-flex-direction-column style:height="100dvh">
             {navbar}
             <EditorView
@@ -522,8 +644,6 @@ fn main() {
 
     mount_to_body(move || {
         SettingsProvider::install();
-        let files = RwSignal::new(LargeFileSet::default());
-        provide_context(files);
         view! {
             <I18nContextProvider>
                 <App />

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use common::{
-    init_logging, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse,
+    init_logging, File, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse,
     WorkerRequest, WorkerResponse,
 };
 use futures::channel::mpsc::{unbounded, UnboundedSender};
@@ -121,7 +121,7 @@ fn handle_message(msg: JsValue) {
 fn handle_exec_request(req: WorkerExecRequest) {
     match req {
         WorkerExecRequest::CompileAndRun {
-            files,
+            workspace,
             language,
             input,
             config,
@@ -141,6 +141,15 @@ fn handle_exec_request(req: WorkerExecRequest) {
             spawn_local({
                 let stdout = stdout.clone();
                 async move {
+                    let mut files = Vec::new();
+                    let dir =
+                        common::opfs::open_dir(&format!("workspace/{workspace}/code"), false).await;
+                    for name in dir.list_entries().await {
+                        let file = dir.open_file(&name, false).await;
+                        let content = String::from_utf8(file.read().await).unwrap();
+                        files.push(File { name, content });
+                    }
+
                     let running = lang::run(language, config, files, stdin, stdout);
                     select! {
                         _ = receiver => {
