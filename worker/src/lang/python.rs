@@ -53,12 +53,12 @@ pub async fn run_ls(stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
         .stderr(FdEntry::Pipe(stderr))
-        .arg("ruff")
+        .arg("ty")
         .arg("server")
-        .spawn_with_path(b"bin/ruff.wasm");
+        .spawn_with_path(b"bin/ty.wasm");
 
     crate::send_msg(common::WorkerLSResponse::Started);
     let status_code = proc.proc.wait().await;
-    status_code.check_success().context("ruff failed")?;
+    status_code.check_success().context("ty failed")?;
     Ok(())
 }
