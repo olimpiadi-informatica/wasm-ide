@@ -15,7 +15,7 @@ pub async fn run(
 ) -> Result<()> {
     match language {
         Language::C => cpp::run(false, config, files, stdin, stdout).await,
-        Language::CPP => cpp::run(true, config, files, stdin, stdout).await,
+        Language::Cpp => cpp::run(true, config, files, stdin, stdout).await,
         Language::Python => python::run(config, files, stdin, stdout).await,
     }
 }
@@ -23,7 +23,7 @@ pub async fn run(
 pub async fn run_ls(language: Language, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
     match language {
         Language::C => cpp::run_ls(false, stdin, stdout, stderr).await,
-        Language::CPP => cpp::run_ls(true, stdin, stdout, stderr).await,
+        Language::Cpp => cpp::run_ls(true, stdin, stdout, stderr).await,
         Language::Python => python::run_ls(stdin, stdout, stderr).await,
     }
 }

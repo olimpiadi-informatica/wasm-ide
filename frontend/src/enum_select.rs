@@ -1,4 +1,3 @@
-use common::Language;
 use leptos::prelude::*;
 use leptos::reactive::wrappers::write::SignalSetter;
 use strum::VariantArray;
@@ -24,12 +23,6 @@ impl DisplayLocalized for Locale {
             Locale::vec => "Vèneto",
         }
         .to_owned()
-    }
-}
-
-impl DisplayLocalized for Language {
-    fn to_localized_string(&self, _locale: Locale) -> String {
-        self.to_string()
     }
 }
 

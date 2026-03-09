@@ -148,7 +148,7 @@ pub enum Language {
     /// C code.
     C,
     /// C++ code.
-    CPP,
+    Cpp,
     /// Python 3 code.
     Python,
 }
@@ -158,7 +158,7 @@ impl Language {
     pub fn ext(self) -> &'static str {
         match self {
             Language::C => "c",
-            Language::CPP => "cpp",
+            Language::Cpp => "cpp",
             Language::Python => "py",
         }
     }
@@ -168,7 +168,7 @@ impl From<Language> for &'static str {
     fn from(val: Language) -> Self {
         match val {
             Language::C => "C",
-            Language::CPP => "C++",
+            Language::Cpp => "C++",
             Language::Python => "Python",
         }
     }

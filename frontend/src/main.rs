@@ -7,7 +7,7 @@ use std::ops::DerefMut;
 use anyhow::Result;
 use async_channel::{Sender, unbounded};
 use common::{
-    ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
+    ExecConfig, Language, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
 use editor_view::EditorView;
@@ -15,7 +15,7 @@ use futures_util::FutureExt;
 use i18n::*;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
-use settings::{SettingsProvider, set_input_mode, set_language, use_settings};
+use settings::{SettingsProvider, set_input_mode, use_settings};
 use tracing::{debug, info, warn};
 use util::Icon;
 use wasm_bindgen::prelude::*;
@@ -407,7 +407,6 @@ fn App() -> impl IntoView {
     let fetching_compiler_progress = RwSignal::new(FetchingCompilerProgress::default());
 
     let SettingsProvider {
-        language,
         input_mode,
         mem_limit,
         time_limit,
@@ -453,6 +452,22 @@ fn App() -> impl IntoView {
             .as_ref()
             .map(|ws| format!("workspace/{ws}/stdin"))
     }));
+
+    let language = Memo::new(move |old| {
+        code.open_filename()
+            .get()
+            .and_then(|f| {
+                let ext = f.split('.').next_back().unwrap_or("");
+                match ext {
+                    "c" => Some(Language::C),
+                    "cpp" => Some(Language::Cpp),
+                    "py" => Some(Language::Python),
+                    _ => None,
+                }
+            })
+            .or(old.copied())
+            .unwrap_or(Language::Cpp)
+    });
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
@@ -574,7 +589,6 @@ fn App() -> impl IntoView {
             >
                 <Settings />
                 <WorkspaceSelector active=workspace readonly=is_running />
-                <EnumSelect value=(language, SignalSetter::map(set_language)) />
                 <div class="is-flex-grow-1" />
                 <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
                 <Show when=move || is_running.get()>
@@ -632,6 +646,7 @@ fn App() -> impl IntoView {
                 code=code
                 stdin=stdin
                 ctrl_enter=do_run
+                language=language
                 code_readonly=is_running
                 input_readonly=disable_input_editor
                 disable_additional_input=disable_stop
