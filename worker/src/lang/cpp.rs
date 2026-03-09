@@ -166,7 +166,8 @@ pub async fn run(
             send_stderr(buf);
             buf.len()
         })))
-        .max_memory(config.mem_limit)
+        .mem_limit(config.mem_limit)
+        .time_limit(config.time_limit)
         .spawn_with_code(&linked);
 
     let status_code = proc.proc.wait().await;

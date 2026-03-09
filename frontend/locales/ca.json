@@ -26,9 +26,11 @@
 
   "settings": "Configuració",
   "language": "Llengua",
+  "time_limit": "Límit de temps",
 
   "memory_limit": "Límit de memòria",
   "please_enter_a_valid_number": "Si us plau, introduïu un número vàlid",
+  "value_must_be_positive": "El valor ha de ser positiu",
   "value_must_be_at_least_40": "El valor ha de ser com a mínim 40",
   "value_must_be_at_most_4096": "El valor ha de ser com a màxim 4096",
 

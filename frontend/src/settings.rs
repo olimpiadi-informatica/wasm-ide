@@ -65,6 +65,7 @@ struct StoredSettings {
     editor_width_percent: f32,
     language: Language,
     mem_limit: Option<u32>,
+    time_limit: Option<f64>,
 }
 
 impl Default for StoredSettings {
@@ -76,6 +77,7 @@ impl Default for StoredSettings {
             editor_width_percent: 65.0,
             language: Language::CPP,
             mem_limit: None,
+            time_limit: None,
         }
     }
 }
@@ -90,6 +92,7 @@ pub struct SettingsProvider {
     pub input_mode: Signal<InputMode>,
     pub language: Signal<Language>,
     pub mem_limit: Signal<Option<u32>>,
+    pub time_limit: Signal<Option<f64>>,
 }
 
 impl SettingsProvider {
@@ -127,6 +130,7 @@ impl SettingsProvider {
             input_mode: Memo::new(move |_| read_settings.get().input_mode).into(),
             language: Memo::new(move |_| read_settings.get().language).into(),
             mem_limit: Memo::new(move |_| read_settings.get().mem_limit).into(),
+            time_limit: Memo::new(move |_| read_settings.get().time_limit).into(),
         });
     }
 }
@@ -215,6 +219,7 @@ pub fn Settings() -> impl IntoView {
                     </div>
                     <ThemeControl />
                     <hr />
+                    <TimeLimit />
                     <MemLimit />
                 </div>
             </div>
@@ -378,6 +383,88 @@ fn MemLimit() -> impl IntoView {
                     </div>
                     <div class="control">
                         <a class="button is-static">MiB</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn TimeLimit() -> impl IntoView {
+    let i18n = use_i18n();
+    let settings = use_settings();
+
+    #[derive(Debug, Clone, Copy)]
+    enum Error {
+        NotANumber,
+        NotPositive,
+    }
+
+    impl Error {
+        fn localized_message(&self, loc: Locale) -> String {
+            match self {
+                Error::NotANumber => td_string!(loc, please_enter_a_valid_number).into(),
+                Error::NotPositive => td_string!(loc, value_must_be_positive).into(),
+            }
+        }
+    }
+
+    let error = RwSignal::new(None);
+    let input_ref = NodeRef::<leptos::html::Input>::new();
+
+    let on_input = move |_| {
+        let input = input_ref.get().unwrap();
+        let value = input.value();
+        let value = value.trim();
+
+        match value.parse() {
+            _ if value.is_empty() => {
+                settings.write.update(|s| s.time_limit = None);
+                error.set(None);
+            }
+            Ok(v) if v <= 0. => {
+                error.set(Some(Error::NotPositive));
+            }
+            Ok(v) => {
+                settings.write.update(|s| s.time_limit = Some(v));
+                error.set(None);
+            }
+            Err(_) => {
+                // The message provided by parse_float is not very user-friendly, so we handle all
+                // errors the same way
+                error.set(Some(Error::NotANumber));
+            }
+        };
+    };
+
+    view! {
+        <div class:field class:is-horizontal>
+            <div class:field-label class:is-normal>
+                <label class="label">{t!(i18n, time_limit)}</label>
+            </div>
+            <div class="field-body">
+                <div class="field has-addons">
+                    <div class="control">
+                        <input
+                            class:input
+                            class:is-danger=move || error.get().is_some()
+                            on:input=on_input
+                            type="text"
+                            node_ref=input_ref
+                            value=settings
+                                .time_limit
+                                .get_untracked()
+                                .map_or("".to_string(), |v| v.to_string())
+                        />
+                        <ShowLet some=error let:value>
+                            <p class:help class:is-danger>
+                                {move || value.localized_message(i18n.get_locale())}
+                            </p>
+                        </ShowLet>
+                    </div>
+                    <div class="control">
+                        <a class="button is-static">s</a>
                     </div>
                 </div>
             </div>

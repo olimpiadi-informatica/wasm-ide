@@ -410,6 +410,7 @@ fn App() -> impl IntoView {
         language,
         input_mode,
         mem_limit,
+        time_limit,
         ..
     } = use_settings();
 
@@ -482,6 +483,10 @@ fn App() -> impl IntoView {
     let do_run = {
         let send_worker_message = send_worker_message.clone();
         Callback::new(move |()| {
+            let Some(ws) = workspace.get_untracked() else {
+                return;
+            };
+
             match state.write().deref_mut() {
                 RunState::Ready {
                     exec: exec @ (StateExec::Ready | StateExec::Complete { .. }),
@@ -498,10 +503,6 @@ fn App() -> impl IntoView {
                     return;
                 }
             }
-
-            let Some(ws) = workspace.get_untracked() else {
-                return;
-            };
 
             let send_worker_message = send_worker_message.clone();
             spawn_local(async move {
@@ -528,6 +529,7 @@ fn App() -> impl IntoView {
                         input,
                         config: ExecConfig {
                             mem_limit: mem_limit.get_untracked().map(|x| x * 16),
+                            time_limit: time_limit.get_untracked(),
                         },
                     }
                     .into(),

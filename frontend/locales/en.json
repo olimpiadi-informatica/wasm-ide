@@ -27,8 +27,10 @@
   "settings": "Settings",
   "language": "Language",
 
+  "time_limit": "Time limit",
   "memory_limit": "Memory limit",
   "please_enter_a_valid_number": "Please enter a valid number",
+  "value_must_be_positive": "Value must be positive",
   "value_must_be_at_least_40": "Value must be at least 40",
   "value_must_be_at_most_4096": "Value must be at most 4096",
 

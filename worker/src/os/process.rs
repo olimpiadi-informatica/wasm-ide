@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow};
 use enum_as_inner::EnumAsInner;
 use futures::channel::oneshot::{Receiver, Sender, channel};
 use futures::lock::Mutex;
+use gloo_timers::callback::Timeout;
 use js_sys::WebAssembly::{Memory, Module};
 use js_sys::{Object, Reflect, SharedArrayBuffer};
 use wasm_bindgen::JsCast;
@@ -37,7 +38,7 @@ pub struct Process {
     pub start_instant: Instant,
     pub args: Vec<Vec<u8>>,
     pub env: Vec<Vec<u8>>,
-    pub termiation_send: Mutex<Sender<()>>,
+    pub termination_send: Mutex<Sender<()>>,
     pub inner: RefCell<ProcessInner>,
 }
 
@@ -79,7 +80,7 @@ impl Process {
     }
 
     pub async fn wait(&self) -> StatusCode {
-        let mut l = self.termiation_send.lock().await;
+        let mut l = self.termination_send.lock().await;
         l.cancellation().await;
         self.inner.borrow().status_code.clone()
     }
@@ -137,7 +138,8 @@ pub struct Builder {
     stderr: Option<FdEntry>,
     args: Vec<Vec<u8>>,
     env: Vec<Vec<u8>>,
-    max_memory: Option<u32>,
+    mem_limit: Option<u32>,
+    time_limit: Option<f64>,
 }
 
 impl Builder {
@@ -189,8 +191,13 @@ impl Builder {
     }
 
     /// Set the maximum memory (in pages of 64KiB) for the process.
-    pub fn max_memory(mut self, max_memory: Option<u32>) -> Self {
-        self.max_memory = max_memory;
+    pub fn mem_limit(mut self, mem_limit: Option<u32>) -> Self {
+        self.mem_limit = mem_limit;
+        self
+    }
+
+    pub fn time_limit(mut self, time_limit: Option<f64>) -> Self {
+        self.time_limit = time_limit;
         self
     }
 
@@ -216,7 +223,7 @@ impl Builder {
         Reflect::set(
             &mem_opts,
             &"maximum".into(),
-            &self.max_memory.unwrap_or(65536).into(),
+            &self.mem_limit.unwrap_or(65536).into(),
         )
         .expect("could not set maximum memory size");
         Reflect::set(&mem_opts, &"shared".into(), &true.into())
@@ -254,11 +261,21 @@ impl Builder {
             start_instant,
             args: self.args,
             env: self.env,
-            termiation_send: Mutex::new(termination_send),
+            termination_send: Mutex::new(termination_send),
             inner: RefCell::new(inner),
         });
 
         proc.spawn_thread(None);
+
+        if let Some(time_limit) = self.time_limit {
+            let proc_weak = Rc::downgrade(&proc);
+            let timeout = Timeout::new((time_limit * 1000.) as _, move || {
+                if let Some(proc) = proc_weak.upgrade() {
+                    proc.kill(StatusCode::Signaled);
+                };
+            });
+            timeout.forget();
+        }
 
         ProcessHandle { proc }
     }

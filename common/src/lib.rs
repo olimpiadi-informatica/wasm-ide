@@ -71,6 +71,8 @@ pub enum WorkerExecRequest {
 pub struct ExecConfig {
     /// Optional maximum memory (in 64KB pages) the program is allowed to use.
     pub mem_limit: Option<u32>,
+    /// Optional maximum execution time (in seconds) before the program is forcefully terminated.
+    pub time_limit: Option<f64>,
 }
 
 /// Messages emitted by the worker back to the frontend to report on program

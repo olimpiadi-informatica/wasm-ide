@@ -26,9 +26,11 @@
 
   "settings": "Impostasión",
   "language": "Łéngua",
+  "time_limit": "Łimite de tenpo",
 
   "memory_limit": "Łimite de memòria",
   "please_enter_a_valid_number": "Par piaser, inserissi un número vàłido",
+  "value_must_be_positive": "El vałor el ga da èsar pozitivo",
   "value_must_be_at_least_40": "El vałor el ga da èsar almanco 40",
   "value_must_be_at_most_4096": "El vałor el ga da èsar al màsimo 4096",
 

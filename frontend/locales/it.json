@@ -26,9 +26,11 @@
 
   "settings": "Impostazioni",
   "language": "Lingua",
+  "time_limit": "Limite di tempo",
 
   "memory_limit": "Limite di memoria",
   "please_enter_a_valid_number": "Inserisci un numero valido",
+  "value_must_be_positive": "Il valore deve essere positivo",
   "value_must_be_at_least_40": "Il valore deve essere almeno 40",
   "value_must_be_at_most_4096": "Il valore deve essere al massimo 4096",
 
