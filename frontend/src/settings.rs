@@ -1,6 +1,5 @@
 use std::num::IntErrorKind;
 
-use common::Language;
 use leptos::ev::keydown;
 use leptos::prelude::*;
 use leptos::reactive::wrappers::write::SignalSetter;
@@ -63,7 +62,6 @@ struct StoredSettings {
     keyboard_mode: KeyboardMode,
     input_mode: InputMode,
     editor_width_percent: f32,
-    language: Language,
     mem_limit: Option<u32>,
     time_limit: Option<f64>,
 }
@@ -75,7 +73,6 @@ impl Default for StoredSettings {
             keyboard_mode: KeyboardMode::Standard,
             input_mode: InputMode::Batch,
             editor_width_percent: 65.0,
-            language: Language::CPP,
             mem_limit: None,
             time_limit: None,
         }
@@ -90,7 +87,6 @@ pub struct SettingsProvider {
     pub editor_width_percent: Signal<f32>,
     pub keyboard_mode: Signal<KeyboardMode>,
     pub input_mode: Signal<InputMode>,
-    pub language: Signal<Language>,
     pub mem_limit: Signal<Option<u32>>,
     pub time_limit: Signal<Option<f64>>,
 }
@@ -128,7 +124,6 @@ impl SettingsProvider {
                 .into(),
             keyboard_mode: Memo::new(move |_| read_settings.get().keyboard_mode).into(),
             input_mode: Memo::new(move |_| read_settings.get().input_mode).into(),
-            language: Memo::new(move |_| read_settings.get().language).into(),
             mem_limit: Memo::new(move |_| read_settings.get().mem_limit).into(),
             time_limit: Memo::new(move |_| read_settings.get().time_limit).into(),
         });
@@ -146,10 +141,6 @@ pub fn set_editor_width(val: f32) {
     use_settings().write.update(|v| {
         v.editor_width_percent = val.clamp(MIN_EDITOR_WIDTH, MAX_EDITOR_WIDTH);
     });
-}
-
-pub fn set_language(language: Language) {
-    use_settings().write.update(|v| v.language = language);
 }
 
 pub fn set_input_mode(input_mode: InputMode) {

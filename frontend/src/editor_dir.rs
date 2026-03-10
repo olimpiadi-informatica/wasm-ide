@@ -32,6 +32,10 @@ impl EditorDirController {
     pub fn set_text(&self, text: &str) {
         self.editor_ctrl.set_text(text);
     }
+
+    pub fn open_filename(&self) -> Signal<Option<String>> {
+        self.editor_ctrl.filename()
+    }
 }
 
 #[component]

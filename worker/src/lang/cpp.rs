@@ -8,7 +8,12 @@ use js_sys::WebAssembly::Module;
 use crate::os::{FdEntry, Fs, FsEntry, Pipe, ProcessHandle};
 use crate::util::*;
 
-async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u8>> {
+async fn compile(llvm: Module, fs: Fs, file: &str) -> Result<Vec<u8>> {
+    let cpp = match file.split('.').next_back() {
+        Some("cpp") => true,
+        Some("c") => false,
+        _ => anyhow::bail!("Invalid file extension"),
+    };
     let lang = match cpp {
         true => &b"c++"[..],
         false => &b"c"[..],
@@ -22,7 +27,7 @@ async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u
     let proc = ProcessHandle::builder()
         .fs(fs)
         .stdin(FdEntry::Data {
-            data: code,
+            data: Vec::new(),
             offset: 0,
         })
         .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
@@ -61,7 +66,7 @@ async fn compile(cpp: bool, llvm: Module, fs: Fs, code: Vec<u8>) -> Result<Vec<u
         .arg("-Wall")
         .arg(std)
         .arg("-emit-obj")
-        .arg("-")
+        .arg(format!("/workdir/{file}"))
         .arg("-o")
         .arg("-")
         .spawn_with_module(llvm);
@@ -77,10 +82,10 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<(String, Vec<u8>)>) -> Res
     let linked2 = linked.clone();
     let names = compiled
         .iter()
-        .map(|(name, _)| name.clone())
+        .map(|(name, _)| format!("/workdir/{}", name))
         .collect::<Vec<_>>();
     for (name, data) in compiled.into_iter() {
-        fs.add_file_with_path(name.as_bytes(), Rc::new(data));
+        fs.add_file_with_path(format!("/workdir/{}", name).as_bytes(), Rc::new(data));
     }
     let proc = ProcessHandle::builder()
         .fs(fs)
@@ -118,13 +123,7 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<(String, Vec<u8>)>) -> Res
     Ok(linked)
 }
 
-pub async fn run(
-    cpp: bool,
-    config: ExecConfig,
-    files: Vec<File>,
-    stdin: Pipe,
-    stdout: Pipe,
-) -> Result<()> {
+pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
     send_fetching_compiler();
     let fs = get_fs("cpp")
         .await
@@ -139,16 +138,24 @@ pub async fn run(
     let llvm_module = Module::new(&uint8array).expect("could not create module from wasm bytes");
 
     let mut compiled = Vec::new();
+    let names = files
+        .iter()
+        .map(|file| file.name.clone())
+        .collect::<Vec<_>>();
+    let mut fs_workdir = fs.clone();
     for file in files {
-        let bin = compile(
-            cpp,
-            llvm_module.clone(),
-            fs.clone(),
-            file.content.into_bytes(),
-        )
-        .await
-        .context("Compilation failed")?;
-        compiled.push((file.name + ".o", bin));
+        fs_workdir.add_file_with_path(
+            format!("/workdir/{}", file.name).as_bytes(),
+            Rc::new(file.content.into_bytes()),
+        );
+    }
+    for file in names {
+        if let Some(stripped) = file.strip_suffix(".cpp").or(file.strip_suffix(".c")) {
+            let bin = compile(llvm_module.clone(), fs_workdir.clone(), &file)
+                .await
+                .context("Compilation failed")?;
+            compiled.push((stripped.to_owned() + ".o", bin));
+        }
     }
     let linked = link(llvm_module, fs, compiled)
         .await
@@ -159,7 +166,7 @@ pub async fn run(
     fs.add_entry_with_path(b"input.txt", FsEntry::Pipe(stdin.clone()));
     fs.add_entry_with_path(b"output.txt", FsEntry::Pipe(stdout.clone()));
     let proc = ProcessHandle::builder()
-        .fs(fs)
+        .fs(fs_workdir)
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
         .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {

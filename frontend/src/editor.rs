@@ -93,6 +93,10 @@ impl EditorController {
         self.filename.get()
     }
 
+    pub fn filename(&self) -> Signal<Option<String>> {
+        self.filename.into()
+    }
+
     pub fn get_text(&self) -> String {
         self.cm6
             .read_untracked()
@@ -249,7 +253,7 @@ pub fn Editor(
                     return;
                 }
                 Some(Language::C) => "c",
-                Some(Language::CPP) => "cpp",
+                Some(Language::Cpp) => "cpp",
                 Some(Language::Python) => "python",
             };
             cm6.set_language(lang);

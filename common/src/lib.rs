@@ -53,6 +53,8 @@ pub enum WorkerExecRequest {
     CompileAndRun {
         /// The name of the project to compile
         workspace: String,
+        /// The primary source file used by languages with multiple entry points (e.g. Python).
+        primary_file: String,
         /// Programming language of the source code.
         language: Language,
         /// Optional data written to the program's standard input before execution.
@@ -148,7 +150,7 @@ pub enum Language {
     /// C code.
     C,
     /// C++ code.
-    CPP,
+    Cpp,
     /// Python 3 code.
     Python,
 }
@@ -158,7 +160,7 @@ impl Language {
     pub fn ext(self) -> &'static str {
         match self {
             Language::C => "c",
-            Language::CPP => "cpp",
+            Language::Cpp => "cpp",
             Language::Python => "py",
         }
     }
@@ -168,7 +170,7 @@ impl From<Language> for &'static str {
     fn from(val: Language) -> Self {
         match val {
             Language::C => "C",
-            Language::CPP => "C++",
+            Language::Cpp => "C++",
             Language::Python => "Python",
         }
     }
