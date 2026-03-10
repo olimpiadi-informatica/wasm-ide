@@ -501,6 +501,14 @@ fn App() -> impl IntoView {
             let Some(ws) = workspace.get_untracked() else {
                 return;
             };
+            let Some(primary_file) = code.open_filename().get_untracked() else {
+                return;
+            };
+            let primary_file = primary_file
+                .split('/')
+                .next_back()
+                .expect("invalid primary file")
+                .to_string();
 
             match state.write().deref_mut() {
                 RunState::Ready {
@@ -540,6 +548,7 @@ fn App() -> impl IntoView {
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
                         workspace: ws,
+                        primary_file,
                         language: lng,
                         input,
                         config: ExecConfig {

@@ -53,6 +53,8 @@ pub enum WorkerExecRequest {
     CompileAndRun {
         /// The name of the project to compile
         workspace: String,
+        /// The primary source file used by languages with multiple entry points (e.g. Python).
+        primary_file: String,
         /// Programming language of the source code.
         language: Language,
         /// Optional data written to the program's standard input before execution.

@@ -10,13 +10,14 @@ pub async fn run(
     language: Language,
     config: ExecConfig,
     files: Vec<File>,
+    primary_file: String,
     stdin: Pipe,
     stdout: Pipe,
 ) -> Result<()> {
     match language {
-        Language::C => cpp::run(false, config, files, stdin, stdout).await,
-        Language::Cpp => cpp::run(true, config, files, stdin, stdout).await,
-        Language::Python => python::run(config, files, stdin, stdout).await,
+        Language::C => cpp::run(config, files, stdin, stdout).await,
+        Language::Cpp => cpp::run(config, files, stdin, stdout).await,
+        Language::Python => python::run(config, files, primary_file, stdin, stdout).await,
     }
 }
 

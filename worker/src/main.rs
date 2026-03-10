@@ -122,6 +122,7 @@ fn handle_exec_request(req: WorkerExecRequest) {
     match req {
         WorkerExecRequest::CompileAndRun {
             workspace,
+            primary_file,
             language,
             input,
             config,
@@ -150,7 +151,7 @@ fn handle_exec_request(req: WorkerExecRequest) {
                         files.push(File { name, content });
                     }
 
-                    let running = lang::run(language, config, files, stdin, stdout);
+                    let running = lang::run(language, config, files, primary_file, stdin, stdout);
                     select! {
                         _ = receiver => {
                             info!("Received stop command, cancelling execution");

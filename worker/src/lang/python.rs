@@ -6,17 +6,22 @@ use common::{ExecConfig, File};
 use crate::os::{FdEntry, FsEntry, Pipe, ProcessHandle};
 use crate::util::*;
 
-pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe) -> Result<()> {
+pub async fn run(
+    config: ExecConfig,
+    files: Vec<File>,
+    primary_file: String,
+    stdin: Pipe,
+    stdout: Pipe,
+) -> Result<()> {
     send_fetching_compiler();
     let mut fs = get_fs("python")
         .await
         .context("Failed to get Python filesystem")?;
 
     send_running();
-    let main = files[0].name.clone();
     for file in files {
         fs.add_file_with_path(
-            format!("/tmp/{}", file.name).as_bytes(),
+            format!("/workdir/{}", file.name).as_bytes(),
             Rc::new(file.content.into_bytes()),
         );
     }
@@ -32,7 +37,7 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
         })))
         .env(b"PYTHONHOME=/".to_vec())
         .arg("/bin/python3.13.wasm")
-        .arg(format!("/tmp/{main}"))
+        .arg(format!("/workdir/{primary_file}"))
         .mem_limit(config.mem_limit)
         .time_limit(config.time_limit)
         .spawn_with_path(b"bin/python3.13.wasm");
