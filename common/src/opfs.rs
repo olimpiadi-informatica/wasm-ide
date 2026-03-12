@@ -154,3 +154,15 @@ pub async fn open_file(path: &str, create: bool) -> OPFSFile {
     }
     dir.open_file(filename, create).await
 }
+
+/// Remove an entry at the given path. If `recursive` is true, directories will be removed
+/// recursively.
+pub async fn remove_entry(path: &str, recursive: bool) {
+    let mut parts = path.split('/').filter(|s| !s.is_empty());
+    let filename = parts.next_back().expect("path should not be empty");
+    let mut dir = root().await;
+    for part in parts {
+        dir = dir.open_dir(part, false).await;
+    }
+    dir.remove_entry(filename, recursive).await;
+}

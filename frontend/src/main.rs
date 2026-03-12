@@ -288,7 +288,7 @@ fn WorkspaceSelector(
 
     let i18n = use_i18n();
     let workspaces = RwSignal::new(Vec::new());
-    let open = RwSignal::new(false);
+    let open = RwSignal::new(true);
     let new_ws = RwSignal::new(String::new());
 
     spawn_local(async move {

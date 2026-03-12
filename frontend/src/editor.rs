@@ -60,8 +60,7 @@ extern "C" {
 
 #[derive(Clone, Copy)]
 pub struct EditorController {
-    filename: RwSignal<Option<String>>,
-    open_filename: RwSignal<Option<String>>,
+    pub filename: RwSignal<Option<String>>,
     cm6: RwSignal<Option<CM6Editor>, LocalStorage>,
     pending_changes: RwSignal<bool>,
 }
@@ -69,12 +68,10 @@ pub struct EditorController {
 impl EditorController {
     pub fn new() -> EditorController {
         let filename = RwSignal::new(None);
-        let open_filename = RwSignal::new(None);
         let cm6 = RwSignal::new_local(None);
         let pending_changes = RwSignal::new(false);
         EditorController {
             filename,
-            open_filename,
             cm6,
             pending_changes,
         }
@@ -83,18 +80,6 @@ impl EditorController {
     pub async fn wait_sync(&self) {
         let mut pending_changes = self.pending_changes.to_stream();
         while pending_changes.next().await == Some(true) {}
-    }
-
-    pub fn file_set(&self, filename: Option<String>) {
-        self.filename.set(filename);
-    }
-
-    pub fn file_get(&self) -> Option<String> {
-        self.filename.get()
-    }
-
-    pub fn filename(&self) -> Signal<Option<String>> {
-        self.filename.into()
     }
 
     pub fn get_text(&self) -> String {
@@ -128,10 +113,11 @@ pub fn Editor(
 ) -> impl IntoView {
     let EditorController {
         filename,
-        open_filename,
         cm6,
         pending_changes,
     } = controller;
+
+    let open_filename = RwSignal::new(None::<String>);
 
     let readonly = Signal::derive(move || {
         readonly.get()

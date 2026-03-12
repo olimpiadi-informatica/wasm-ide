@@ -56,3 +56,7 @@ body {
 .faint-text {
   color: color-mix(in oklab, var(--bulma-text-soft) 75%, var(--bulma-text) 25%);
 }
+
+.hover-red:hover {
+  color: var(--bulma-danger);
+}

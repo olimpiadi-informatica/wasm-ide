@@ -34,7 +34,7 @@ impl EditorDirController {
     }
 
     pub fn open_filename(&self) -> Signal<Option<String>> {
-        self.editor_ctrl.filename()
+        self.editor_ctrl.filename.into()
     }
 }
 
@@ -64,12 +64,31 @@ pub fn EditorDir(
             };
             controller
                 .editor_ctrl
-                .file_set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
+                .filename
+                .set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
             tabs.try_update(|t| {
                 *t = entries;
             });
         });
     });
+
+    let remove_file = move |file: &str| {
+        let Some(dir) = controller.dir.get_untracked() else {
+            tracing::error!("Directory not set when trying to remove file");
+            return;
+        };
+        let file_path = dir + "/" + file;
+        controller.editor_ctrl.filename.update(|f| {
+            if f.as_deref() == Some(&file_path) {
+                *f = None;
+            }
+        });
+        tabs.update(|t| t.retain(|f| f != file));
+        spawn_local(async move {
+            let file_path = file_path;
+            common::opfs::remove_entry(&file_path, false).await;
+        });
+    };
 
     let render_tab = move |file: String| {
         let file2 = file.clone();
@@ -80,14 +99,28 @@ pub fn EditorDir(
                 .map(|d| d + "/" + &file2)
                 .unwrap_or_default()
         });
+        let file2 = file.clone();
 
         view! {
             <li class:is-active=move || {
-                controller.editor_ctrl.file_get().as_deref() == Some(&file_path.get())
+                controller.editor_ctrl.filename.read().as_deref() == Some(&file_path.get())
             }>
                 <a on:click=move |_| {
-                    controller.editor_ctrl.file_set(Some(file_path.get_untracked()))
-                }>{file}</a>
+                    controller.editor_ctrl.filename.set(Some(file_path.get_untracked()))
+                }>
+                    <span>{file}</span>
+                    <Icon
+                        class:hover-red
+                        icon=icondata::IoClose
+                        class:is-clickable
+                        class:ml-2
+                        on:click=move |ev| {
+                            ev.stop_propagation();
+                            remove_file(&file2);
+                        }
+                    />
+
+                </a>
             </li>
         }
     };
@@ -103,7 +136,7 @@ pub fn EditorDir(
         };
         if let Some(name) = name {
             let file = dir + "/" + &name;
-            controller.editor_ctrl.file_set(Some(file.clone()));
+            controller.editor_ctrl.filename.set(Some(file.clone()));
             tabs.update(|t| t.push(name));
             open_modal.set(false);
         }
@@ -116,40 +149,6 @@ pub fn EditorDir(
 
     view! {
         <div class:is-flex class:is-flex-direction-column style:height="100%">
-            <div class:modal class:is-active=open_modal>
-                <div class="modal-background" on:click=move |_| open_modal.set(false) />
-                <div class="modal-card">
-                    <header class="modal-card-head">
-                        <p class="modal-card-title">{t!(i18n, create_file_title)}</p>
-                        <button
-                            class="delete"
-                            aria-label="close"
-                            on:click=move |_| open_modal.set(false)
-                        />
-                    </header>
-                    <section class="modal-card-body">
-                        <form
-                            class:is-flex
-                            class:is-column-gap-2
-                            class:is-align-items-center
-                            class:mb-6
-                            on:submit=add_file
-                        >
-                            <input
-                                class="input"
-                                class:is-danger=bad_filename
-                                type="text"
-                                placeholder="filename.cpp"
-                                bind:value=filename
-                            />
-                            <button class="button is-primary" type="submit">
-                                {t!(i18n, create_file)}
-                            </button>
-                        </form>
-                    </section>
-                </div>
-            </div>
-
             <div class:is-flex class:is-align-items-center class:is-justify-content-space-between>
                 <div class:tabs class:is-boxed class:mb-0 style:width="fit-content">
                     <For
@@ -167,14 +166,50 @@ pub fn EditorDir(
                     on:click=move |_| open_modal.set(true)
                 />
             </div>
-            <Editor
-                controller=controller.editor_ctrl
-                syntax=syntax
-                readonly=readonly
-                ctrl_enter=ctrl_enter
-                keyboard_mode=keyboard_mode
-                ls_interface=ls_interface
-            />
+            <div class:is-flex-grow-1 style:height="0">
+                <Editor
+                    controller=controller.editor_ctrl
+                    syntax=syntax
+                    readonly=readonly
+                    ctrl_enter=ctrl_enter
+                    keyboard_mode=keyboard_mode
+                    ls_interface=ls_interface
+                />
+            </div>
+        </div>
+
+        <div class:modal class:is-active=open_modal>
+            <div class="modal-background" on:click=move |_| open_modal.set(false) />
+            <div class="modal-card">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">{t!(i18n, create_file_title)}</p>
+                    <button
+                        class="delete"
+                        aria-label="close"
+                        on:click=move |_| open_modal.set(false)
+                    />
+                </header>
+                <section class="modal-card-body">
+                    <form
+                        class:is-flex
+                        class:is-column-gap-2
+                        class:is-align-items-center
+                        class:mb-6
+                        on:submit=add_file
+                    >
+                        <input
+                            class="input"
+                            class:is-danger=bad_filename
+                            type="text"
+                            placeholder="filename.cpp"
+                            bind:value=filename
+                        />
+                        <button class="button is-primary" type="submit">
+                            {t!(i18n, create_file)}
+                        </button>
+                    </form>
+                </section>
+            </div>
         </div>
     }
 }
