@@ -2,13 +2,13 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use anyhow::Result;
 use async_channel::{Sender, unbounded};
 use common::config::Config;
 use common::{
-    ExecConfig, Language, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
+    ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
 use editor_view::EditorView;
@@ -463,14 +463,15 @@ fn App() -> impl IntoView {
             .and_then(|f| {
                 let ext = f.split('.').next_back().unwrap_or("");
                 match ext {
-                    "c" => Some(Language::C),
-                    "cpp" => Some(Language::Cpp),
-                    "py" => Some(Language::Python),
+                    "c" => Some("C"),
+                    "cpp" => Some("C++"),
+                    "py" => Some("Python"),
                     _ => None,
                 }
             })
-            .or(old.copied())
-            .unwrap_or(Language::Cpp)
+            .or(old.map(Deref::deref))
+            .unwrap_or("C++")
+            .to_owned()
     });
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));

@@ -102,21 +102,21 @@ export class CM6Editor {
   }
 
   setLanguage(lang: string) {
-    if (lang === "c") {
+    if (lang === "C") {
       this.view.dispatch({
         effects: this.language.reconfigure([cpp(), languageId.of("c")]),
       });
       this.view.dispatch({
         effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.c")]),
       });
-    } else if (lang === "cpp") {
+    } else if (lang === "C++") {
       this.view.dispatch({
         effects: this.language.reconfigure([cpp(), languageId.of("cpp")]),
       });
       this.view.dispatch({
         effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.cpp")]),
       });
-    } else if (lang === "python") {
+    } else if (lang === "Python") {
       this.view.dispatch({
         effects: this.language.reconfigure([python(), languageId.of("python")]),
       });

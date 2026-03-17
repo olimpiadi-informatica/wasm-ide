@@ -1,4 +1,4 @@
-use common::{Language, WorkerExecRequest, WorkerLSRequest, WorkerRequest};
+use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
 use leptos_i18n::t_display;
 use leptos_use::{UseMouseReturn, UseWindowSizeReturn, use_mouse, use_window_size};
@@ -18,7 +18,7 @@ pub fn EditorView(
     code: EditorDirController,
     stdin: EditorDirController,
     ctrl_enter: Callback<()>,
-    #[prop(into)] language: Signal<Language>,
+    #[prop(into)] language: Signal<String>,
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
     #[prop(into)] disable_additional_input: Signal<bool>,

@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_channel::Receiver;
-use common::{Language, WorkerLSResponse};
+use common::WorkerLSResponse;
 use futures_util::StreamExt;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
@@ -105,7 +105,7 @@ pub type LSSend = Box<dyn Fn(String)>;
 #[component]
 pub fn Editor(
     controller: EditorController,
-    #[prop(into)] syntax: Signal<Option<Language>>,
+    #[prop(into)] syntax: Signal<Option<String>>,
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Callback<()>,
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
@@ -234,15 +234,8 @@ pub fn Editor(
             let Some(cm6) = x else {
                 return;
             };
-            let lang = match syntax.get() {
-                None => {
-                    return;
-                }
-                Some(Language::C) => "c",
-                Some(Language::Cpp) => "cpp",
-                Some(Language::Python) => "python",
-            };
-            cm6.set_language(lang);
+            let lang = syntax.get().unwrap_or_default();
+            cm6.set_language(&lang);
         });
     });
 
