@@ -1,53 +1,53 @@
 {
-  "loading": "Caricando...",
-  "downloading_runtime": "Scaricando el runtime...",
-  "compiling": "Compiłàndo...",
-  "executing": "Eseguendo...",
-  "stopping_execution": "Fermando l'esecuzión...",
-  "error": "Eròr",
-  "hide_error": "Scondi l'eròr",
+  "loading": "Drio cargar...",
+  "downloading_runtime": "Drio descaregar el runtime...",
+  "compiling": "Drio compiłar...",
+  "executing": "Drio eseguir...",
+  "stopping_execution": "Drio fermar l'esecuzion...",
+  "error": "Eror",
+  "hide_error": "Scondi l'eror",
 
-  "not_yet_executed": "El programa no 'l xe ancóra sta eseguìo.",
+  "not_yet_executed": "El programa no'l xe ancora stà eseguìo.",
 
   "run": "Esegui",
   "stop": "Ferma",
 
   "output": "Output",
-  "stderr": "Erori de esecuzión",
-  "compileerr": "Erori de compiłazión",
+  "stderr": "Erori de esecuzion",
+  "compileerr": "Erori de compiłazion",
 
   "additional_input": "Zonta input",
 
-  "batch_input": "Input fisso",
-  "mixed_interactive_input": "Input mìsto",
-  "full_interactive_input": "Input interatìvo",
+  "batch_input": "Input fiso",
+  "mixed_interactive_input": "Input misto",
+  "full_interactive_input": "Input interativo",
 
-  "storage_denied": "Permesso negà par salvar i dati inte l'archiviazión persistente.",
+  "storage_denied": "Permeso negà par salvar i dati inte l'archiviazion persistente.",
 
-  "settings": "Impostasión",
+  "settings": "Inpostazion",
   "language": "Łéngua",
   "time_limit": "Łimite de tenpo",
 
-  "memory_limit": "Łimite de memòria",
-  "please_enter_a_valid_number": "Par piaser, inserissi un número vàłido",
+  "memory_limit": "Łimite de memoria",
+  "please_enter_a_valid_number": "Par piaser, inserisi un nùmaro vałido",
   "value_must_be_positive": "El vałor el ga da èsar pozitivo",
   "value_must_be_at_least_40": "El vałor el ga da èsar almanco 40",
   "value_must_be_at_most_4096": "El vałor el ga da èsar al màsimo 4096",
 
   "theme": "Tema",
   "theme_system": "Automàtego",
-  "theme_light": "Ciàro",
-  "theme_dark": "Scùro",
+  "theme_light": "Ciaro",
+  "theme_dark": "Scuro",
 
-  "keyboard_mode": "Modo tastièra",
+  "keyboard_mode": "Modo tastiera",
   "vim_mode": "Modo Vim",
   "emacs_mode": "Modo Emacs",
   "standard_mode": "Modo normałe",
 
-  "workspaces": "Spasi de lavoro",
-  "workspace_name": "Nome del spasio de lavoro",
+  "workspaces": "Spasi de łavoro",
+  "workspace_name": "Nome del spasio de łavoro",
   "create_workspace": "Crea",
-  "choose_workspace": "Sèłi un spasio de lavoro",
+  "choose_workspace": "Sèłi un spasio de łavoro",
 
   "create_file_title": "Crea file",
   "create_file": "Crea"
