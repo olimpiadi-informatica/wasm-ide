@@ -24,6 +24,7 @@ js-sys = "0.3.82"
 send_wrapper = "0.6.0"
 strum = { version = "0.27.2", features = ["derive"] }
 futures-util = "0.3.31"
+gloo-net = "0.6.0"
 
 [package.metadata.leptos-i18n]
 default = "en"

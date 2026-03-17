@@ -33,6 +33,8 @@ command_arguments = ["-c", """
         done
         echo '}'
     }
-    mkdir -p $TRUNK_STAGING_DIR/compilers/
-    gen_manifest | sed 's/,}/}/' > $TRUNK_STAGING_DIR/compilers/manifest.json
+    jq -c -s '.[0] * {compilers: .[1]}' \
+        <(cat config.json 2>/dev/null || cat config.example.json) \
+        <(gen_manifest | sed 's/,}/}/') \
+        > $TRUNK_STAGING_DIR/config.json
     """]

@@ -1,0 +1,12 @@
+{
+    "remote_eval": null,
+
+    "default_ws": {
+        "code": {
+            "main.cpp": "#include <stdio.h>\n#include <cmath>\nint main() {\n  long long n = 1000;\n  long long variable_that_is_not_used = 1;\n  printf(\"Hello world, computation started...\\n\");\n  long long i = 0;\n  for (size_t j = 0; j < n; j++) {\n    if (std::sin(j) < 0.5) {\n      i++;\n    }\n  }\n  printf(\"Hello world %lld\\n\", i);\n}\n"
+        },
+        "stdin": {
+            "input.txt": "input...\n"
+        }
+    }
+}

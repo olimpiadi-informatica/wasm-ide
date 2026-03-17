@@ -617,6 +617,7 @@ dependencies = [
  "async-channel",
  "common",
  "futures-util",
+ "gloo-net",
  "gloo-timers",
  "icondata",
  "js-sys",

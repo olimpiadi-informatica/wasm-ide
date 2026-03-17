@@ -17,6 +17,7 @@ use tracing_subscriber::fmt::format::Pretty;
 use tracing_subscriber::prelude::*;
 use tracing_web::{MakeWebConsoleWriter, performance_layer};
 
+pub mod config;
 pub mod opfs;
 
 /// Messages sent from the frontend to the worker.
@@ -41,7 +42,7 @@ pub enum WorkerResponse {
 
     /// The worker is downloading the compiler, with an optional progress
     /// report (bytes downloaded, total bytes).
-    FetchingCompiler(String, Option<(u64, u64)>),
+    FetchingCompiler(String, u64),
     /// The worker has finished downloading the compiler.
     CompilerFetchDone(String),
 }

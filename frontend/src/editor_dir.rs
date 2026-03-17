@@ -77,13 +77,17 @@ pub fn EditorDir(
             tracing::error!("Directory not set when trying to remove file");
             return;
         };
+        let t = tabs.get_untracked();
+        if t.len() == 1 {
+            return;
+        }
+        tabs.update(|t| t.retain(|f| f != file));
         let file_path = dir + "/" + file;
         controller.editor_ctrl.filename.update(|f| {
             if f.as_deref() == Some(&file_path) {
                 *f = None;
             }
         });
-        tabs.update(|t| t.retain(|f| f != file));
         spawn_local(async move {
             let file_path = file_path;
             common::opfs::remove_entry(&file_path, false).await;

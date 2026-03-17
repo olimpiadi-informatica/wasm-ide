@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use common::WorkerExecStatus;
+use common::config::Config;
 use leptos::either::{EitherOf4, EitherOf5};
 use leptos::prelude::*;
 use tracing::warn;
@@ -166,16 +167,12 @@ fn FetchingCompilerMessageBar(
     let i18n = use_i18n();
 
     let render_progress = move |name: String| {
+        let config = expect_context::<Config>();
         let progress = {
             let name = name.clone();
-            Signal::derive(move || {
-                fetching_compiler_progress
-                    .read()
-                    .get(&name)
-                    .flatten()
-                    .cloned()
-            })
+            Signal::derive(move || fetching_compiler_progress.read().get(&name).cloned())
         };
+        let max = config.compilers.get(&name).copied();
         view! {
             <tr>
                 <td class:is-family-monospace>{name}</td>
@@ -185,14 +182,15 @@ fn FetchingCompilerMessageBar(
                         class:is-primary
                         style:margin-bottom="0"
                         style:width="20em"
-                        value=move || progress.get().map(|x| x.0)
-                        max=move || progress.get().map(|x| x.1)
+                        value=move || progress.get()
+                        max=max
                     />
                 </td>
                 <td style:width="4em" style:text-align="right">
                     {move || {
                         progress
                             .get()
+                            .zip(max)
                             .map(|(cur, tot)| { format!("{:.1}%", 100. * cur as f64 / tot as f64) })
                     }}
                 </td>
