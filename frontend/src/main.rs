@@ -6,12 +6,14 @@ use std::ops::DerefMut;
 
 use anyhow::Result;
 use async_channel::{Sender, unbounded};
+use common::config::Config;
 use common::{
     ExecConfig, Language, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
 use editor_view::EditorView;
 use futures_util::FutureExt;
+use gloo_net::http::Request;
 use i18n::*;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -44,8 +46,7 @@ pub struct Outcome {
     pub stderr: Vec<u8>,
 }
 
-// TODO(Virv12): Can we always have the progress info?
-type FetchingCompilerProgress = HashMap<String, Option<(u64, u64)>>;
+type FetchingCompilerProgress = HashMap<String, u64>;
 
 #[derive(Clone, Debug)]
 enum RunState {
@@ -282,10 +283,6 @@ fn WorkspaceSelector(
     active: RwSignal<Option<String>>,
     #[prop(into)] readonly: Signal<bool>,
 ) -> impl IntoView {
-    // TODO(veluca): Allow overriding the default code, possibly at runtime.
-    let starting_code = include_str!("../default_code.txt");
-    let starting_stdin = include_str!("../default_stdin.txt");
-
     let i18n = use_i18n();
     let workspaces = RwSignal::new(Vec::new());
     let open = RwSignal::new(true);
@@ -303,13 +300,20 @@ fn WorkspaceSelector(
         if name.is_empty() {
             return;
         }
+        let config = expect_context::<Config>();
         spawn_local(async move {
-            let code =
-                common::opfs::open_file(&format!("workspace/{name}/code/main.cpp"), true).await;
-            code.write(starting_code.as_bytes()).await;
-            let stdin =
-                common::opfs::open_file(&format!("workspace/{name}/stdin/input.txt"), true).await;
-            stdin.write(starting_stdin.as_bytes()).await;
+            for (filename, content) in config.default_ws.code {
+                let code =
+                    common::opfs::open_file(&format!("workspace/{name}/code/{filename}"), true)
+                        .await;
+                code.write(content.as_bytes()).await;
+            }
+            for (filename, content) in config.default_ws.stdin {
+                let stdin =
+                    common::opfs::open_file(&format!("workspace/{name}/stdin/{filename}"), true)
+                        .await;
+                stdin.write(content.as_bytes()).await;
+            }
 
             workspaces.update(|w| w.push(name.clone()));
             active.set(Some(name));
@@ -665,6 +669,32 @@ fn App() -> impl IntoView {
     }
 }
 
+#[component]
+fn ConfigProvider(children: Children) -> impl IntoView {
+    let config = async {
+        let res = Request::get("config.json").send().await.unwrap();
+        assert!(res.ok(), "could not load config: {}", res.status());
+        let config: Config = res.json().await.unwrap();
+        config
+    };
+
+    let (task, handle) = config.remote_handle();
+    spawn_local(task);
+
+    view! {
+        <Suspense fallback=|| {
+            view! { <p>"Loading config..."</p> }
+        }>
+            {Suspend::new(async move {
+                let config = handle.await;
+                provide_context(config);
+                children()
+            })}
+
+        </Suspense>
+    }
+}
+
 fn main() {
     init_logging();
 
@@ -672,7 +702,9 @@ fn main() {
         SettingsProvider::install();
         view! {
             <I18nContextProvider>
-                <App />
+                <ConfigProvider>
+                    <App />
+                </ConfigProvider>
             </I18nContextProvider>
         }
     })

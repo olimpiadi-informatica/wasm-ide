@@ -1,8 +1,7 @@
-use std::collections::HashMap;
 use std::io::Read;
 use std::rc::Rc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use common::{WorkerExecResponse, WorkerExecStatus, WorkerResponse};
 use gloo_net::http::Request;
 use js_sys::{Reflect, Uint8Array};
@@ -14,24 +13,20 @@ use web_sys::ReadableStreamDefaultReader;
 use crate::os::Fs;
 use crate::{WORKER_STATE, send_msg};
 
-async fn manifest() -> Result<HashMap<String, u64>> {
-    let res = Request::get("./compilers/manifest.json").send().await?;
-    let manifest = res.json().await?;
-    Ok(manifest)
-}
-
 async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
-    send_msg(WorkerResponse::FetchingCompiler(name.to_owned(), None));
+    send_msg(WorkerResponse::FetchingCompiler(name.to_owned(), 0));
     let url = format!("./compilers/{name}.tar");
     let res = Request::get(&url).send().await?;
+    ensure!(
+        res.ok(),
+        "failed to fetch compiler tarball: HTTP {}",
+        res.status()
+    );
     let readable = res.body().context("missing body")?;
     let reader = readable
         .get_reader()
         .dyn_into::<ReadableStreamDefaultReader>()
         .expect("failed to cast to ReadableStreamDefaultReader");
-
-    let manifest = manifest().await?;
-    let size = *manifest.get(name).unwrap();
 
     let mut body = vec![];
     loop {
@@ -50,7 +45,7 @@ async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
         body.extend_from_slice(&value);
         send_msg(WorkerResponse::FetchingCompiler(
             name.to_owned(),
-            Some((body.len() as u64, size)),
+            body.len() as u64,
         ));
     }
 
@@ -83,6 +78,7 @@ async fn get_fs_inner(name: &str) -> Result<Fs> {
     let body = fetch_tar(name)
         .await
         .with_context(|| format!("Failed to fetch compiler tarball for {name}"))?;
+
     let fs =
         fs_from_tar(&body).with_context(|| format!("Failed to deserialize tarball for {name}"))?;
     Ok(fs)
