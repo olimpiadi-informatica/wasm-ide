@@ -2,6 +2,7 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -28,7 +29,7 @@ mod status_view;
 mod util;
 mod workspace;
 
-use crate::backend::{CombinedBackend, DynBackend, RemoteBackend, WorkerBackend};
+use crate::backend::{RemoteBackend, WorkerBackend};
 use crate::editor_dir::EditorDirController;
 use crate::editor_view::EditorView;
 use crate::enum_select::EnumSelect;
@@ -258,17 +259,12 @@ fn App() -> impl IntoView {
         ..
     } = use_settings();
 
-    let backend = expect_context::<DynBackend>();
-    backend.set_callback(Arc::new({
+    backend::set_callback(Arc::new({
         let ls_sender = ls_sender.clone();
         move |msg| {
             handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
         }
     }));
-
-    let send_worker_message = move |msg: WorkerRequest| {
-        backend.clone().send_message(msg);
-    };
 
     let workspace = RwSignal::new(None);
 
@@ -286,14 +282,12 @@ fn App() -> impl IntoView {
             .map(|ws| format!("workspace/{ws}/stdin"))
     }));
 
-    let backend = expect_context::<DynBackend>();
     let language = Memo::new(move |old| {
         code.open_filename()
             .get()
             .and_then(|f| {
                 let ext = f.split('.').next_back().unwrap_or("");
-                backend
-                    .languages()
+                backend::languages()
                     .iter()
                     .find(|lang| lang.extensions.iter().any(|e| e == ext))
                     .map(|lang| lang.name.clone())
@@ -302,12 +296,15 @@ fn App() -> impl IntoView {
             .unwrap_or("C++".to_owned())
     });
 
+    let send_worker_message = move |msg: WorkerRequest| {
+        backend::for_lang(&language.get_untracked()).send_message(msg);
+    };
+
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
     let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
     {
-        let send_worker_message = send_worker_message.clone();
         let ls_sender = ls_sender.clone();
         Effect::new(move |_| {
             let lang = language.get();
@@ -321,103 +318,93 @@ fn App() -> impl IntoView {
     }
 
     let owner = Owner::current().expect("Owner should be available in App component");
-    let do_run = {
-        let send_worker_message = send_worker_message.clone();
-        Callback::new(move |()| {
-            let Some(ws) = workspace.get_untracked() else {
-                return;
-            };
-            let Some(primary_file) = code.open_filename().get_untracked() else {
-                return;
-            };
-            let primary_file = primary_file
-                .split('/')
-                .next_back()
-                .expect("invalid primary file")
-                .to_string();
+    let do_run = Callback::new(move |()| {
+        let Some(ws) = workspace.get_untracked() else {
+            return;
+        };
+        let Some(primary_file) = code.open_filename().get_untracked() else {
+            return;
+        };
+        let primary_file = primary_file
+            .split('/')
+            .next_back()
+            .expect("invalid primary file")
+            .to_string();
 
-            match &mut state.write().exec {
-                exec @ (StateExec::Ready | StateExec::Complete { .. }) => {
-                    *exec = StateExec::Processing {
-                        status: None,
-                        outcome: Outcome::default(),
-                        stopping: false,
-                    };
-                }
-                _ => {
-                    warn!("asked to run while already running");
-                    return;
-                }
-            }
-
-            let send_worker_message = send_worker_message.clone();
-            let input_mode = owner.with(|| get_input_mode(input_mode, language.into()));
-            spawn_local(async move {
-                code.wait_sync().await;
-                if input_mode == InputMode::FullInteractive {
-                    stdin.set_text("");
-                }
-                let input = stdin.get_text();
-                let (input, addn_msg) = match input_mode {
-                    InputMode::MixedInteractive => (
-                        None,
-                        Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
-                    ),
-                    InputMode::FullInteractive => (None, None),
-                    InputMode::Batch => (Some(input.into_bytes()), None),
+        match &mut state.write().exec {
+            exec @ (StateExec::Ready | StateExec::Complete { .. }) => {
+                *exec = StateExec::Processing {
+                    status: None,
+                    outcome: Outcome::default(),
+                    stopping: false,
                 };
-
-                let mut files = Vec::new();
-                let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
-                for name in dir.list_entries().await {
-                    let file = dir.open_file(&name, false).await;
-                    let content = String::from_utf8(file.read().await).unwrap();
-                    files.push(File { name, content });
-                }
-
-                info!("Requesting execution");
-                let lng = language.get_untracked();
-                send_worker_message(
-                    WorkerExecRequest::CompileAndRun {
-                        files,
-                        primary_file,
-                        language: lng,
-                        input,
-                        config: ExecConfig {
-                            mem_limit: mem_limit.get_untracked().map(|x| x * 16),
-                            time_limit: time_limit.get_untracked(),
-                        },
-                    }
-                    .into(),
-                );
-                if let Some(addn_msg) = addn_msg {
-                    send_worker_message(addn_msg.into());
-                }
-            });
-        })
-    };
-
-    let do_stop = {
-        let send_worker_message = send_worker_message.clone();
-        move |_| {
-            match &mut state.write().exec {
-                StateExec::Processing { stopping, .. } => {
-                    *stopping = true;
-                }
-                _ => {
-                    warn!("asked to stop while not running");
-                    return;
-                }
             }
-            info!("Stopping execution");
-            send_worker_message(WorkerExecRequest::Cancel.into());
+            _ => {
+                warn!("asked to run while already running");
+                return;
+            }
         }
+
+        let input_mode = owner.with(|| get_input_mode(input_mode, language.into()));
+        spawn_local(async move {
+            code.wait_sync().await;
+            if input_mode == InputMode::FullInteractive {
+                stdin.set_text("");
+            }
+            let input = stdin.get_text();
+            let (input, addn_msg) = match input_mode {
+                InputMode::MixedInteractive => (
+                    None,
+                    Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
+                ),
+                InputMode::FullInteractive => (None, None),
+                InputMode::Batch => (Some(input.into_bytes()), None),
+            };
+
+            let mut files = Vec::new();
+            let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
+            for name in dir.list_entries().await {
+                let file = dir.open_file(&name, false).await;
+                let content = String::from_utf8(file.read().await).unwrap();
+                files.push(File { name, content });
+            }
+
+            info!("Requesting execution");
+            let lng = language.get_untracked();
+            send_worker_message(
+                WorkerExecRequest::CompileAndRun {
+                    files,
+                    primary_file,
+                    language: lng,
+                    input,
+                    config: ExecConfig {
+                        mem_limit: mem_limit.get_untracked().map(|x| x * 16),
+                        time_limit: time_limit.get_untracked(),
+                    },
+                }
+                .into(),
+            );
+            if let Some(addn_msg) = addn_msg {
+                send_worker_message(addn_msg.into());
+            }
+        });
+    });
+
+    let do_stop = move |_| {
+        match &mut state.write().exec {
+            StateExec::Processing { stopping, .. } => {
+                *stopping = true;
+            }
+            _ => {
+                warn!("asked to stop while not running");
+                return;
+            }
+        }
+        info!("Stopping execution");
+        send_worker_message(WorkerExecRequest::Cancel.into());
     };
 
-    let navbar = {
-        let do_stop = do_stop.clone();
-        let backend = expect_context::<DynBackend>();
-        view! {
+    let navbar = view! {
             <div
                 class:is-flex
                 class:is-flex-direction-row
@@ -429,7 +416,7 @@ fn App() -> impl IntoView {
                 <Settings />
                 <WorkspaceSelector active=workspace readonly=is_running />
                 <div class="is-flex-grow-1" />
-                <Show when=move || backend.has_dynamic_io(&language.get())>
+                <Show when=move || backend::for_lang(language.read().deref()).has_dynamic_io()>
                     <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
                 </Show>
                 <Show when=move || is_running.get()>
@@ -440,7 +427,7 @@ fn App() -> impl IntoView {
                         class:mr-1
                         style:width="8em"
                         disabled=disable_stop
-                        on:click=do_stop.clone()
+                        on:click=do_stop
                     >
                         <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCloseOutlined />
                         {t!(i18n, stop)}
@@ -470,7 +457,6 @@ fn App() -> impl IntoView {
                     </button>
                 </Show>
             </div>
-        }
     };
 
     let disable_input_editor = Memo::new(move |_| {
@@ -523,15 +509,12 @@ fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
         assert!(res.ok(), "could not load config: {}", res.status());
         let config: Config = res.json().await.unwrap();
 
-        let worker = WorkerBackend::new().await;
-        let backend: DynBackend = if let Some(remote_eval) = &config.remote_eval {
-            let remote = RemoteBackend::new(remote_eval.clone()).await.unwrap();
-            CombinedBackend::new(worker, remote)
-        } else {
-            worker
-        };
+        backend::register_backend(WorkerBackend::new().await);
+        if let Some(remote_eval) = &config.remote_eval {
+            backend::register_backend(RemoteBackend::new(remote_eval.clone()).await.unwrap());
+        }
 
-        (config, backend)
+        config
     };
 
     let (task, handle) = config.remote_handle();
@@ -540,9 +523,8 @@ fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
     view! {
         <Suspense fallback=LoadingView>
             {Suspend::new(async move {
-                let (config, backend) = handle.await;
+                let config = handle.await;
                 provide_context::<Config>(config);
-                provide_context::<DynBackend>(backend);
                 children()
             })}
 

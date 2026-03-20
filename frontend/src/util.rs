@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Blob, HtmlAnchorElement, Url};
 
-use crate::{backend::DynBackend, settings::InputMode};
+use crate::{backend, settings::InputMode};
 
 pub fn download(name: &str, data: &[u8]) {
     let array8 = Uint8Array::from(data);
@@ -42,8 +42,7 @@ pub fn Icon(#[prop(into)] icon: Signal<icondata::Icon>) -> impl IntoView {
 }
 
 pub fn get_input_mode(input_mode: Signal<InputMode>, lang: Signal<String>) -> InputMode {
-    let backend = expect_context::<DynBackend>();
-    match backend.has_dynamic_io(lang.read().deref()) {
+    match backend::for_lang(lang.read().deref()).has_dynamic_io() {
         true => input_mode.get(),
         false => InputMode::Batch,
     }

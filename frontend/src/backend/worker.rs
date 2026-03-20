@@ -98,7 +98,7 @@ impl Backend for WorkerBackend {
         self.worker.post_message(&js_msg).expect("worker died");
     }
 
-    fn has_dynamic_io(&self, _lang: &str) -> bool {
+    fn has_dynamic_io(&self) -> bool {
         true
     }
 }
