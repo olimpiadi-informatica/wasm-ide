@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use common::{WorkerExecRequest, WorkerExecResponse, WorkerRequest};
+use futures_channel::oneshot::{self, Sender};
+use futures_util::{FutureExt, select};
 use leptos::task::spawn_local;
 
 use crate::backend::{Backend, Callback, Language};
@@ -10,6 +12,7 @@ pub struct RemoteBackend {
     address: String,
     languages: Vec<Language>,
     callback: Mutex<Option<Callback>>,
+    stop: Mutex<Option<Sender<()>>>,
 }
 
 impl RemoteBackend {
@@ -19,6 +22,7 @@ impl RemoteBackend {
             address,
             languages,
             callback: Mutex::new(None),
+            stop: Mutex::new(None),
         }))
     }
 }
@@ -49,8 +53,10 @@ impl Backend for RemoteBackend {
                 input,
                 config,
             } => {
+                let (sender, mut receiver) = oneshot::channel();
+                self.stop.lock().unwrap().replace(sender);
                 spawn_local(async move {
-                    let res = api::evaluate(
+                    let future = api::evaluate(
                         &self.address,
                         None,
                         files
@@ -62,56 +68,71 @@ impl Backend for RemoteBackend {
                         config.time_limit,
                         config.mem_limit.map(|m| m as u64 / 16),
                         Some(language),
-                    )
-                    .await;
+                    );
 
-                    let callback = self.callback.lock().unwrap();
-                    let Some(callback) = callback.as_deref() else {
-                        tracing::error!("No callback set for RemoteBackend");
-                        return;
-                    };
-                    let res = match res {
-                        Ok(res) => res,
-                        Err(e) => {
-                            callback(WorkerExecResponse::Error(e.to_string()).into());
-                            return;
+                    select! {
+                        res = future.fuse() => {
+                            let callback = self.callback.lock().unwrap();
+                            let Some(callback) = callback.as_deref() else {
+                                tracing::error!("No callback set for RemoteBackend");
+                                return;
+                            };
+                            let res = match res {
+                                Ok(res) => res,
+                                Err(e) => {
+                                    callback(WorkerExecResponse::Error(e.to_string()).into());
+                                    return;
+                                }
+                            };
+
+                            if let Some(compilation) = res.compilation {
+                                callback(
+                                    WorkerExecResponse::CompilationMessageChunk(compilation.stderr.into())
+                                        .into(),
+                                );
+                                if compilation.status != "Success" {
+                                    callback(
+                                        WorkerExecResponse::Error(format!(
+                                            "Compilation failed: {}",
+                                            compilation.status
+                                        ))
+                                        .into(),
+                                    );
+                                    return;
+                                }
+                            }
+                            if let Some(execution) = res.execution {
+                                callback(WorkerExecResponse::StdoutChunk(execution.stdout.into()).into());
+                                callback(WorkerExecResponse::StderrChunk(execution.stderr.into()).into());
+                                if execution.status != "Success" {
+                                    callback(
+                                        WorkerExecResponse::Error(format!(
+                                            "Execution failed: {}",
+                                            execution.status
+                                        ))
+                                        .into(),
+                                    );
+                                    return;
+                                }
+                            }
+                            callback(WorkerExecResponse::Success.into());
                         }
-                    };
-
-                    if let Some(compilation) = res.compilation {
-                        callback(
-                            WorkerExecResponse::CompilationMessageChunk(compilation.stderr.into())
-                                .into(),
-                        );
-                        if compilation.status != "Success" {
-                            callback(
-                                WorkerExecResponse::Error(format!(
-                                    "Compilation failed: {}",
-                                    compilation.status
-                                ))
-                                .into(),
-                            );
-                            return;
+                        _ = receiver => {
+                            let callback = self.callback.lock().unwrap();
+                            let Some(callback) = callback.as_deref() else {
+                                tracing::error!("No callback set for RemoteBackend");
+                                return;
+                            };
+                            callback(WorkerExecResponse::Error("Execution cancelled by the user".to_string()).into());
                         }
                     }
-                    if let Some(execution) = res.execution {
-                        callback(WorkerExecResponse::StdoutChunk(execution.stdout.into()).into());
-                        callback(WorkerExecResponse::StderrChunk(execution.stderr.into()).into());
-                        if execution.status != "Success" {
-                            callback(
-                                WorkerExecResponse::Error(format!(
-                                    "Execution failed: {}",
-                                    execution.status
-                                ))
-                                .into(),
-                            );
-                            return;
-                        }
-                    }
-                    callback(WorkerExecResponse::Success.into());
                 });
             }
-            WorkerExecRequest::Cancel => todo!(),
+            WorkerExecRequest::Cancel => {
+                if let Some(stop) = self.stop.lock().unwrap().take() {
+                    let _ = stop.send(());
+                }
+            }
             WorkerExecRequest::StdinChunk(_) => {
                 unimplemented!("Streaming stdin is not supported in remote backend")
             }

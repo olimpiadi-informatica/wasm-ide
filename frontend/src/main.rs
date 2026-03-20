@@ -320,6 +320,7 @@ fn App() -> impl IntoView {
         });
     }
 
+    let owner = Owner::current().expect("Owner should be available in App component");
     let do_run = {
         let send_worker_message = send_worker_message.clone();
         Callback::new(move |()| {
@@ -350,7 +351,7 @@ fn App() -> impl IntoView {
             }
 
             let send_worker_message = send_worker_message.clone();
-            let input_mode = get_input_mode(input_mode, language.into());
+            let input_mode = owner.with(|| get_input_mode(input_mode, language.into()));
             spawn_local(async move {
                 code.wait_sync().await;
                 if input_mode == InputMode::FullInteractive {
@@ -499,6 +500,23 @@ fn App() -> impl IntoView {
 }
 
 #[component]
+fn LoadingView() -> impl IntoView {
+    let i18n = use_i18n();
+    view! {
+        <div
+            class:is-flex
+            class:is-flex-direction-row
+            class:is-align-items-center
+            class:is-justify-content-center
+            style:height="100dvh"
+        >
+            <span class="loader" />
+            <p class="is-size-4 ml-2">{t!(i18n, loading)}</p>
+        </div>
+    }
+}
+
+#[component]
 fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
     let config = async {
         let res = Request::get("config.json").send().await.unwrap();
@@ -520,9 +538,7 @@ fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
     spawn_local(task);
 
     view! {
-        <Suspense fallback=|| {
-            view! { <p>"Loading config..."</p> }
-        }>
+        <Suspense fallback=LoadingView>
             {Suspend::new(async move {
                 let (config, backend) = handle.await;
                 provide_context::<Config>(config);
