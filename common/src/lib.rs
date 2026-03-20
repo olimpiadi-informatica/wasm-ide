@@ -29,9 +29,6 @@ pub enum WorkerRequest {
 /// Messages emitted by the worker back to the frontend.
 #[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerResponse {
-    /// The worker finished initialization and is ready to receive messages.
-    Ready(Vec<Language>),
-
     /// A message related to program execution.
     Execution(#[from] WorkerExecResponse),
     /// A message related to the language server.

@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::str::Chars;
 
 use anyhow::{Result, bail, ensure};
@@ -115,41 +114,26 @@ fn OutDivInner(
 
     let did_execute = Signal::derive(move || {
         matches!(
-            &*state.read(),
-            RunState::Ready {
-                exec: StateExec::Processing { .. } | StateExec::Complete { .. },
-                ..
-            }
+            state.read().exec,
+            StateExec::Processing { .. } | StateExec::Complete { .. },
         )
     });
 
-    let text = Signal::derive(move || match state.read().deref() {
-        RunState::Ready {
-            exec: StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. },
-            ..
-        } => output_for_display(get_data(outcome)),
+    let text = Signal::derive(move || match &state.read().exec {
+        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
+            output_for_display(get_data(outcome))
+        }
         _ => t_display!(i18n, not_yet_executed).to_string(),
     });
 
     let fragments = Signal::derive(move || ansi(&text.get()));
 
-    let disable_download = Signal::derive(move || {
-        !matches!(
-            state.read().deref(),
-            RunState::Ready {
-                exec: StateExec::Complete { .. },
-                ..
-            }
-        )
-    });
+    let disable_download =
+        Signal::derive(move || !matches!(state.read().exec, StateExec::Complete { .. }));
 
     let do_download = move |_| {
         let state = state.read_untracked();
-        let RunState::Ready {
-            exec: StateExec::Complete { outcome, .. },
-            ..
-        } = state.deref()
-        else {
+        let StateExec::Complete { outcome, .. } = &state.exec else {
             warn!("requested download in invalid state");
             return;
         };
@@ -217,23 +201,16 @@ fn OutDiv(
 ) -> impl IntoView {
     let open = RwSignal::new(false);
 
-    let has_data = Signal::derive(move || match state.read().deref() {
-        RunState::Ready {
-            exec: StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. },
-            ..
-        } => !get_data(outcome).is_empty(),
+    let has_data = Signal::derive(move || match &state.read().exec {
+        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
+            !get_data(outcome).is_empty()
+        }
         _ => false,
     });
 
     Effect::new(move |old: Option<bool>| {
         // TODO(veluca): open the output early for non-batch input.
-        let complete = matches!(
-            state.read().deref(),
-            RunState::Ready {
-                exec: StateExec::Complete { .. },
-                ..
-            }
-        );
+        let complete = matches!(state.read().exec, StateExec::Complete { .. });
         if complete && !old.unwrap_or(false) {
             open.set(has_data.get_untracked());
         }

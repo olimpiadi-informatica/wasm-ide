@@ -1,8 +1,6 @@
-use std::ops::{Deref, DerefMut};
-
 use common::WorkerExecStatus;
 use common::config::Config;
-use leptos::either::{EitherOf4, EitherOf5};
+use leptos::either::{EitherOf3, EitherOf5};
 use leptos::prelude::*;
 use tracing::warn;
 
@@ -82,8 +80,8 @@ pub fn StatusView(
                 <ErrorMessageBar
                     err
                     clear=move || {
-                        match state.write().deref_mut() {
-                            RunState::Ready { exec: StateExec::Complete { error, .. }, .. } => {
+                        match &mut state.write().exec {
+                            StateExec::Complete { error, .. } => {
                                 *error = None;
                             }
                             _ => warn!("Unexpected state when hiding error"),
@@ -106,8 +104,8 @@ pub fn StatusView(
                 <ErrorMessageBar
                     err
                     clear=move || {
-                        match state.write().deref_mut() {
-                            RunState::Ready { ls: ls @ StateLS::Error(_), .. } => {
+                        match &mut state.write().ls {
+                            ls @ StateLS::Error(_) => {
                                 *ls = StateLS::Ready;
                             }
                             _ => warn!("Unexpected state when hiding LS error"),
@@ -119,19 +117,14 @@ pub fn StatusView(
         ),
     };
 
-    move || match state.read().deref() {
-        RunState::Loading => {
-            EitherOf4::A(view! { <Message kind="is-info">{t!(i18n, loading)}</Message> })
-        }
-
-        RunState::Ready { exec, ls } => {
-            if let Some(view) = render_exec(exec) {
-                EitherOf4::B(view)
-            } else if let Some(view) = render_ls(ls) {
-                EitherOf4::C(view)
-            } else {
-                EitherOf4::D(())
-            }
+    move || {
+        let state = state.read();
+        if let Some(view) = render_exec(&state.exec) {
+            EitherOf3::A(view)
+        } else if let Some(view) = render_ls(&state.ls) {
+            EitherOf3::B(view)
+        } else {
+            EitherOf3::C(())
         }
     }
 }

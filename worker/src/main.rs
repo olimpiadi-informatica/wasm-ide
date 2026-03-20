@@ -10,6 +10,7 @@ use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::channel::oneshot::{Sender, channel};
 use futures::lock::Mutex;
 use futures::{FutureExt, StreamExt, select};
+use gloo_timers::future::TimeoutFuture;
 use send_wrapper::SendWrapper;
 use tracing::{debug, info, warn};
 use wasm_bindgen::closure::Closure;
@@ -61,9 +62,6 @@ fn main() {
         })
     });
 
-    // This message will only be sent once this function returns.
-    send_msg(WorkerResponse::Ready(lang::list()));
-
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .expect("not a worker");
@@ -74,6 +72,10 @@ fn main() {
             .unchecked_ref(),
     ));
 
+    // This message will only be sent once this function returns.
+    let msg = serde_wasm_bindgen::to_value(&lang::list()).expect("invalid message");
+    worker.post_message(&msg).expect("main thread died");
+
     spawn_local(async move {
         let mut msg_num = 0;
         loop {
@@ -83,7 +85,7 @@ fn main() {
             if msg_num > MSG_WAIT_COUNT {
                 // Wait 1ms every few messages to ensure that we have the opportunity to receive
                 // the stop command.
-                gloo_timers::future::TimeoutFuture::new(1).await;
+                TimeoutFuture::new(1).await;
                 msg_num = 0;
             }
             let msg = serde_wasm_bindgen::to_value(&msg).expect("invalid message");

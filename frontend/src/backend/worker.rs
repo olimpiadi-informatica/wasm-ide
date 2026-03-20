@@ -1,4 +1,7 @@
-use std::{cell::Cell, sync::{Arc, Mutex}};
+use std::{
+    cell::Cell,
+    sync::{Arc, Mutex},
+};
 
 use common::{Language, WorkerRequest, WorkerResponse};
 use send_wrapper::SendWrapper;
@@ -27,7 +30,7 @@ impl WorkerBackend {
         worker.set_onmessage(Some(
             Closure::<dyn Fn(_)>::new(move |msg: JsValue| {
                 let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
-                let msg = match serde_wasm_bindgen::from_value::<WorkerResponse>(msg) {
+                let msg = match serde_wasm_bindgen::from_value::<Vec<Language>>(msg) {
                     Ok(msg) => msg,
                     Err(e) => {
                         warn!("invalid message from worker: {e}");
@@ -44,9 +47,7 @@ impl WorkerBackend {
             .unchecked_ref(),
         ));
 
-        let WorkerResponse::Ready(languages) = recv.await.expect("worker failed to start") else {
-            panic!("unexpected message from worker");
-        };
+        let languages = recv.await.expect("worker failed to start");
 
         let this = Arc::new(Self {
             languages,

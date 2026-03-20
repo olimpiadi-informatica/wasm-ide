@@ -2,7 +2,6 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -50,9 +49,9 @@ pub struct Outcome {
 type FetchingCompilerProgress = HashMap<String, u64>;
 
 #[derive(Clone, Debug)]
-enum RunState {
-    Loading,
-    Ready { exec: StateExec, ls: StateLS },
+struct RunState {
+    exec: StateExec,
+    ls: StateLS,
 }
 
 #[derive(Clone, Debug)]
@@ -80,22 +79,11 @@ enum StateLS {
 
 impl RunState {
     fn can_start(&self) -> bool {
-        let exec = match self {
-            RunState::Ready { exec, .. } => exec,
-            _ => return false,
-        };
-        match exec {
-            StateExec::Processing { .. } => false,
-            StateExec::Ready | StateExec::Complete { .. } => true,
-        }
+        !self.is_running()
     }
 
     fn can_stop(&self) -> bool {
-        let exec = match self {
-            RunState::Ready { exec, .. } => exec,
-            _ => return false,
-        };
-        match exec {
+        match self.exec {
             StateExec::Ready
             | StateExec::Complete { .. }
             | StateExec::Processing { stopping: true, .. } => false,
@@ -106,11 +94,7 @@ impl RunState {
     }
 
     fn is_running(&self) -> bool {
-        let exec = match self {
-            RunState::Ready { exec, .. } => exec,
-            _ => return false,
-        };
-        match exec {
+        match self.exec {
             StateExec::Ready | StateExec::Complete { .. } => false,
             StateExec::Processing { .. } => true,
         }
@@ -125,12 +109,6 @@ fn handle_message(
 ) -> Result<()> {
     debug!("{msg:?}");
     match msg {
-        WorkerResponse::Ready(_) => {
-            state.set(RunState::Ready {
-                exec: StateExec::Ready,
-                ls: StateLS::Ready,
-            });
-        }
         WorkerResponse::Execution(msg) => {
             handle_exec_message(msg, state)?;
         }
@@ -153,15 +131,8 @@ fn handle_message(
 
 fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Result<()> {
     let mut state = state.write();
-    let exec = match state.deref_mut() {
-        RunState::Ready { exec, .. } => exec,
-        _ => {
-            warn!("received execution message while not ready: {msg:?}");
-            return Ok(());
-        }
-    };
 
-    match (msg, &mut *exec) {
+    match (msg, &mut state.exec) {
         (WorkerExecResponse::Status(new), StateExec::Processing { status, .. }) => {
             *status = Some(new);
         }
@@ -180,21 +151,24 @@ fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Re
         }
 
         (WorkerExecResponse::Success, StateExec::Processing { outcome, .. }) => {
-            *exec = StateExec::Complete {
+            state.exec = StateExec::Complete {
                 outcome: std::mem::take(outcome),
                 error: None,
             };
         }
 
         (WorkerExecResponse::Error(s), StateExec::Processing { outcome, .. }) => {
-            *exec = StateExec::Complete {
+            state.exec = StateExec::Complete {
                 outcome: std::mem::take(outcome),
                 error: Some(s),
             };
         }
 
         (msg, _) => {
-            warn!("unexpected msg & state combination: {msg:?} {exec:?}");
+            warn!(
+                "unexpected msg & state combination: {msg:?} {:?}",
+                state.exec
+            );
         }
     };
 
@@ -207,22 +181,15 @@ fn handle_ls_message(
     ls_message_chan: &Sender<WorkerLSResponse>,
 ) -> Result<()> {
     let mut state = state.write();
-    let ls = match state.deref_mut() {
-        RunState::Ready { ls, .. } => ls,
-        _ => {
-            warn!("received execution message while not ready: {msg:?}");
-            return Ok(());
-        }
-    };
 
     let msg2 = msg.clone();
-    match (msg, &mut *ls) {
+    match (msg, &mut state.ls) {
         (WorkerLSResponse::FetchingCompiler, StateLS::Requested | StateLS::Error(_)) => {
-            *ls = StateLS::FetchingCompiler;
+            state.ls = StateLS::FetchingCompiler;
         }
 
         (WorkerLSResponse::Started, StateLS::Requested | StateLS::FetchingCompiler) => {
-            *ls = StateLS::Running;
+            state.ls = StateLS::Running;
             ls_message_chan.try_send(msg2)?;
         }
 
@@ -236,11 +203,11 @@ fn handle_ls_message(
             WorkerLSResponse::Error(msg),
             StateLS::Requested | StateLS::FetchingCompiler | StateLS::Running,
         ) => {
-            *ls = StateLS::Error(msg);
+            state.ls = StateLS::Error(msg);
         }
 
         (msg, _) => {
-            warn!("unexpected msg & state combination: {msg:?} {ls:?}");
+            warn!("unexpected msg & state combination: {msg:?} {:?}", state.ls);
         }
     }
     Ok(())
@@ -275,7 +242,7 @@ fn StoragePersistView() -> impl IntoView {
 fn App() -> impl IntoView {
     let i18n = use_i18n();
 
-    let state = RwSignal::new(RunState::Ready {
+    let state = RwSignal::new(RunState {
         exec: StateExec::Ready,
         ls: StateLS::Ready,
     });
@@ -299,17 +266,8 @@ fn App() -> impl IntoView {
         }
     }));
 
-    let send_worker_message = {
-        move |msg: WorkerRequest| {
-            //debug_assert!(
-            //    matches!(*state.read_untracked(), RunState::Ready { .. }),
-            //    "sending message to worker while not ready: {msg:?}"
-            //);
-            //debug!("send to worker: {:?}", msg);
-            //let js_msg = serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker");
-            //worker.post_message(&js_msg).expect("worker died");
-            backend.clone().send_message(msg);
-        }
+    let send_worker_message = move |msg: WorkerRequest| {
+        backend.clone().send_message(msg);
     };
 
     let workspace = RwSignal::new(None);
@@ -349,21 +307,13 @@ fn App() -> impl IntoView {
     let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
     {
-        let worker_ready = Memo::new(move |_| matches!(*state.read(), RunState::Ready { .. }));
-
         let send_worker_message = send_worker_message.clone();
         let ls_sender = ls_sender.clone();
         Effect::new(move |_| {
-            if !worker_ready.get() {
-                return;
-            }
-
             let lang = language.get();
             info!("Requesting language server for {lang:?}");
             state.update(|s| {
-                if let RunState::Ready { ls, .. } = s {
-                    *ls = StateLS::Requested;
-                }
+                s.ls = StateLS::Requested;
             });
             ls_sender.try_send(WorkerLSResponse::Stopped).unwrap();
             send_worker_message(WorkerLSRequest::Start(lang).into());
@@ -385,11 +335,8 @@ fn App() -> impl IntoView {
                 .expect("invalid primary file")
                 .to_string();
 
-            match state.write().deref_mut() {
-                RunState::Ready {
-                    exec: exec @ (StateExec::Ready | StateExec::Complete { .. }),
-                    ..
-                } => {
+            match &mut state.write().exec {
+                exec @ (StateExec::Ready | StateExec::Complete { .. }) => {
                     *exec = StateExec::Processing {
                         status: None,
                         outcome: Outcome::default(),
@@ -452,11 +399,8 @@ fn App() -> impl IntoView {
     let do_stop = {
         let send_worker_message = send_worker_message.clone();
         move |_| {
-            match state.write().deref_mut() {
-                RunState::Ready {
-                    exec: StateExec::Processing { stopping, .. },
-                    ..
-                } => {
+            match &mut state.write().exec {
+                StateExec::Processing { stopping, .. } => {
                     *stopping = true;
                 }
                 _ => {
