@@ -30,7 +30,7 @@ pub enum WorkerRequest {
 #[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerResponse {
     /// The worker finished initialization and is ready to receive messages.
-    Ready,
+    Ready(Vec<Language>),
 
     /// A message related to program execution.
     Execution(#[from] WorkerExecResponse),
@@ -50,7 +50,7 @@ pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
         /// The name of the project to compile
-        workspace: String,
+        files: Vec<File>,
         /// The primary source file used by languages with multiple entry points (e.g. Python).
         primary_file: String,
         /// Programming language of the source code.
@@ -140,6 +140,15 @@ pub struct File {
     pub name: String,
     /// The file's content.
     pub content: String,
+}
+
+/// A programming language supported by the IDE.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Language {
+    /// The language's name.
+    pub name: String,
+    /// The file extensions commonly associated with this language.
+    pub extensions: Vec<String>,
 }
 
 /// Initialize logging to the browser console.

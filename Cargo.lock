@@ -615,6 +615,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "common",
+ "futures-channel",
  "futures-util",
  "gloo-net",
  "gloo-timers",

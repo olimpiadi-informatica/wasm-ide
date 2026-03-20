@@ -3,6 +3,10 @@ import {EditorView, keymap} from "@codemirror/view";
 import {Compartment, Prec, EditorState, Facet} from "@codemirror/state";
 import {cpp} from "@codemirror/lang-cpp";
 import {python} from "@codemirror/lang-python";
+import {go} from "@codemirror/lang-go";
+import {java} from "@codemirror/lang-java";
+import {javascript} from "@codemirror/lang-javascript";
+import {csharp} from "@replit/codemirror-lang-csharp";
 import {emacs} from "@replit/codemirror-emacs";
 import {vim} from "@replit/codemirror-vim";
 import {indentWithTab} from "@codemirror/commands"
@@ -116,13 +120,41 @@ export class CM6Editor {
       this.view.dispatch({
         effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.cpp")]),
       });
-    } else if (lang === "Python") {
+    } else if (lang === "Python3") {
       this.view.dispatch({
         effects: this.language.reconfigure([python(), languageId.of("python")]),
       });
       this.view.dispatch({
         effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.py")]),
       });
+    } else if (lang === "Go") {
+        this.view.dispatch({
+            effects: this.language.reconfigure([go(), languageId.of("go")]),
+        });
+        this.view.dispatch({
+            effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.go")]),
+        });
+    } else if (lang === "Java") {
+        this.view.dispatch({
+            effects: this.language.reconfigure([java(), languageId.of("java")]),
+        });
+        this.view.dispatch({
+            effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///Solution.java")]),
+        });
+    } else if (lang === "JavaScript") {
+        this.view.dispatch({
+            effects: this.language.reconfigure([javascript(), languageId.of("javascript")]),
+        });
+        this.view.dispatch({
+            effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.js")]),
+        });
+    } else if (lang === "C#") {
+        this.view.dispatch({
+            effects: this.language.reconfigure([csharp(), languageId.of("csharp")]),
+        });
+        this.view.dispatch({
+            effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.cs")]),
+        });
     } else {
       this.view.dispatch({
         effects: this.language.reconfigure(languageId.of("")),

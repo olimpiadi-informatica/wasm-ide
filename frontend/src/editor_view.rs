@@ -9,7 +9,7 @@ use crate::editor::LSRecv;
 use crate::editor_dir::{EditorDir, EditorDirController};
 use crate::i18n::use_i18n;
 use crate::settings::{InputMode, SettingsProvider, set_editor_width, use_settings};
-use crate::util::Icon;
+use crate::util::{Icon, get_input_mode};
 
 #[component]
 pub fn EditorView(
@@ -56,7 +56,7 @@ pub fn EditorView(
 
     let additional_input_line = {
         view! {
-            <div class:is-hidden=move || input_mode.get() == InputMode::Batch>
+            <div class:is-hidden=move || get_input_mode(input_mode, language) == InputMode::Batch>
                 <form on:submit=move |ev| {
                     ev.prevent_default();
                     add_input()

@@ -2,28 +2,23 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_channel::{Sender, unbounded};
 use common::config::Config;
 use common::{
-    ExecConfig, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
+    ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
-use editor_view::EditorView;
 use futures_util::FutureExt;
 use gloo_net::http::Request;
-use i18n::*;
 use leptos::prelude::*;
-use send_wrapper::SendWrapper;
-use settings::{SettingsProvider, set_input_mode, use_settings};
 use tracing::{debug, info, warn};
-use util::Icon;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{MessageEvent, SubmitEvent, Worker, WorkerOptions, WorkerType};
 
+mod backend;
 mod editor;
 mod editor_dir;
 mod editor_view;
@@ -32,12 +27,18 @@ mod output;
 mod settings;
 mod status_view;
 mod util;
+mod workspace;
 
+use crate::backend::{CombinedBackend, DynBackend, RemoteBackend, WorkerBackend};
 use crate::editor_dir::EditorDirController;
+use crate::editor_view::EditorView;
 use crate::enum_select::EnumSelect;
+use crate::i18n::*;
 use crate::output::OutputView;
-use crate::settings::{InputMode, Settings};
+use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use_settings};
 use crate::status_view::StatusView;
+use crate::util::{Icon, get_input_mode};
+use crate::workspace::WorkspaceSelector;
 
 #[derive(Clone, Debug, Default)]
 pub struct Outcome {
@@ -116,48 +117,15 @@ impl RunState {
     }
 }
 
-#[component]
-fn StoragePersistView() -> impl IntoView {
-    let i18n = use_i18n();
-
-    let (task, handle) = common::opfs::persist().remote_handle();
-    spawn_local(task);
-
-    view! {
-        <Await future=handle let:(&persist)>
-            <Show when=move || !persist>
-                <div
-                    class:message
-                    class:is-warning
-                    style:position="absolute"
-                    style:bottom="1px"
-                    style:right="1px"
-                    style:z-index="100"
-                >
-                    <div class:message-body>{t!(i18n, storage_denied)}</div>
-                </div>
-            </Show>
-        </Await>
-    }
-}
-
 fn handle_message(
-    msg: JsValue,
+    msg: WorkerResponse,
     state: RwSignal<RunState>,
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
     ls_message_chan: &Sender<WorkerLSResponse>,
 ) -> Result<()> {
-    let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
-    let msg = match serde_wasm_bindgen::from_value::<WorkerResponse>(msg) {
-        Ok(msg) => msg,
-        Err(e) => {
-            warn!("invalid message from worker: {e}");
-            return Ok(());
-        }
-    };
     debug!("{msg:?}");
     match msg {
-        WorkerResponse::Ready => {
+        WorkerResponse::Ready(_) => {
             state.set(RunState::Ready {
                 exec: StateExec::Ready,
                 ls: StateLS::Ready,
@@ -279,132 +247,38 @@ fn handle_ls_message(
 }
 
 #[component]
-fn WorkspaceSelector(
-    active: RwSignal<Option<String>>,
-    #[prop(into)] readonly: Signal<bool>,
-) -> impl IntoView {
+fn StoragePersistView() -> impl IntoView {
     let i18n = use_i18n();
-    let workspaces = RwSignal::new(Vec::new());
-    let open = RwSignal::new(true);
-    let new_ws = RwSignal::new(String::new());
 
-    spawn_local(async move {
-        let dir = common::opfs::open_dir("workspace", true).await;
-        let entries = dir.list_entries().await;
-        workspaces.set(entries);
-    });
-
-    let new_workspace = move |ev: SubmitEvent| {
-        ev.prevent_default();
-        let name = new_ws.get_untracked();
-        if name.is_empty() {
-            return;
-        }
-        let config = expect_context::<Config>();
-        spawn_local(async move {
-            for (filename, content) in config.default_ws.code {
-                let code =
-                    common::opfs::open_file(&format!("workspace/{name}/code/{filename}"), true)
-                        .await;
-                code.write(content.as_bytes()).await;
-            }
-            for (filename, content) in config.default_ws.stdin {
-                let stdin =
-                    common::opfs::open_file(&format!("workspace/{name}/stdin/{filename}"), true)
-                        .await;
-                stdin.write(content.as_bytes()).await;
-            }
-
-            workspaces.update(|w| w.push(name.clone()));
-            active.set(Some(name));
-            open.set(false);
-            new_ws.set(String::new());
-        });
-    };
-
-    let render_ws = move |ws: String| {
-        let ws2 = ws.clone();
-        let ws3 = ws.clone();
-        view! {
-            <a on:click=move |_| {
-                active.set(Some(ws2.clone()));
-                open.set(false);
-            }>{ws}</a>
-            <Icon
-                icon=icondata::BiTrashSolid
-                class:is-clickable
-                style:height="1em"
-                style:width="1em"
-                on:click=move |_| {
-                    workspaces.update(|w| w.retain(|x| x != &ws3));
-                    active
-                        .update(|a| {
-                            if a.as_ref() == Some(&ws3) {
-                                *a = None;
-                            }
-                        });
-                    let ws3 = ws3.clone();
-                    spawn_local(async move {
-                        let dir = common::opfs::open_dir("workspace", true).await;
-                        dir.remove_entry(&ws3, true).await;
-                    });
-                }
-            />
-        }
-    };
+    let (task, handle) = common::opfs::persist().remote_handle();
+    spawn_local(task);
 
     view! {
-        <button class:button on:click=move |_| open.set(true) disabled=readonly>
-            {move || active.get().unwrap_or_else(|| t_string!(i18n, choose_workspace).into())}
-        </button>
-
-        <div class:modal class:is-active=open>
-            <div class="modal-background" on:click=move |_| open.set(false) />
-            <div class="modal-card">
-                <header class="modal-card-head">
-                    <p class="modal-card-title">{t!(i18n, workspaces)}</p>
-                    <button class="delete" aria-label="close" on:click=move |_| open.set(false) />
-                </header>
-                <section
-                    class="modal-card-body"
-                    style:display="grid"
-                    style:grid-template-columns="auto 1em"
+        <Await future=handle let:(&persist)>
+            <Show when=move || !persist>
+                <div
+                    class:message
+                    class:is-warning
+                    style:position="absolute"
+                    style:bottom="1px"
+                    style:right="1px"
+                    style:z-index="100"
                 >
-                    <form
-                        style:grid-column="span 2"
-                        class:is-flex
-                        class:is-column-gap-2
-                        class:is-align-items-center
-                        class:mb-6
-                        on:submit=new_workspace
-                    >
-                        <input
-                            class="input"
-                            type="text"
-                            placeholder=move || t_string!(i18n, workspace_name)
-                            bind:value=new_ws
-                        />
-                        <button class="button is-primary" type="submit">
-                            {t!(i18n, create_workspace)}
-                        </button>
-                    </form>
-                    <For each=move || workspaces.get() key=|w| w.clone() children=render_ws />
-                </section>
-            </div>
-        </div>
+                    <div class:message-body>{t!(i18n, storage_denied)}</div>
+                </div>
+            </Show>
+        </Await>
     }
 }
 
 #[component]
 fn App() -> impl IntoView {
-    let options = WorkerOptions::default();
-    options.set_type(WorkerType::Module);
-    let worker =
-        Worker::new_with_options("./worker_loader.js", &options).expect("could not start worker");
-
     let i18n = use_i18n();
 
-    let state = RwSignal::new(RunState::Loading);
+    let state = RwSignal::new(RunState::Ready {
+        exec: StateExec::Ready,
+        ls: StateLS::Ready,
+    });
 
     let (ls_sender, ls_receiver) = unbounded();
 
@@ -417,27 +291,24 @@ fn App() -> impl IntoView {
         ..
     } = use_settings();
 
-    worker.set_onmessage(Some(
-        Closure::<dyn Fn(_)>::new({
-            let ls_sender = ls_sender.clone();
-            move |msg| {
-                handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
-            }
-        })
-        .into_js_value()
-        .unchecked_ref(),
-    ));
+    let backend = expect_context::<DynBackend>();
+    backend.set_callback(Arc::new({
+        let ls_sender = ls_sender.clone();
+        move |msg| {
+            handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
+        }
+    }));
 
     let send_worker_message = {
-        let worker = SendWrapper::new(worker);
         move |msg: WorkerRequest| {
-            debug_assert!(
-                matches!(*state.read_untracked(), RunState::Ready { .. }),
-                "sending message to worker while not ready: {msg:?}"
-            );
-            debug!("send to worker: {:?}", msg);
-            let js_msg = serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker");
-            worker.post_message(&js_msg).expect("worker died");
+            //debug_assert!(
+            //    matches!(*state.read_untracked(), RunState::Ready { .. }),
+            //    "sending message to worker while not ready: {msg:?}"
+            //);
+            //debug!("send to worker: {:?}", msg);
+            //let js_msg = serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker");
+            //worker.post_message(&js_msg).expect("worker died");
+            backend.clone().send_message(msg);
         }
     };
 
@@ -457,21 +328,20 @@ fn App() -> impl IntoView {
             .map(|ws| format!("workspace/{ws}/stdin"))
     }));
 
+    let backend = expect_context::<DynBackend>();
     let language = Memo::new(move |old| {
         code.open_filename()
             .get()
             .and_then(|f| {
                 let ext = f.split('.').next_back().unwrap_or("");
-                match ext {
-                    "c" => Some("C"),
-                    "cpp" => Some("C++"),
-                    "py" => Some("Python"),
-                    _ => None,
-                }
+                backend
+                    .languages()
+                    .iter()
+                    .find(|lang| lang.extensions.iter().any(|e| e == ext))
+                    .map(|lang| lang.name.clone())
             })
-            .or(old.map(Deref::deref))
-            .unwrap_or("C++")
-            .to_owned()
+            .or(old.cloned())
+            .unwrap_or("C++".to_owned())
     });
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
@@ -533,13 +403,14 @@ fn App() -> impl IntoView {
             }
 
             let send_worker_message = send_worker_message.clone();
+            let input_mode = get_input_mode(input_mode, language.into());
             spawn_local(async move {
                 code.wait_sync().await;
-                if input_mode.get_untracked() == InputMode::FullInteractive {
+                if input_mode == InputMode::FullInteractive {
                     stdin.set_text("");
                 }
                 let input = stdin.get_text();
-                let (input, addn_msg) = match input_mode.get_untracked() {
+                let (input, addn_msg) = match input_mode {
                     InputMode::MixedInteractive => (
                         None,
                         Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
@@ -548,11 +419,19 @@ fn App() -> impl IntoView {
                     InputMode::Batch => (Some(input.into_bytes()), None),
                 };
 
+                let mut files = Vec::new();
+                let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
+                for name in dir.list_entries().await {
+                    let file = dir.open_file(&name, false).await;
+                    let content = String::from_utf8(file.read().await).unwrap();
+                    files.push(File { name, content });
+                }
+
                 info!("Requesting execution");
                 let lng = language.get_untracked();
                 send_worker_message(
                     WorkerExecRequest::CompileAndRun {
-                        workspace: ws,
+                        files,
                         primary_file,
                         language: lng,
                         input,
@@ -592,6 +471,7 @@ fn App() -> impl IntoView {
 
     let navbar = {
         let do_stop = do_stop.clone();
+        let backend = expect_context::<DynBackend>();
         view! {
             <div
                 class:is-flex
@@ -604,7 +484,9 @@ fn App() -> impl IntoView {
                 <Settings />
                 <WorkspaceSelector active=workspace readonly=is_running />
                 <div class="is-flex-grow-1" />
-                <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
+                <Show when=move || backend.has_dynamic_io(&language.get())>
+                    <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
+                </Show>
                 <Show when=move || is_running.get()>
                     <button
                         class:has-icons-left
@@ -646,8 +528,10 @@ fn App() -> impl IntoView {
         }
     };
 
-    let disable_input_editor =
-        Memo::new(move |_| is_running.get() || input_mode.get() == InputMode::FullInteractive);
+    let disable_input_editor = Memo::new(move |_| {
+        is_running.get()
+            || get_input_mode(input_mode, language.into()) == InputMode::FullInteractive
+    });
 
     view! {
         <StatusView state fetching_compiler_progress />
@@ -671,12 +555,21 @@ fn App() -> impl IntoView {
 }
 
 #[component]
-fn ConfigProvider(children: Children) -> impl IntoView {
+fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
     let config = async {
         let res = Request::get("config.json").send().await.unwrap();
         assert!(res.ok(), "could not load config: {}", res.status());
         let config: Config = res.json().await.unwrap();
-        config
+
+        let worker = WorkerBackend::new().await;
+        let backend: DynBackend = if let Some(remote_eval) = &config.remote_eval {
+            let remote = RemoteBackend::new(remote_eval.clone()).await.unwrap();
+            CombinedBackend::new(worker, remote)
+        } else {
+            worker
+        };
+
+        (config, backend)
     };
 
     let (task, handle) = config.remote_handle();
@@ -687,8 +580,9 @@ fn ConfigProvider(children: Children) -> impl IntoView {
             view! { <p>"Loading config..."</p> }
         }>
             {Suspend::new(async move {
-                let config = handle.await;
-                provide_context(config);
+                let (config, backend) = handle.await;
+                provide_context::<Config>(config);
+                provide_context::<DynBackend>(backend);
                 children()
             })}
 
@@ -703,9 +597,9 @@ fn main() {
         SettingsProvider::install();
         view! {
             <I18nContextProvider>
-                <ConfigProvider>
+                <ConfigAndBackendProvider>
                     <App />
-                </ConfigProvider>
+                </ConfigAndBackendProvider>
             </I18nContextProvider>
         }
     })

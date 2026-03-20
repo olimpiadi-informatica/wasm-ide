@@ -1,7 +1,11 @@
+use std::ops::Deref;
+
 use js_sys::Uint8Array;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Blob, HtmlAnchorElement, Url};
+
+use crate::{backend::DynBackend, settings::InputMode};
 
 pub fn download(name: &str, data: &[u8]) {
     let array8 = Uint8Array::from(data);
@@ -34,5 +38,13 @@ pub fn Icon(#[prop(into)] icon: Signal<icondata::Icon>) -> impl IntoView {
             y=move || icon.get().y
             fill=move || icon.get().fill.unwrap_or("currentColor")
         />
+    }
+}
+
+pub fn get_input_mode(input_mode: Signal<InputMode>, lang: Signal<String>) -> InputMode {
+    let backend = expect_context::<DynBackend>();
+    match backend.has_dynamic_io(lang.read().deref()) {
+        true => input_mode.get(),
+        false => InputMode::Batch,
     }
 }

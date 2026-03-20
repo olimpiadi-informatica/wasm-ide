@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use common::{
-    File, WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse, WorkerRequest,
+    WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse, WorkerRequest,
     WorkerResponse, init_logging,
 };
 use futures::channel::mpsc::{UnboundedSender, unbounded};
@@ -62,7 +62,7 @@ fn main() {
     });
 
     // This message will only be sent once this function returns.
-    send_msg(WorkerResponse::Ready);
+    send_msg(WorkerResponse::Ready(lang::list()));
 
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
@@ -121,7 +121,7 @@ fn handle_message(msg: JsValue) {
 fn handle_exec_request(req: WorkerExecRequest) {
     match req {
         WorkerExecRequest::CompileAndRun {
-            workspace,
+            files,
             primary_file,
             language,
             input,
@@ -142,15 +142,6 @@ fn handle_exec_request(req: WorkerExecRequest) {
             spawn_local({
                 let stdout = stdout.clone();
                 async move {
-                    let mut files = Vec::new();
-                    let dir =
-                        common::opfs::open_dir(&format!("workspace/{workspace}/code"), false).await;
-                    for name in dir.list_entries().await {
-                        let file = dir.open_file(&name, false).await;
-                        let content = String::from_utf8(file.read().await).unwrap();
-                        files.push(File { name, content });
-                    }
-
                     let running = lang::run(language, config, files, primary_file, stdin, stdout);
                     select! {
                         _ = receiver => {

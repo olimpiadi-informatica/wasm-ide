@@ -8,7 +8,7 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// Endpoint for the remote evaluation service. If `None`, remote evaluation is disabled.
-    pub remove_eval: Option<String>,
+    pub remote_eval: Option<String>,
     /// Files for newly created workspaces.
     pub default_ws: Ws,
     /// Size in bytes of compilers tarball.
