@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 use common::{Language, WorkerRequest, WorkerResponse};
 
@@ -42,10 +45,13 @@ pub fn set_callback(callback: Callback) {
 }
 
 pub fn languages() -> Vec<Language> {
+    let mut seen = HashSet::new();
     BACKENDS
         .lock()
         .unwrap()
         .iter()
-        .flat_map(|b| b.languages().to_vec())
+        .flat_map(|b| b.languages())
+        .filter(|l| seen.insert(l.name.clone()))
+        .cloned()
         .collect()
 }

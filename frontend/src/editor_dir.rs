@@ -2,6 +2,7 @@ use leptos::{prelude::*, task::spawn_local};
 use web_sys::SubmitEvent;
 
 use crate::{
+    backend,
     editor::{Editor, EditorController, LSRecv, LSSend},
     i18n::*,
     settings::KeyboardMode,
@@ -50,6 +51,7 @@ pub fn EditorDir(
     let tabs = RwSignal::new(Vec::new());
     let open_modal = RwSignal::new(false);
     let filename = RwSignal::new(String::new());
+    let extension = RwSignal::new(String::new());
 
     Effect::new(move || {
         let dir_path = controller.dir.get();
@@ -130,7 +132,8 @@ pub fn EditorDir(
 
     let add_file = move |ev: SubmitEvent| {
         ev.prevent_default();
-        let value = filename.get();
+        let value = filename.get_untracked();
+        let ext = extension.get_untracked();
         let name = if value.is_empty() { None } else { Some(value) };
         let Some(dir) = controller.dir.get_untracked() else {
             open_modal.set(false);
@@ -138,9 +141,9 @@ pub fn EditorDir(
             return;
         };
         if let Some(name) = name {
-            let file = dir + "/" + &name;
+            let file = format!("{dir}/{name}{ext}");
             controller.editor_ctrl.filename.set(Some(file.clone()));
-            tabs.update(|t| t.push(name));
+            tabs.update(|t| t.push(name + &ext));
             open_modal.set(false);
         }
     };
@@ -200,11 +203,29 @@ pub fn EditorDir(
                         class:mb-6
                         on:submit=add_file
                     >
+                        <div class:select>
+                            <select
+                                prop:value=move || extension.get()
+                                on:change:target=move |ev| extension.set(ev.target().value())
+                            >
+                                <For
+                                    each=move || backend::languages()
+                                    key=|lang| lang.name.clone()
+                                    let:lang
+                                >
+                                    <option value=format!(
+                                        ".{}",
+                                        lang.extensions[0],
+                                    )>{lang.name}</option>
+                                </For>
+                                <option value="">{"Custom"}</option>
+                            </select>
+                        </div>
                         <input
                             class="input"
                             class:is-danger=bad_filename
                             type="text"
-                            placeholder="filename.cpp"
+                            placeholder="filename"
                             bind:value=filename
                         />
                         <button class="button is-primary" type="submit">

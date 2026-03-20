@@ -36,12 +36,12 @@ pub async fn run_ls(language: String, stdin: Pipe, stdout: Pipe, stderr: Pipe) -
 pub fn list() -> Vec<Language> {
     vec![
         Language {
-            name: "C".to_string(),
-            extensions: vec!["c".to_string()],
-        },
-        Language {
             name: "C++".to_string(),
             extensions: vec!["cpp".to_string(), "cc".to_string(), "c++".to_string()],
+        },
+        Language {
+            name: "C".to_string(),
+            extensions: vec!["c".to_string()],
         },
         Language {
             name: "Python3".to_string(),

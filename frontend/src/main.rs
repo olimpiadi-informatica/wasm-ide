@@ -405,58 +405,53 @@ fn App() -> impl IntoView {
     };
 
     let navbar = view! {
-            <div
-                class:is-flex
-                class:is-flex-direction-row
-                class:is-align-items-center
-                class:is-column-gap-2
-                class:my-2
-                class:mx-3
-            >
-                <Settings />
-                <WorkspaceSelector active=workspace readonly=is_running />
-                <div class="is-flex-grow-1" />
-                <Show when=move || backend::for_lang(language.read().deref()).has_dynamic_io()>
-                    <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
-                </Show>
-                <Show when=move || is_running.get()>
-                    <button
-                        class:has-icons-left
-                        class:button
-                        class:is-danger
-                        class:mr-1
-                        style:width="8em"
-                        disabled=disable_stop
-                        on:click=do_stop
-                    >
-                        <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCloseOutlined />
-                        {t!(i18n, stop)}
-                    </button>
-                </Show>
-                <Show when=move || !is_running.get()>
-                    <button
-                        class:has-icons-left
-                        class:button
-                        class:is-success
-                        class:mr-1
-                        style:width="8em"
-                        disabled=disable_start
-                        on:click=move |_| {
-                            if !disable_start.get() {
-                                do_run.run(())
-                            }
+        <div
+            class:is-flex
+            class:is-flex-direction-row
+            class:is-align-items-center
+            class:is-column-gap-2
+            class:my-2
+            class:mx-3
+        >
+            <Settings />
+            <WorkspaceSelector active=workspace readonly=is_running />
+            <div class="is-flex-grow-1" />
+            <Show when=move || backend::for_lang(language.read().deref()).has_dynamic_io()>
+                <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
+            </Show>
+            <Show when=move || is_running.get()>
+                <button
+                    class:has-icons-left
+                    class:button
+                    class:is-danger
+                    class:mr-1
+                    style:width="8em"
+                    disabled=disable_stop
+                    on:click=do_stop
+                >
+                    <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCloseOutlined />
+                    {t!(i18n, stop)}
+                </button>
+            </Show>
+            <Show when=move || !is_running.get()>
+                <button
+                    class:has-icons-left
+                    class:button
+                    class:is-success
+                    class:mr-1
+                    style:width="8em"
+                    disabled=disable_start
+                    on:click=move |_| {
+                        if !disable_start.get() {
+                            do_run.run(())
                         }
-                    >
-                        <Icon
-                            class:icon
-                            class:is-left
-                            class:mr-1
-                            icon=icondata::AiCaretRightFilled
-                        />
-                        {t!(i18n, run)}
-                    </button>
-                </Show>
-            </div>
+                    }
+                >
+                    <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCaretRightFilled />
+                    {t!(i18n, run)}
+                </button>
+            </Show>
+        </div>
     };
 
     let disable_input_editor = Memo::new(move |_| {
