@@ -1,4 +1,4 @@
-use common::{Language, WorkerExecRequest, WorkerLSRequest, WorkerRequest};
+use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
 use leptos_i18n::t_display;
 use leptos_use::{UseMouseReturn, UseWindowSizeReturn, use_mouse, use_window_size};
@@ -9,7 +9,7 @@ use crate::editor::LSRecv;
 use crate::editor_dir::{EditorDir, EditorDirController};
 use crate::i18n::use_i18n;
 use crate::settings::{InputMode, SettingsProvider, set_editor_width, use_settings};
-use crate::util::Icon;
+use crate::util::{Icon, get_input_mode};
 
 #[component]
 pub fn EditorView(
@@ -18,7 +18,7 @@ pub fn EditorView(
     code: EditorDirController,
     stdin: EditorDirController,
     ctrl_enter: Callback<()>,
-    #[prop(into)] language: Signal<Language>,
+    #[prop(into)] language: Signal<String>,
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
     #[prop(into)] disable_additional_input: Signal<bool>,
@@ -56,7 +56,7 @@ pub fn EditorView(
 
     let additional_input_line = {
         view! {
-            <div class:is-hidden=move || input_mode.get() == InputMode::Batch>
+            <div class:is-hidden=move || get_input_mode(input_mode, language) == InputMode::Batch>
                 <form on:submit=move |ev| {
                     ev.prevent_default();
                     add_input()

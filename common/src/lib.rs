@@ -8,11 +8,8 @@
 //! compilation or language-server lifecycle that drives the IDE.
 #![warn(missing_docs)]
 
-use std::fmt::Display;
-
 use derive_more::From;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
 use tracing_subscriber::fmt::format::Pretty;
 use tracing_subscriber::prelude::*;
 use tracing_web::{MakeWebConsoleWriter, performance_layer};
@@ -32,9 +29,6 @@ pub enum WorkerRequest {
 /// Messages emitted by the worker back to the frontend.
 #[derive(Debug, Serialize, Deserialize, From)]
 pub enum WorkerResponse {
-    /// The worker finished initialization and is ready to receive messages.
-    Ready,
-
     /// A message related to program execution.
     Execution(#[from] WorkerExecResponse),
     /// A message related to the language server.
@@ -53,11 +47,11 @@ pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
     CompileAndRun {
         /// The name of the project to compile
-        workspace: String,
+        files: Vec<File>,
         /// The primary source file used by languages with multiple entry points (e.g. Python).
         primary_file: String,
         /// Programming language of the source code.
-        language: Language,
+        language: String,
         /// Optional data written to the program's standard input before execution.
         input: Option<Vec<u8>>,
         /// Configuration for program execution.
@@ -102,7 +96,7 @@ pub enum WorkerExecResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerLSRequest {
     /// Start the language server for the given language.
-    Start(Language),
+    Start(String),
     /// Forward a raw Language Server Protocol message to the worker.
     Message(String),
 }
@@ -145,49 +139,13 @@ pub struct File {
     pub content: String,
 }
 
-/// Languages supported by the IDE.
-#[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
-pub enum Language {
-    /// C code.
-    C,
-    /// C++ code.
-    Cpp,
-    /// Python 3 code.
-    Python,
-}
-
-impl Language {
-    /// Return the typical file extension for this language.
-    pub fn ext(self) -> &'static str {
-        match self {
-            Language::C => "c",
-            Language::Cpp => "cpp",
-            Language::Python => "py",
-        }
-    }
-}
-
-impl From<Language> for &'static str {
-    fn from(val: Language) -> Self {
-        match val {
-            Language::C => "C",
-            Language::Cpp => "C++",
-            Language::Python => "Python",
-        }
-    }
-}
-
-impl From<Language> for String {
-    fn from(val: Language) -> Self {
-        Into::<&'static str>::into(val).to_owned()
-    }
-}
-
-impl Display for Language {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let l: &str = (*self).into();
-        write!(f, "{l}")
-    }
+/// A programming language supported by the IDE.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Language {
+    /// The language's name.
+    pub name: String,
+    /// The file extensions commonly associated with this language.
+    pub extensions: Vec<String>,
 }
 
 /// Initialize logging to the browser console.

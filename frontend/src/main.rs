@@ -2,28 +2,23 @@
 leptos_i18n::load_locales!();
 
 use std::collections::HashMap;
-use std::ops::DerefMut;
+use std::ops::Deref;
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_channel::{Sender, unbounded};
 use common::config::Config;
 use common::{
-    ExecConfig, Language, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
+    ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
-use editor_view::EditorView;
 use futures_util::FutureExt;
 use gloo_net::http::Request;
-use i18n::*;
 use leptos::prelude::*;
-use send_wrapper::SendWrapper;
-use settings::{SettingsProvider, set_input_mode, use_settings};
 use tracing::{debug, info, warn};
-use util::Icon;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{MessageEvent, SubmitEvent, Worker, WorkerOptions, WorkerType};
 
+mod backend;
 mod editor;
 mod editor_dir;
 mod editor_view;
@@ -32,12 +27,18 @@ mod output;
 mod settings;
 mod status_view;
 mod util;
+mod workspace;
 
+use crate::backend::{RemoteBackend, WorkerBackend};
 use crate::editor_dir::EditorDirController;
+use crate::editor_view::EditorView;
 use crate::enum_select::EnumSelect;
+use crate::i18n::*;
 use crate::output::OutputView;
-use crate::settings::{InputMode, Settings};
+use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use_settings};
 use crate::status_view::StatusView;
+use crate::util::{Icon, get_input_mode};
+use crate::workspace::WorkspaceSelector;
 
 #[derive(Clone, Debug, Default)]
 pub struct Outcome {
@@ -49,9 +50,9 @@ pub struct Outcome {
 type FetchingCompilerProgress = HashMap<String, u64>;
 
 #[derive(Clone, Debug)]
-enum RunState {
-    Loading,
-    Ready { exec: StateExec, ls: StateLS },
+struct RunState {
+    exec: StateExec,
+    ls: StateLS,
 }
 
 #[derive(Clone, Debug)]
@@ -79,22 +80,11 @@ enum StateLS {
 
 impl RunState {
     fn can_start(&self) -> bool {
-        let exec = match self {
-            RunState::Ready { exec, .. } => exec,
-            _ => return false,
-        };
-        match exec {
-            StateExec::Processing { .. } => false,
-            StateExec::Ready | StateExec::Complete { .. } => true,
-        }
+        !self.is_running()
     }
 
     fn can_stop(&self) -> bool {
-        let exec = match self {
-            RunState::Ready { exec, .. } => exec,
-            _ => return false,
-        };
-        match exec {
+        match self.exec {
             StateExec::Ready
             | StateExec::Complete { .. }
             | StateExec::Processing { stopping: true, .. } => false,
@@ -105,15 +95,123 @@ impl RunState {
     }
 
     fn is_running(&self) -> bool {
-        let exec = match self {
-            RunState::Ready { exec, .. } => exec,
-            _ => return false,
-        };
-        match exec {
+        match self.exec {
             StateExec::Ready | StateExec::Complete { .. } => false,
             StateExec::Processing { .. } => true,
         }
     }
+}
+
+fn handle_message(
+    msg: WorkerResponse,
+    state: RwSignal<RunState>,
+    fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
+    ls_message_chan: &Sender<WorkerLSResponse>,
+) -> Result<()> {
+    debug!("{msg:?}");
+    match msg {
+        WorkerResponse::Execution(msg) => {
+            handle_exec_message(msg, state)?;
+        }
+        WorkerResponse::LS(msg) => {
+            handle_ls_message(msg, state, ls_message_chan)?;
+        }
+        WorkerResponse::FetchingCompiler(name, progress) => {
+            fetching_compiler_progress.update(|x| {
+                x.insert(name, progress);
+            });
+        }
+        WorkerResponse::CompilerFetchDone(name) => {
+            fetching_compiler_progress.update(|x| {
+                x.remove(&name);
+            });
+        }
+    };
+    Ok(())
+}
+
+fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Result<()> {
+    let mut state = state.write();
+
+    match (msg, &mut state.exec) {
+        (WorkerExecResponse::Status(new), StateExec::Processing { status, .. }) => {
+            *status = Some(new);
+        }
+
+        (
+            WorkerExecResponse::CompilationMessageChunk(chunk),
+            StateExec::Processing { outcome, .. },
+        ) => {
+            outcome.compile_stderr.extend_from_slice(&chunk);
+        }
+        (WorkerExecResponse::StdoutChunk(chunk), StateExec::Processing { outcome, .. }) => {
+            outcome.stdout.extend_from_slice(&chunk);
+        }
+        (WorkerExecResponse::StderrChunk(chunk), StateExec::Processing { outcome, .. }) => {
+            outcome.stderr.extend_from_slice(&chunk);
+        }
+
+        (WorkerExecResponse::Success, StateExec::Processing { outcome, .. }) => {
+            state.exec = StateExec::Complete {
+                outcome: std::mem::take(outcome),
+                error: None,
+            };
+        }
+
+        (WorkerExecResponse::Error(s), StateExec::Processing { outcome, .. }) => {
+            state.exec = StateExec::Complete {
+                outcome: std::mem::take(outcome),
+                error: Some(s),
+            };
+        }
+
+        (msg, _) => {
+            warn!(
+                "unexpected msg & state combination: {msg:?} {:?}",
+                state.exec
+            );
+        }
+    };
+
+    Ok(())
+}
+
+fn handle_ls_message(
+    msg: WorkerLSResponse,
+    state: RwSignal<RunState>,
+    ls_message_chan: &Sender<WorkerLSResponse>,
+) -> Result<()> {
+    let mut state = state.write();
+
+    let msg2 = msg.clone();
+    match (msg, &mut state.ls) {
+        (WorkerLSResponse::FetchingCompiler, StateLS::Requested | StateLS::Error(_)) => {
+            state.ls = StateLS::FetchingCompiler;
+        }
+
+        (WorkerLSResponse::Started, StateLS::Requested | StateLS::FetchingCompiler) => {
+            state.ls = StateLS::Running;
+            ls_message_chan.try_send(msg2)?;
+        }
+
+        (WorkerLSResponse::Message(_), StateLS::Running) => {
+            ls_message_chan.try_send(msg2)?;
+        }
+
+        (WorkerLSResponse::Stopped, StateLS::Requested) => {}
+
+        (
+            WorkerLSResponse::Error(msg),
+            StateLS::Requested | StateLS::FetchingCompiler | StateLS::Running,
+        ) => {
+            state.ls = StateLS::Error(msg);
+        }
+
+        (msg, _) => {
+            warn!("unexpected msg & state combination: {msg:?} {:?}", state.ls);
+        }
+    }
+    Ok(())
 }
 
 #[component]
@@ -141,270 +239,14 @@ fn StoragePersistView() -> impl IntoView {
     }
 }
 
-fn handle_message(
-    msg: JsValue,
-    state: RwSignal<RunState>,
-    fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
-    ls_message_chan: &Sender<WorkerLSResponse>,
-) -> Result<()> {
-    let msg = msg.dyn_into::<MessageEvent>().unwrap().data();
-    let msg = match serde_wasm_bindgen::from_value::<WorkerResponse>(msg) {
-        Ok(msg) => msg,
-        Err(e) => {
-            warn!("invalid message from worker: {e}");
-            return Ok(());
-        }
-    };
-    debug!("{msg:?}");
-    match msg {
-        WorkerResponse::Ready => {
-            state.set(RunState::Ready {
-                exec: StateExec::Ready,
-                ls: StateLS::Ready,
-            });
-        }
-        WorkerResponse::Execution(msg) => {
-            handle_exec_message(msg, state)?;
-        }
-        WorkerResponse::LS(msg) => {
-            handle_ls_message(msg, state, ls_message_chan)?;
-        }
-        WorkerResponse::FetchingCompiler(name, progress) => {
-            fetching_compiler_progress.update(|x| {
-                x.insert(name, progress);
-            });
-        }
-        WorkerResponse::CompilerFetchDone(name) => {
-            fetching_compiler_progress.update(|x| {
-                x.remove(&name);
-            });
-        }
-    };
-    Ok(())
-}
-
-fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Result<()> {
-    let mut state = state.write();
-    let exec = match state.deref_mut() {
-        RunState::Ready { exec, .. } => exec,
-        _ => {
-            warn!("received execution message while not ready: {msg:?}");
-            return Ok(());
-        }
-    };
-
-    match (msg, &mut *exec) {
-        (WorkerExecResponse::Status(new), StateExec::Processing { status, .. }) => {
-            *status = Some(new);
-        }
-
-        (
-            WorkerExecResponse::CompilationMessageChunk(chunk),
-            StateExec::Processing { outcome, .. },
-        ) => {
-            outcome.compile_stderr.extend_from_slice(&chunk);
-        }
-        (WorkerExecResponse::StdoutChunk(chunk), StateExec::Processing { outcome, .. }) => {
-            outcome.stdout.extend_from_slice(&chunk);
-        }
-        (WorkerExecResponse::StderrChunk(chunk), StateExec::Processing { outcome, .. }) => {
-            outcome.stderr.extend_from_slice(&chunk);
-        }
-
-        (WorkerExecResponse::Success, StateExec::Processing { outcome, .. }) => {
-            *exec = StateExec::Complete {
-                outcome: std::mem::take(outcome),
-                error: None,
-            };
-        }
-
-        (WorkerExecResponse::Error(s), StateExec::Processing { outcome, .. }) => {
-            *exec = StateExec::Complete {
-                outcome: std::mem::take(outcome),
-                error: Some(s),
-            };
-        }
-
-        (msg, _) => {
-            warn!("unexpected msg & state combination: {msg:?} {exec:?}");
-        }
-    };
-
-    Ok(())
-}
-
-fn handle_ls_message(
-    msg: WorkerLSResponse,
-    state: RwSignal<RunState>,
-    ls_message_chan: &Sender<WorkerLSResponse>,
-) -> Result<()> {
-    let mut state = state.write();
-    let ls = match state.deref_mut() {
-        RunState::Ready { ls, .. } => ls,
-        _ => {
-            warn!("received execution message while not ready: {msg:?}");
-            return Ok(());
-        }
-    };
-
-    let msg2 = msg.clone();
-    match (msg, &mut *ls) {
-        (WorkerLSResponse::FetchingCompiler, StateLS::Requested | StateLS::Error(_)) => {
-            *ls = StateLS::FetchingCompiler;
-        }
-
-        (WorkerLSResponse::Started, StateLS::Requested | StateLS::FetchingCompiler) => {
-            *ls = StateLS::Running;
-            ls_message_chan.try_send(msg2)?;
-        }
-
-        (WorkerLSResponse::Message(_), StateLS::Running) => {
-            ls_message_chan.try_send(msg2)?;
-        }
-
-        (WorkerLSResponse::Stopped, StateLS::Requested) => {}
-
-        (
-            WorkerLSResponse::Error(msg),
-            StateLS::Requested | StateLS::FetchingCompiler | StateLS::Running,
-        ) => {
-            *ls = StateLS::Error(msg);
-        }
-
-        (msg, _) => {
-            warn!("unexpected msg & state combination: {msg:?} {ls:?}");
-        }
-    }
-    Ok(())
-}
-
-#[component]
-fn WorkspaceSelector(
-    active: RwSignal<Option<String>>,
-    #[prop(into)] readonly: Signal<bool>,
-) -> impl IntoView {
-    let i18n = use_i18n();
-    let workspaces = RwSignal::new(Vec::new());
-    let open = RwSignal::new(true);
-    let new_ws = RwSignal::new(String::new());
-
-    spawn_local(async move {
-        let dir = common::opfs::open_dir("workspace", true).await;
-        let entries = dir.list_entries().await;
-        workspaces.set(entries);
-    });
-
-    let new_workspace = move |ev: SubmitEvent| {
-        ev.prevent_default();
-        let name = new_ws.get_untracked();
-        if name.is_empty() {
-            return;
-        }
-        let config = expect_context::<Config>();
-        spawn_local(async move {
-            for (filename, content) in config.default_ws.code {
-                let code =
-                    common::opfs::open_file(&format!("workspace/{name}/code/{filename}"), true)
-                        .await;
-                code.write(content.as_bytes()).await;
-            }
-            for (filename, content) in config.default_ws.stdin {
-                let stdin =
-                    common::opfs::open_file(&format!("workspace/{name}/stdin/{filename}"), true)
-                        .await;
-                stdin.write(content.as_bytes()).await;
-            }
-
-            workspaces.update(|w| w.push(name.clone()));
-            active.set(Some(name));
-            open.set(false);
-            new_ws.set(String::new());
-        });
-    };
-
-    let render_ws = move |ws: String| {
-        let ws2 = ws.clone();
-        let ws3 = ws.clone();
-        view! {
-            <a on:click=move |_| {
-                active.set(Some(ws2.clone()));
-                open.set(false);
-            }>{ws}</a>
-            <Icon
-                icon=icondata::BiTrashSolid
-                class:is-clickable
-                style:height="1em"
-                style:width="1em"
-                on:click=move |_| {
-                    workspaces.update(|w| w.retain(|x| x != &ws3));
-                    active
-                        .update(|a| {
-                            if a.as_ref() == Some(&ws3) {
-                                *a = None;
-                            }
-                        });
-                    let ws3 = ws3.clone();
-                    spawn_local(async move {
-                        let dir = common::opfs::open_dir("workspace", true).await;
-                        dir.remove_entry(&ws3, true).await;
-                    });
-                }
-            />
-        }
-    };
-
-    view! {
-        <button class:button on:click=move |_| open.set(true) disabled=readonly>
-            {move || active.get().unwrap_or_else(|| t_string!(i18n, choose_workspace).into())}
-        </button>
-
-        <div class:modal class:is-active=open>
-            <div class="modal-background" on:click=move |_| open.set(false) />
-            <div class="modal-card">
-                <header class="modal-card-head">
-                    <p class="modal-card-title">{t!(i18n, workspaces)}</p>
-                    <button class="delete" aria-label="close" on:click=move |_| open.set(false) />
-                </header>
-                <section
-                    class="modal-card-body"
-                    style:display="grid"
-                    style:grid-template-columns="auto 1em"
-                >
-                    <form
-                        style:grid-column="span 2"
-                        class:is-flex
-                        class:is-column-gap-2
-                        class:is-align-items-center
-                        class:mb-6
-                        on:submit=new_workspace
-                    >
-                        <input
-                            class="input"
-                            type="text"
-                            placeholder=move || t_string!(i18n, workspace_name)
-                            bind:value=new_ws
-                        />
-                        <button class="button is-primary" type="submit">
-                            {t!(i18n, create_workspace)}
-                        </button>
-                    </form>
-                    <For each=move || workspaces.get() key=|w| w.clone() children=render_ws />
-                </section>
-            </div>
-        </div>
-    }
-}
-
 #[component]
 fn App() -> impl IntoView {
-    let options = WorkerOptions::default();
-    options.set_type(WorkerType::Module);
-    let worker =
-        Worker::new_with_options("./worker_loader.js", &options).expect("could not start worker");
-
     let i18n = use_i18n();
 
-    let state = RwSignal::new(RunState::Loading);
+    let state = RwSignal::new(RunState {
+        exec: StateExec::Ready,
+        ls: StateLS::Ready,
+    });
 
     let (ls_sender, ls_receiver) = unbounded();
 
@@ -417,29 +259,12 @@ fn App() -> impl IntoView {
         ..
     } = use_settings();
 
-    worker.set_onmessage(Some(
-        Closure::<dyn Fn(_)>::new({
-            let ls_sender = ls_sender.clone();
-            move |msg| {
-                handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
-            }
-        })
-        .into_js_value()
-        .unchecked_ref(),
-    ));
-
-    let send_worker_message = {
-        let worker = SendWrapper::new(worker);
-        move |msg: WorkerRequest| {
-            debug_assert!(
-                matches!(*state.read_untracked(), RunState::Ready { .. }),
-                "sending message to worker while not ready: {msg:?}"
-            );
-            debug!("send to worker: {:?}", msg);
-            let js_msg = serde_wasm_bindgen::to_value(&msg).expect("invalid message to worker");
-            worker.post_message(&js_msg).expect("worker died");
+    backend::set_callback(Arc::new({
+        let ls_sender = ls_sender.clone();
+        move |msg| {
+            handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
         }
-    };
+    }));
 
     let workspace = RwSignal::new(None);
 
@@ -462,136 +287,124 @@ fn App() -> impl IntoView {
             .get()
             .and_then(|f| {
                 let ext = f.split('.').next_back().unwrap_or("");
-                match ext {
-                    "c" => Some(Language::C),
-                    "cpp" => Some(Language::Cpp),
-                    "py" => Some(Language::Python),
-                    _ => None,
-                }
+                backend::languages()
+                    .iter()
+                    .find(|lang| lang.extensions.iter().any(|e| e == ext))
+                    .map(|lang| lang.name.clone())
             })
-            .or(old.copied())
-            .unwrap_or(Language::Cpp)
+            .or(old.cloned())
+            .unwrap_or("C++".to_owned())
     });
+
+    let send_worker_message = move |msg: WorkerRequest| {
+        backend::for_lang(&language.get_untracked()).send_message(msg);
+    };
 
     let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
     let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
     {
-        let worker_ready = Memo::new(move |_| matches!(*state.read(), RunState::Ready { .. }));
-
-        let send_worker_message = send_worker_message.clone();
         let ls_sender = ls_sender.clone();
         Effect::new(move |_| {
-            if !worker_ready.get() {
-                return;
-            }
-
             let lang = language.get();
             info!("Requesting language server for {lang:?}");
             state.update(|s| {
-                if let RunState::Ready { ls, .. } = s {
-                    *ls = StateLS::Requested;
-                }
+                s.ls = StateLS::Requested;
             });
             ls_sender.try_send(WorkerLSResponse::Stopped).unwrap();
             send_worker_message(WorkerLSRequest::Start(lang).into());
         });
     }
 
-    let do_run = {
-        let send_worker_message = send_worker_message.clone();
-        Callback::new(move |()| {
-            let Some(ws) = workspace.get_untracked() else {
-                return;
-            };
-            let Some(primary_file) = code.open_filename().get_untracked() else {
-                return;
-            };
-            let primary_file = primary_file
-                .split('/')
-                .next_back()
-                .expect("invalid primary file")
-                .to_string();
+    let owner = Owner::current().expect("Owner should be available in App component");
+    let do_run = Callback::new(move |()| {
+        let Some(ws) = workspace.get_untracked() else {
+            return;
+        };
+        let Some(primary_file) = code.open_filename().get_untracked() else {
+            return;
+        };
+        let primary_file = primary_file
+            .split('/')
+            .next_back()
+            .expect("invalid primary file")
+            .to_string();
 
-            match state.write().deref_mut() {
-                RunState::Ready {
-                    exec: exec @ (StateExec::Ready | StateExec::Complete { .. }),
-                    ..
-                } => {
-                    *exec = StateExec::Processing {
-                        status: None,
-                        outcome: Outcome::default(),
-                        stopping: false,
-                    };
-                }
-                _ => {
-                    warn!("asked to run while already running");
-                    return;
-                }
-            }
-
-            let send_worker_message = send_worker_message.clone();
-            spawn_local(async move {
-                code.wait_sync().await;
-                if input_mode.get_untracked() == InputMode::FullInteractive {
-                    stdin.set_text("");
-                }
-                let input = stdin.get_text();
-                let (input, addn_msg) = match input_mode.get_untracked() {
-                    InputMode::MixedInteractive => (
-                        None,
-                        Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
-                    ),
-                    InputMode::FullInteractive => (None, None),
-                    InputMode::Batch => (Some(input.into_bytes()), None),
+        match &mut state.write().exec {
+            exec @ (StateExec::Ready | StateExec::Complete { .. }) => {
+                *exec = StateExec::Processing {
+                    status: None,
+                    outcome: Outcome::default(),
+                    stopping: false,
                 };
-
-                info!("Requesting execution");
-                let lng = language.get_untracked();
-                send_worker_message(
-                    WorkerExecRequest::CompileAndRun {
-                        workspace: ws,
-                        primary_file,
-                        language: lng,
-                        input,
-                        config: ExecConfig {
-                            mem_limit: mem_limit.get_untracked().map(|x| x * 16),
-                            time_limit: time_limit.get_untracked(),
-                        },
-                    }
-                    .into(),
-                );
-                if let Some(addn_msg) = addn_msg {
-                    send_worker_message(addn_msg.into());
-                }
-            });
-        })
-    };
-
-    let do_stop = {
-        let send_worker_message = send_worker_message.clone();
-        move |_| {
-            match state.write().deref_mut() {
-                RunState::Ready {
-                    exec: StateExec::Processing { stopping, .. },
-                    ..
-                } => {
-                    *stopping = true;
-                }
-                _ => {
-                    warn!("asked to stop while not running");
-                    return;
-                }
             }
-            info!("Stopping execution");
-            send_worker_message(WorkerExecRequest::Cancel.into());
+            _ => {
+                warn!("asked to run while already running");
+                return;
+            }
         }
+
+        let input_mode = owner.with(|| get_input_mode(input_mode, language.into()));
+        spawn_local(async move {
+            code.wait_sync().await;
+            if input_mode == InputMode::FullInteractive {
+                stdin.set_text("");
+            }
+            let input = stdin.get_text();
+            let (input, addn_msg) = match input_mode {
+                InputMode::MixedInteractive => (
+                    None,
+                    Some(WorkerExecRequest::StdinChunk(input.into_bytes())),
+                ),
+                InputMode::FullInteractive => (None, None),
+                InputMode::Batch => (Some(input.into_bytes()), None),
+            };
+
+            let mut files = Vec::new();
+            let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
+            for name in dir.list_entries().await {
+                let file = dir.open_file(&name, false).await;
+                let content = String::from_utf8(file.read().await).unwrap();
+                files.push(File { name, content });
+            }
+
+            info!("Requesting execution");
+            let lng = language.get_untracked();
+            send_worker_message(
+                WorkerExecRequest::CompileAndRun {
+                    files,
+                    primary_file,
+                    language: lng,
+                    input,
+                    config: ExecConfig {
+                        mem_limit: mem_limit.get_untracked().map(|x| x * 16),
+                        time_limit: time_limit.get_untracked(),
+                    },
+                }
+                .into(),
+            );
+            if let Some(addn_msg) = addn_msg {
+                send_worker_message(addn_msg.into());
+            }
+        });
+    });
+
+    let do_stop = move |_| {
+        match &mut state.write().exec {
+            StateExec::Processing { stopping, .. } => {
+                *stopping = true;
+            }
+            _ => {
+                warn!("asked to stop while not running");
+                return;
+            }
+        }
+        info!("Stopping execution");
+        send_worker_message(WorkerExecRequest::Cancel.into());
     };
 
-    let navbar = {
-        let do_stop = do_stop.clone();
-        view! {
+    let navbar = view! {
             <div
                 class:is-flex
                 class:is-flex-direction-row
@@ -603,7 +416,9 @@ fn App() -> impl IntoView {
                 <Settings />
                 <WorkspaceSelector active=workspace readonly=is_running />
                 <div class="is-flex-grow-1" />
-                <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
+                <Show when=move || backend::for_lang(language.read().deref()).has_dynamic_io()>
+                    <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
+                </Show>
                 <Show when=move || is_running.get()>
                     <button
                         class:has-icons-left
@@ -612,7 +427,7 @@ fn App() -> impl IntoView {
                         class:mr-1
                         style:width="8em"
                         disabled=disable_stop
-                        on:click=do_stop.clone()
+                        on:click=do_stop
                     >
                         <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCloseOutlined />
                         {t!(i18n, stop)}
@@ -642,11 +457,12 @@ fn App() -> impl IntoView {
                     </button>
                 </Show>
             </div>
-        }
     };
 
-    let disable_input_editor =
-        Memo::new(move |_| is_running.get() || input_mode.get() == InputMode::FullInteractive);
+    let disable_input_editor = Memo::new(move |_| {
+        is_running.get()
+            || get_input_mode(input_mode, language.into()) == InputMode::FullInteractive
+    });
 
     view! {
         <StatusView state fetching_compiler_progress />
@@ -670,11 +486,34 @@ fn App() -> impl IntoView {
 }
 
 #[component]
-fn ConfigProvider(children: Children) -> impl IntoView {
+fn LoadingView() -> impl IntoView {
+    let i18n = use_i18n();
+    view! {
+        <div
+            class:is-flex
+            class:is-flex-direction-row
+            class:is-align-items-center
+            class:is-justify-content-center
+            style:height="100dvh"
+        >
+            <span class="loader" />
+            <p class="is-size-4 ml-2">{t!(i18n, loading)}</p>
+        </div>
+    }
+}
+
+#[component]
+fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
     let config = async {
         let res = Request::get("config.json").send().await.unwrap();
         assert!(res.ok(), "could not load config: {}", res.status());
         let config: Config = res.json().await.unwrap();
+
+        backend::register_backend(WorkerBackend::new().await);
+        if let Some(remote_eval) = &config.remote_eval {
+            backend::register_backend(RemoteBackend::new(remote_eval.clone()).await.unwrap());
+        }
+
         config
     };
 
@@ -682,12 +521,10 @@ fn ConfigProvider(children: Children) -> impl IntoView {
     spawn_local(task);
 
     view! {
-        <Suspense fallback=|| {
-            view! { <p>"Loading config..."</p> }
-        }>
+        <Suspense fallback=LoadingView>
             {Suspend::new(async move {
                 let config = handle.await;
-                provide_context(config);
+                provide_context::<Config>(config);
                 children()
             })}
 
@@ -702,9 +539,9 @@ fn main() {
         SettingsProvider::install();
         view! {
             <I18nContextProvider>
-                <ConfigProvider>
+                <ConfigAndBackendProvider>
                     <App />
-                </ConfigProvider>
+                </ConfigAndBackendProvider>
             </I18nContextProvider>
         }
     })

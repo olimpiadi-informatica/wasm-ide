@@ -1,4 +1,3 @@
-use common::Language;
 use leptos::{prelude::*, task::spawn_local};
 use web_sys::SubmitEvent;
 
@@ -41,7 +40,7 @@ impl EditorDirController {
 #[component]
 pub fn EditorDir(
     controller: EditorDirController,
-    #[prop(into)] syntax: Signal<Option<Language>>,
+    #[prop(into)] syntax: Signal<Option<String>>,
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Callback<()>,
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
