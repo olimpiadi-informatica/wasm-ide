@@ -15,7 +15,7 @@
     "@rollup/plugin-typescript": "^11.1.6",
     "@uiw/codemirror-theme-solarized": "^4.22.1",
     "codemirror": "^6.0.1",
-    "rollup": "^4.22.4"
+    "rollup": "^4.59.0"
   },
   "devDependencies": {
     "tslib": "^2.6.2"
