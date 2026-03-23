@@ -49,6 +49,12 @@
   "create_workspace": "Crea",
   "choose_workspace": "Tria un espai de treball",
 
+  "name": "Nom",
+  "connect_to_task": "Connecta a la tasca",
+  "none": "Cap",
+
+  "custom": "Personalitzat",
+
   "create_file_title": "Crea un fitxer",
   "create_file": "Crea"
 }

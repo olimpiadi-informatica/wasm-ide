@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU32, Ordering};
-
 use async_channel::Receiver;
 use common::WorkerLSResponse;
 use futures_util::StreamExt;
@@ -8,8 +6,8 @@ use leptos::prelude::*;
 use tracing::{debug, info, warn};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
-use web_sys::HtmlInputElement;
 use web_sys::js_sys::Function;
+use web_sys::{HtmlDivElement, HtmlElement, HtmlInputElement};
 
 use crate::settings::{KeyboardMode, Theme, use_settings};
 use crate::util::{Icon, download};
@@ -28,7 +26,7 @@ extern "C" {
     type CM6Editor;
 
     #[wasm_bindgen(constructor)]
-    fn new(id: &str) -> CM6Editor;
+    fn new(id: &HtmlElement) -> CM6Editor;
 
     #[wasm_bindgen(method, js_name = "setLanguage")]
     fn set_language(this: &CM6Editor, lang: &str);
@@ -146,43 +144,39 @@ pub fn Editor(
         });
     };
 
-    static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-    let id = format!("{}-editor", ID_COUNTER.fetch_add(1, Ordering::Relaxed));
-    {
-        let id = id.clone();
-        queue_microtask(move || {
-            let editor = CM6Editor::new(&id);
-            editor.set_exec(
-                Closure::wrap(Box::new(move || ctrl_enter.run(())) as Box<dyn Fn()>)
-                    .into_js_value()
-                    .unchecked_into(),
-            );
-            editor.set_onchange(
-                Closure::<dyn Fn(_)>::new(onchange)
-                    .into_js_value()
-                    .unchecked_into(),
-            );
-            if let Some((receiver, send_worker_message)) = ls_interface {
-                let fun = Closure::wrap(send_worker_message)
-                    .into_js_value()
-                    .unchecked_into();
-                let ls = editor.set_language_server(fun);
-                spawn_local(async move {
-                    loop {
-                        let msg = receiver.recv().await.unwrap();
-                        match msg {
-                            WorkerLSResponse::FetchingCompiler => {}
-                            WorkerLSResponse::Started => ls.ready(),
-                            WorkerLSResponse::Stopped => ls.stopping(),
-                            WorkerLSResponse::Message(s) => ls.message(s),
-                            WorkerLSResponse::Error(_) => ls.stopping(),
-                        }
+    let node_ref = NodeRef::new();
+    node_ref.on_load(move |div: HtmlDivElement| {
+        let editor = CM6Editor::new(&div);
+        editor.set_exec(
+            Closure::wrap(Box::new(move || ctrl_enter.run(())) as Box<dyn Fn()>)
+                .into_js_value()
+                .unchecked_into(),
+        );
+        editor.set_onchange(
+            Closure::<dyn Fn(_)>::new(onchange)
+                .into_js_value()
+                .unchecked_into(),
+        );
+        if let Some((receiver, send_worker_message)) = ls_interface {
+            let fun = Closure::wrap(send_worker_message)
+                .into_js_value()
+                .unchecked_into();
+            let ls = editor.set_language_server(fun);
+            spawn_local(async move {
+                loop {
+                    let msg = receiver.recv().await.unwrap();
+                    match msg {
+                        WorkerLSResponse::FetchingCompiler => {}
+                        WorkerLSResponse::Started => ls.ready(),
+                        WorkerLSResponse::Stopped => ls.stopping(),
+                        WorkerLSResponse::Message(s) => ls.message(s),
+                        WorkerLSResponse::Error(_) => ls.stopping(),
                     }
-                });
-            }
-            cm6.set(Some(editor));
-        });
-    }
+                }
+            });
+        }
+        cm6.set(Some(editor));
+    });
 
     Effect::new(move |_| {
         let name = filename.get();
@@ -285,7 +279,7 @@ pub fn Editor(
     };
 
     view! {
-        <div id=id class:is-height-100 class:is-size-6 class:is-relative>
+        <div node_ref=node_ref class:is-height-100 class:is-size-6 class:is-relative>
             <div
                 class:is-size-4
                 class:is-opacity-50

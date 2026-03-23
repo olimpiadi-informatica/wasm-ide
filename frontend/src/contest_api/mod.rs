@@ -1,0 +1,34 @@
+use std::sync::{Arc, OnceLock};
+
+use anyhow::Result;
+use async_trait::async_trait;
+use common::config::{Config, Workspace};
+
+mod terry;
+
+#[async_trait]
+pub trait ContestAPI {
+    async fn list_tasks(&self) -> Result<Vec<String>>;
+
+    async fn init_workspace(&self, task: &str, lang: &str) -> Result<Workspace>;
+}
+
+pub type DynContestAPI = Arc<dyn ContestAPI + Send + Sync>;
+
+static SINGLETON: OnceLock<Option<DynContestAPI>> = OnceLock::new();
+
+pub fn get() -> Option<DynContestAPI> {
+    SINGLETON.get().expect("ContestAPI not initialized").clone()
+}
+
+pub async fn init(config: &Config) {
+    let api: Option<DynContestAPI> = if let Some(terry) = config.terry.clone() {
+        Some(Arc::new(terry::Terry::new(terry)))
+    } else {
+        None
+    };
+    SINGLETON
+        .set(api)
+        .ok()
+        .expect("ContestAPI already initialized");
+}

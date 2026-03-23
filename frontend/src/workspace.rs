@@ -3,8 +3,8 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 
-use crate::i18n::*;
 use crate::util::Icon;
+use crate::{backend, contest_api, i18n::*};
 
 #[component]
 pub fn WorkspaceSelector(
@@ -14,7 +14,9 @@ pub fn WorkspaceSelector(
     let i18n = use_i18n();
     let workspaces = RwSignal::new(Vec::new());
     let open = RwSignal::new(true);
-    let new_ws = RwSignal::new(String::new());
+    let new_name = RwSignal::new(String::new());
+    let task = RwSignal::new(String::new());
+    let language = RwSignal::new(String::new());
 
     spawn_local(async move {
         let dir = common::opfs::open_dir("workspace", true).await;
@@ -24,19 +26,30 @@ pub fn WorkspaceSelector(
 
     let new_workspace = move |ev: SubmitEvent| {
         ev.prevent_default();
-        let name = new_ws.get_untracked();
+        let name = new_name.get_untracked();
         if name.is_empty() {
             return;
         }
         let config = expect_context::<Config>();
         spawn_local(async move {
-            for (filename, content) in config.default_ws.code {
+            let task = task.get_untracked();
+            let ws = if task.is_empty() {
+                config.default_ws
+            } else {
+                contest_api::get()
+                    .unwrap()
+                    .init_workspace(&task, &language.get_untracked())
+                    .await
+                    .expect("Failed to initialize workspace")
+            };
+
+            for (filename, content) in ws.code {
                 let code =
                     common::opfs::open_file(&format!("workspace/{name}/code/{filename}"), true)
                         .await;
                 code.write(content.as_bytes()).await;
             }
-            for (filename, content) in config.default_ws.stdin {
+            for (filename, content) in ws.stdin {
                 let stdin =
                     common::opfs::open_file(&format!("workspace/{name}/stdin/{filename}"), true)
                         .await;
@@ -46,7 +59,7 @@ pub fn WorkspaceSelector(
             workspaces.update(|w| w.push(name.clone()));
             active.set(Some(name));
             open.set(false);
-            new_ws.set(String::new());
+            new_name.set(String::new());
         });
     };
 
@@ -100,19 +113,27 @@ pub fn WorkspaceSelector(
                 >
                     <form
                         style:grid-column="span 2"
-                        class:is-flex
-                        class:is-column-gap-2
-                        class:is-align-items-center
+                        style:display="grid"
+                        style:grid-template-columns="1fr 1fr"
+                        style:gap="0.5em"
                         class:mb-6
                         on:submit=new_workspace
                     >
+                        <span>{t!(i18n, name)}</span>
                         <input
                             class="input"
                             type="text"
                             placeholder=move || t_string!(i18n, workspace_name)
-                            bind:value=new_ws
+                            bind:value=new_name
                         />
-                        <button class="button is-primary" type="submit">
+                        <ConnectTask task />
+                        <Language language />
+                        <button
+                            class="button is-primary"
+                            type="submit"
+                            style:grid-column="span 2"
+                            class:mx-2
+                        >
                             {t!(i18n, create_workspace)}
                         </button>
                     </form>
@@ -121,4 +142,52 @@ pub fn WorkspaceSelector(
             </div>
         </div>
     }
+}
+
+#[component]
+pub fn ConnectTask(task: RwSignal<String>) -> Option<impl IntoView> {
+    let i18n = use_i18n();
+    let api = contest_api::get()?;
+
+    let tasks = LocalResource::new(move || {
+        let api = api.clone();
+        async move { api.list_tasks().await.unwrap() }
+    });
+
+    Some(view! {
+        <span>{t!(i18n, connect_to_task)}</span>
+        <div class:select>
+            <select
+                prop:value=move || task.get()
+                on:change:target=move |ev| task.set(ev.target().value())
+                style:width="100%"
+            >
+                <option value="">{t!(i18n, none)}</option>
+                <For each=move || tasks.get().into_iter().flatten() key=|t| t.clone() let:task>
+                    <option>{task}</option>
+                </For>
+            </select>
+        </div>
+    })
+}
+
+#[component]
+pub fn Language(language: RwSignal<String>) -> Option<impl IntoView> {
+    let i18n = use_i18n();
+    let _api = contest_api::get()?;
+
+    Some(view! {
+        <span>{t!(i18n, language)}</span>
+        <div class:select>
+            <select
+                prop:value=move || language.get()
+                on:change:target=move |ev| language.set(ev.target().value())
+                style:width="100%"
+            >
+                <For each=move || backend::languages() key=|l| l.name.clone() let:lang>
+                    <option>{lang.name}</option>
+                </For>
+            </select>
+        </div>
+    })
 }

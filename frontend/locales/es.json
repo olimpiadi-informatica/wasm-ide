@@ -49,6 +49,12 @@
   "create_workspace": "Crear",
   "choose_workspace": "Elegir espacio de trabajo",
 
+  "name": "Nombre",
+  "connect_to_task": "Conecta a la tarea",
+  "none": "Ninguno",
+
+  "custom": "Personalizado",
+
   "create_file_title": "Crear archivo",
   "create_file": "Crear"
 }
