@@ -12,13 +12,14 @@ use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
-use futures_util::FutureExt;
 use gloo_net::http::Request;
 use leptos::prelude::*;
+use send_wrapper::SendWrapper;
 use tracing::{debug, info, warn};
 use wasm_bindgen_futures::spawn_local;
 
 mod backend;
+mod contest_api;
 mod editor;
 mod editor_dir;
 mod editor_view;
@@ -218,11 +219,8 @@ fn handle_ls_message(
 fn StoragePersistView() -> impl IntoView {
     let i18n = use_i18n();
 
-    let (task, handle) = common::opfs::persist().remote_handle();
-    spawn_local(task);
-
     view! {
-        <Await future=handle let:(&persist)>
+        <Await future=SendWrapper::new(common::opfs::persist()) let:(&persist)>
             <Show when=move || !persist>
                 <div
                     class:message
@@ -498,8 +496,8 @@ fn LoadingView() -> impl IntoView {
 }
 
 #[component]
-fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
-    let config = async {
+fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
+    let config = LocalResource::new(|| async {
         let res = Request::get("config.json").send().await.unwrap();
         assert!(res.ok(), "could not load config: {}", res.status());
         let config: Config = res.json().await.unwrap();
@@ -509,21 +507,17 @@ fn ConfigAndBackendProvider(children: Children) -> impl IntoView {
             backend::register_backend(RemoteBackend::new(remote_eval.clone()).await.unwrap());
         }
 
+        contest_api::init(&config).await;
+
         config
-    };
+    });
 
-    let (task, handle) = config.remote_handle();
-    spawn_local(task);
-
-    view! {
-        <Suspense fallback=LoadingView>
-            {Suspend::new(async move {
-                let config = handle.await;
-                provide_context::<Config>(config);
-                children()
-            })}
-
-        </Suspense>
+    move || match config.get() {
+        Some(config) => {
+            provide_context::<Config>(config);
+            children()
+        }
+        None => view! { <LoadingView /> }.into_any(),
     }
 }
 

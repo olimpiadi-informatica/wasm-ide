@@ -166,7 +166,7 @@ fn OutDivInner(
                     style:position="absolute"
                     style:top="0"
                     style:right="0.5em"
-                    style:z-index="50"
+                    style:z-index="20"
                 >
                     <Icon
                         icon=icondata::ChDownload

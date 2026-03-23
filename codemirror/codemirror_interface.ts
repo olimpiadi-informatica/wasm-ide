@@ -73,11 +73,7 @@ export class CM6Editor {
   });
   lspPlugin = new Compartment();
 
-  constructor(elementId: string) {
-    const element = document.getElementById(elementId);
-    if (element === null) {
-      throw new Error(`"${elementId}" not found`);
-    }
+  constructor(element: HTMLElement) {
     this.view = new EditorView({
       extensions: [
         basicSetup,

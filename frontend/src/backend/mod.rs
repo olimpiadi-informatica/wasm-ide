@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use common::{Language, WorkerRequest, WorkerResponse};
@@ -24,14 +24,18 @@ pub type DynBackend = Arc<dyn Backend + Send + Sync>;
 
 static BACKENDS: Mutex<Vec<DynBackend>> = Mutex::new(Vec::new());
 
+fn backends() -> MutexGuard<'static, Vec<DynBackend>> {
+    BACKENDS
+        .try_lock()
+        .expect("Failed to acquire backends lock")
+}
+
 pub fn register_backend(backend: DynBackend) {
-    BACKENDS.lock().unwrap().push(backend);
+    backends().push(backend);
 }
 
 pub fn for_lang(lang: &str) -> DynBackend {
-    BACKENDS
-        .lock()
-        .unwrap()
+    backends()
         .iter()
         .find(|b| b.languages().iter().any(|l| l.name == lang))
         .cloned()
@@ -39,16 +43,14 @@ pub fn for_lang(lang: &str) -> DynBackend {
 }
 
 pub fn set_callback(callback: Callback) {
-    for backend in BACKENDS.lock().unwrap().iter() {
+    for backend in backends().iter() {
         backend.set_callback(callback.clone());
     }
 }
 
 pub fn languages() -> Vec<Language> {
     let mut seen = HashSet::new();
-    BACKENDS
-        .lock()
-        .unwrap()
+    backends()
         .iter()
         .flat_map(|b| b.languages())
         .filter(|l| seen.insert(l.name.clone()))

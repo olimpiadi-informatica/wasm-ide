@@ -218,7 +218,7 @@ pub fn EditorDir(
                                         lang.extensions[0],
                                     )>{lang.name}</option>
                                 </For>
-                                <option value="">{"Custom"}</option>
+                                <option value="">{t!(i18n, custom)}</option>
                             </select>
                         </div>
                         <input
