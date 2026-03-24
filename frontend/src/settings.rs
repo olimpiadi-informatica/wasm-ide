@@ -190,7 +190,7 @@ pub fn Settings() -> impl IntoView {
                 <div class="box">
                     <div class:field class:is-horizontal>
                         <div class:field-label class:is-normal>
-                            <label class="label">{t!(i18n, language)}</label>
+                            <label class="label">{t!(i18n, interface_language)}</label>
                         </div>
                         <div class="field-body">
                             <div class="control">

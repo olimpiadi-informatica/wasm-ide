@@ -6,12 +6,12 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use anyhow::Result;
-use async_channel::{Sender, unbounded};
 use common::config::Config;
 use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
 };
+use futures_channel::mpsc::{UnboundedSender, unbounded};
 use gloo_net::http::Request;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -107,7 +107,7 @@ fn handle_message(
     msg: WorkerResponse,
     state: RwSignal<RunState>,
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
-    ls_message_chan: &Sender<WorkerLSResponse>,
+    ls_message_chan: &UnboundedSender<WorkerLSResponse>,
 ) -> Result<()> {
     debug!("{msg:?}");
     match msg {
@@ -180,7 +180,7 @@ fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Re
 fn handle_ls_message(
     msg: WorkerLSResponse,
     state: RwSignal<RunState>,
-    ls_message_chan: &Sender<WorkerLSResponse>,
+    ls_message_chan: &UnboundedSender<WorkerLSResponse>,
 ) -> Result<()> {
     let mut state = state.write();
 
@@ -192,11 +192,11 @@ fn handle_ls_message(
 
         (WorkerLSResponse::Started, StateLS::Requested | StateLS::FetchingCompiler) => {
             state.ls = StateLS::Running;
-            ls_message_chan.try_send(msg2)?;
+            ls_message_chan.unbounded_send(msg2)?;
         }
 
         (WorkerLSResponse::Message(_), StateLS::Running) => {
-            ls_message_chan.try_send(msg2)?;
+            ls_message_chan.unbounded_send(msg2)?;
         }
 
         (WorkerLSResponse::Stopped, StateLS::Requested) => {}
@@ -310,7 +310,7 @@ fn App() -> impl IntoView {
             state.update(|s| {
                 s.ls = StateLS::Requested;
             });
-            ls_sender.try_send(WorkerLSResponse::Stopped).unwrap();
+            ls_sender.unbounded_send(WorkerLSResponse::Stopped).unwrap();
             send_worker_message(WorkerLSRequest::Start(lang).into());
         });
     }

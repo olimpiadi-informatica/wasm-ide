@@ -25,7 +25,7 @@
   "storage_denied": "Autorizzazione negata per salvare i dati nell'archiviazione persistente.",
 
   "settings": "Impostazioni",
-  "language": "Lingua",
+  "interface_language": "Lingua",
   "time_limit": "Limite di tempo",
 
   "memory_limit": "Limite di memoria",
@@ -52,9 +52,9 @@
   "name": "Nome",
   "connect_to_task": "Collega al task",
   "none": "Nessuno",
-
-  "custom": "Personalizzato",
+  "programming_language": "Linguaggio",
 
   "create_file_title": "Crea file",
-  "create_file": "Crea"
+  "create_file": "Crea",
+  "other": "Altro"
 }

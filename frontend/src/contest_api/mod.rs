@@ -6,9 +6,15 @@ use common::config::{Config, Workspace};
 
 mod terry;
 
+#[derive(Debug, Clone)]
+pub struct Task {
+    pub id: String,
+    pub name: String,
+}
+
 #[async_trait]
 pub trait ContestAPI {
-    async fn list_tasks(&self) -> Result<Vec<String>>;
+    async fn list_tasks(&self) -> Result<Vec<Task>>;
 
     async fn init_workspace(&self, task: &str, lang: &str) -> Result<Workspace>;
 }

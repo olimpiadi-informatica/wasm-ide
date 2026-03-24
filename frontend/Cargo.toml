@@ -16,7 +16,6 @@ serde_json = "1.0.145"
 serde = "1.0.228"
 wasm-bindgen = "0.2.100"
 leptos-use = "0.16.3"
-async-channel = "2.5.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 leptos_i18n = "0.6.0-rc.2"
 tracing = { version = "0.1.41" }

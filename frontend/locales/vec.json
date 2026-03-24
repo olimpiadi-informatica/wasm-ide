@@ -25,7 +25,7 @@
   "storage_denied": "Permeso negà par salvar i dati inte l'archiviazion persistente.",
 
   "settings": "Inpostazion",
-  "language": "Łéngua",
+  "interface_language": "Łéngua",
   "time_limit": "Łimite de tenpo",
 
   "memory_limit": "Łimite de memoria",
@@ -52,9 +52,9 @@
   "name": "Nome",
   "connect_to_task": "Coneti al task",
   "none": "Nissun",
-
-  "custom": "Personałizà",
+  "programming_language": "Łenguajo",
 
   "create_file_title": "Crea file",
-  "create_file": "Crea"
+  "create_file": "Crea",
+  "other": "Altro"
 }

@@ -163,8 +163,8 @@ pub fn ConnectTask(task: RwSignal<String>) -> Option<impl IntoView> {
                 style:width="100%"
             >
                 <option value="">{t!(i18n, none)}</option>
-                <For each=move || tasks.get().into_iter().flatten() key=|t| t.clone() let:task>
-                    <option>{task}</option>
+                <For each=move || tasks.get().into_iter().flatten() key=|t| t.id.clone() let:task>
+                    <option value=task.id>{task.name}</option>
                 </For>
             </select>
         </div>
@@ -177,7 +177,7 @@ pub fn Language(language: RwSignal<String>) -> Option<impl IntoView> {
     let _api = contest_api::get()?;
 
     Some(view! {
-        <span>{t!(i18n, language)}</span>
+        <span>{t!(i18n, programming_language)}</span>
         <div class:select>
             <select
                 prop:value=move || language.get()

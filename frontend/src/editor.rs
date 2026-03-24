@@ -1,5 +1,5 @@
-use async_channel::Receiver;
 use common::WorkerLSResponse;
+use futures_channel::mpsc::UnboundedReceiver;
 use futures_util::StreamExt;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
@@ -97,7 +97,7 @@ impl EditorController {
     }
 }
 
-pub type LSRecv = Receiver<WorkerLSResponse>;
+pub type LSRecv = UnboundedReceiver<WorkerLSResponse>;
 pub type LSSend = Box<dyn Fn(String)>;
 
 #[component]
@@ -157,14 +157,14 @@ pub fn Editor(
                 .into_js_value()
                 .unchecked_into(),
         );
-        if let Some((receiver, send_worker_message)) = ls_interface {
+        if let Some((mut receiver, send_worker_message)) = ls_interface {
             let fun = Closure::wrap(send_worker_message)
                 .into_js_value()
                 .unchecked_into();
             let ls = editor.set_language_server(fun);
             spawn_local(async move {
                 loop {
-                    let msg = receiver.recv().await.unwrap();
+                    let msg = receiver.next().await.unwrap();
                     match msg {
                         WorkerLSResponse::FetchingCompiler => {}
                         WorkerLSResponse::Started => ls.ready(),

@@ -3,7 +3,10 @@ use async_trait::async_trait;
 use common::config::Workspace;
 use send_wrapper::SendWrapper;
 
-use crate::{backend, contest_api::ContestAPI};
+use crate::{
+    backend,
+    contest_api::{ContestAPI, Task},
+};
 
 pub struct Terry {
     path: String,
@@ -17,13 +20,16 @@ impl Terry {
 
 #[async_trait]
 impl ContestAPI for Terry {
-    async fn list_tasks(&self) -> Result<Vec<String>> {
+    async fn list_tasks(&self) -> Result<Vec<Task>> {
         Ok(SendWrapper::new(api::status(&self.path)).await.map(|res| {
             res.contest
                 .tasks
                 .unwrap_or_default()
                 .into_iter()
-                .map(|task| task.name)
+                .map(|task| Task {
+                    id: task.name.clone(),
+                    name: task.title,
+                })
                 .collect()
         })?)
     }

@@ -25,7 +25,7 @@
   "storage_denied": "Permís denegat per desar dades a l'emmagatzematge persistent.",
 
   "settings": "Configuració",
-  "language": "Llengua",
+  "interface_language": "Llengua",
   "time_limit": "Límit de temps",
 
   "memory_limit": "Límit de memòria",
@@ -52,9 +52,9 @@
   "name": "Nom",
   "connect_to_task": "Connecta a la tasca",
   "none": "Cap",
-
-  "custom": "Personalitzat",
+  "programming_language": "Llenguatge",
 
   "create_file_title": "Crea un fitxer",
-  "create_file": "Crea"
+  "create_file": "Crea",
+  "other": "Altre"
 }

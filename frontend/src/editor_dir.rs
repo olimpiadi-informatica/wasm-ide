@@ -47,14 +47,11 @@ pub fn EditorDir(
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
-    let i18n = use_i18n();
+    let EditorDirController { dir, editor_ctrl } = controller;
     let tabs = RwSignal::new(Vec::new());
-    let open_modal = RwSignal::new(false);
-    let filename = RwSignal::new(String::new());
-    let extension = RwSignal::new(String::new());
 
     Effect::new(move || {
-        let dir_path = controller.dir.get();
+        let dir_path = dir.get();
         spawn_local(async move {
             let entries = match &dir_path {
                 Some(dir_path) => {
@@ -63,8 +60,7 @@ pub fn EditorDir(
                 }
                 None => Vec::new(),
             };
-            controller
-                .editor_ctrl
+            editor_ctrl
                 .filename
                 .set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
             tabs.try_update(|t| {
@@ -74,7 +70,7 @@ pub fn EditorDir(
     });
 
     let remove_file = move |file: &str| {
-        let Some(dir) = controller.dir.get_untracked() else {
+        let Some(dir) = dir.get_untracked() else {
             tracing::error!("Directory not set when trying to remove file");
             return;
         };
@@ -84,7 +80,7 @@ pub fn EditorDir(
         }
         tabs.update(|t| t.retain(|f| f != file));
         let file_path = dir + "/" + file;
-        controller.editor_ctrl.filename.update(|f| {
+        editor_ctrl.filename.update(|f| {
             if f.as_deref() == Some(&file_path) {
                 *f = None;
             }
@@ -97,22 +93,15 @@ pub fn EditorDir(
 
     let render_tab = move |file: String| {
         let file2 = file.clone();
-        let file_path = Signal::derive(move || {
-            controller
-                .dir
-                .get()
-                .map(|d| d + "/" + &file2)
-                .unwrap_or_default()
-        });
+        let file_path =
+            Signal::derive(move || dir.get().map(|d| d + "/" + &file2).unwrap_or_default());
         let file2 = file.clone();
 
         view! {
             <li class:is-active=move || {
-                controller.editor_ctrl.filename.read().as_deref() == Some(&file_path.get())
+                editor_ctrl.filename.read().as_deref() == Some(&file_path.get())
             }>
-                <a on:click=move |_| {
-                    controller.editor_ctrl.filename.set(Some(file_path.get_untracked()))
-                }>
+                <a on:click=move |_| editor_ctrl.filename.set(Some(file_path.get_untracked()))>
                     <span>{file}</span>
                     <Icon
                         class:hover-red
@@ -129,6 +118,39 @@ pub fn EditorDir(
             </li>
         }
     };
+
+    view! {
+        <div class:is-flex class:is-flex-direction-column style:height="100%">
+            <div class:is-flex class:is-align-items-center class:is-justify-content-space-between>
+                <div class:tabs class:is-boxed class:mb-0 style:width="fit-content">
+                    <For
+                        each=move || tabs.get().into_iter()
+                        key=|file| file.clone()
+                        children=render_tab
+                    />
+                </div>
+                <AddFile controller tabs />
+            </div>
+            <div class:is-flex-grow-1 style:height="0">
+                <Editor
+                    controller=editor_ctrl
+                    syntax=syntax
+                    readonly=readonly
+                    ctrl_enter=ctrl_enter
+                    keyboard_mode=keyboard_mode
+                    ls_interface=ls_interface
+                />
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn AddFile(controller: EditorDirController, tabs: RwSignal<Vec<String>>) -> impl IntoView {
+    let i18n = use_i18n();
+    let open_modal = RwSignal::new(false);
+    let filename = RwSignal::new(String::new());
+    let extension = RwSignal::new(String::new());
 
     let add_file = move |ev: SubmitEvent| {
         ev.prevent_default();
@@ -154,35 +176,14 @@ pub fn EditorDir(
     });
 
     view! {
-        <div class:is-flex class:is-flex-direction-column style:height="100%">
-            <div class:is-flex class:is-align-items-center class:is-justify-content-space-between>
-                <div class:tabs class:is-boxed class:mb-0 style:width="fit-content">
-                    <For
-                        each=move || tabs.get().into_iter()
-                        key=|file| file.clone()
-                        children=render_tab
-                    />
-                </div>
-                <Icon
-                    icon=icondata::CgAddR
-                    class:is-clickable
-                    class:is-hidden=move || controller.dir.get().is_none()
-                    style:height="1.5em"
-                    style:width="1.5em"
-                    on:click=move |_| open_modal.set(true)
-                />
-            </div>
-            <div class:is-flex-grow-1 style:height="0">
-                <Editor
-                    controller=controller.editor_ctrl
-                    syntax=syntax
-                    readonly=readonly
-                    ctrl_enter=ctrl_enter
-                    keyboard_mode=keyboard_mode
-                    ls_interface=ls_interface
-                />
-            </div>
-        </div>
+        <Icon
+            icon=icondata::CgAddR
+            class:is-clickable
+            class:is-hidden=move || controller.dir.get().is_none()
+            style:height="1.5em"
+            style:width="1.5em"
+            on:click=move |_| open_modal.set(true)
+        />
 
         <div class:modal class:is-active=open_modal>
             <div class="modal-background" on:click=move |_| open_modal.set(false) />
@@ -218,7 +219,7 @@ pub fn EditorDir(
                                         lang.extensions[0],
                                     )>{lang.name}</option>
                                 </For>
-                                <option value="">{t!(i18n, custom)}</option>
+                                <option value="">{t!(i18n, other)}</option>
                             </select>
                         </div>
                         <input

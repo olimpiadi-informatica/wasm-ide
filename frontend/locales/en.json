@@ -25,8 +25,7 @@
   "storage_denied": "Permission denied to store data in persistent storage.",
 
   "settings": "Settings",
-  "language": "Language",
-
+  "interface_language": "Language",
   "time_limit": "Time limit",
   "memory_limit": "Memory limit",
   "please_enter_a_valid_number": "Please enter a valid number",
@@ -52,9 +51,9 @@
   "name": "Name",
   "connect_to_task": "Connect to task",
   "none": "None",
-
-  "custom": "Custom",
+  "programming_language": "Language",
 
   "create_file_title": "Create file",
-  "create_file": "Create"
+  "create_file": "Create",
+  "other": "Other"
 }
