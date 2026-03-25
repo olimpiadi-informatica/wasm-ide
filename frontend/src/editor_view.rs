@@ -58,7 +58,9 @@ pub fn EditorView(
 
     let additional_input_line = {
         view! {
-            <div class:is-hidden=move || get_input_mode(input_mode.get(), language.read().deref()) == InputMode::Batch>
+            <div class:is-hidden=move || {
+                get_input_mode(input_mode.get(), language.read().deref()) == InputMode::Batch
+            }>
                 <form on:submit=move |ev| {
                     ev.prevent_default();
                     add_input()

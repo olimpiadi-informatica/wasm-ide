@@ -56,5 +56,7 @@
 
   "create_file_title": "Crear archivo",
   "create_file": "Crear",
+  "rename_file_title": "Renombrar archivo",
+  "rename_file": "Renombrar",
   "other": "Otro"
 }

@@ -55,5 +55,7 @@
 
   "create_file_title": "Create file",
   "create_file": "Create",
+  "rename_file_title": "Rename file",
+  "rename_file": "Rename",
   "other": "Other"
 }
