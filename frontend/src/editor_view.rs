@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
 use leptos_i18n::t_display;
@@ -56,7 +58,7 @@ pub fn EditorView(
 
     let additional_input_line = {
         view! {
-            <div class:is-hidden=move || get_input_mode(input_mode, language) == InputMode::Batch>
+            <div class:is-hidden=move || get_input_mode(input_mode.get(), language.read().deref()) == InputMode::Batch>
                 <form on:submit=move |ev| {
                     ev.prevent_default();
                     add_input()

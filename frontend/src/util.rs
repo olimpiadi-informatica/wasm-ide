@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use js_sys::Uint8Array;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -41,9 +39,9 @@ pub fn Icon(#[prop(into)] icon: Signal<icondata::Icon>) -> impl IntoView {
     }
 }
 
-pub fn get_input_mode(input_mode: Signal<InputMode>, lang: Signal<String>) -> InputMode {
-    match backend::for_lang(lang.read().deref()).has_dynamic_io() {
-        true => input_mode.get(),
+pub fn get_input_mode(input_mode: InputMode, lang: &str) -> InputMode {
+    match backend::for_lang(lang).has_dynamic_io() {
+        true => input_mode,
         false => InputMode::Batch,
     }
 }

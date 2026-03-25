@@ -315,7 +315,6 @@ fn App() -> impl IntoView {
         });
     }
 
-    let owner = Owner::current().expect("Owner should be available in App component");
     let do_run = Callback::new(move |()| {
         let Some(ws) = workspace.get_untracked() else {
             return;
@@ -343,7 +342,10 @@ fn App() -> impl IntoView {
             }
         }
 
-        let input_mode = owner.with(|| get_input_mode(input_mode, language.into()));
+        let input_mode = get_input_mode(
+            input_mode.get_untracked(),
+            language.read_untracked().deref(),
+        );
         spawn_local(async move {
             code.wait_sync().await;
             if input_mode == InputMode::FullInteractive {
@@ -454,7 +456,8 @@ fn App() -> impl IntoView {
 
     let disable_input_editor = Memo::new(move |_| {
         is_running.get()
-            || get_input_mode(input_mode, language.into()) == InputMode::FullInteractive
+            || get_input_mode(input_mode.get(), language.read().deref())
+                == InputMode::FullInteractive
     });
 
     view! {
