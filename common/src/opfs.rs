@@ -135,10 +135,24 @@ pub async fn root() -> OPFSDir {
     OPFSDir::from_js_value(res)
 }
 
+fn split_path(path: &str) -> impl DoubleEndedIterator<Item = &str> {
+    path.split('/').filter(|segment| !segment.is_empty())
+}
+
+async fn walk_to_parent(path: &str, create: bool) -> (OPFSDir, &str) {
+    let mut parts = split_path(path);
+    let leaf = parts.next_back().expect("path should not be empty");
+    let mut dir = root().await;
+    for part in parts {
+        dir = dir.open_dir(part, create).await;
+    }
+    (dir, leaf)
+}
+
 /// Open a directory at the given path, optionally creating it if it doesn't exist.
 pub async fn open_dir(path: &str, create: bool) -> OPFSDir {
     let mut dir = root().await;
-    for part in path.split('/').filter(|s| !s.is_empty()) {
+    for part in split_path(path) {
         dir = dir.open_dir(part, create).await;
     }
     dir
@@ -146,23 +160,13 @@ pub async fn open_dir(path: &str, create: bool) -> OPFSDir {
 
 /// Open a file at the given path, optionally creating it if it doesn't exist.
 pub async fn open_file(path: &str, create: bool) -> OPFSFile {
-    let mut parts = path.split('/').filter(|s| !s.is_empty());
-    let filename = parts.next_back().expect("path should not be empty");
-    let mut dir = root().await;
-    for part in parts {
-        dir = dir.open_dir(part, create).await;
-    }
+    let (dir, filename) = walk_to_parent(path, create).await;
     dir.open_file(filename, create).await
 }
 
 /// Remove an entry at the given path. If `recursive` is true, directories will be removed
 /// recursively.
 pub async fn remove_entry(path: &str, recursive: bool) {
-    let mut parts = path.split('/').filter(|s| !s.is_empty());
-    let filename = parts.next_back().expect("path should not be empty");
-    let mut dir = root().await;
-    for part in parts {
-        dir = dir.open_dir(part, false).await;
-    }
+    let (dir, filename) = walk_to_parent(path, false).await;
     dir.remove_entry(filename, recursive).await;
 }

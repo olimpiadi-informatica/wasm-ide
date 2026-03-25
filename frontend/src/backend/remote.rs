@@ -59,10 +59,7 @@ impl Backend for RemoteBackend {
                     let future = api::evaluate(
                         &self.address,
                         None,
-                        files
-                            .into_iter()
-                            .map(|f| (f.name, f.content.into_bytes()))
-                            .collect(),
+                        files.into_iter().map(|f| (f.name, f.content)).collect(),
                         primary_file,
                         input.unwrap_or_default(),
                         config.time_limit,

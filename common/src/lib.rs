@@ -136,7 +136,7 @@ pub struct File {
     /// The file's name.
     pub name: String,
     /// The file's content.
-    pub content: String,
+    pub content: Vec<u8>,
 }
 
 /// A programming language supported by the IDE.

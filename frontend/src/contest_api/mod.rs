@@ -28,7 +28,7 @@ pub trait ContestAPI {
         task: &str,
         language: &str,
         primary_file: &str,
-        files: Vec<(String, String)>,
+        files: Vec<(String, Vec<u8>)>,
     ) -> Result<SubmitStatus>;
 }
 

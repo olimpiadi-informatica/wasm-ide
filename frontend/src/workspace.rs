@@ -63,14 +63,14 @@ pub fn WorkspaceSelector(
                         .await;
                 stdin.write(content.as_bytes()).await;
             }
-            let ws_config = serde_json::to_string(&WorkspaceConfig {
+            let ws_config = serde_json::to_vec(&WorkspaceConfig {
                 task: (!task.is_empty()).then_some(task),
                 language,
             })
             .unwrap();
             let config_file =
                 common::opfs::open_file(&format!("workspace/{name}/config.json"), true).await;
-            config_file.write(ws_config.as_bytes()).await;
+            config_file.write(&ws_config).await;
 
             workspaces.update(|w| w.push(name.clone()));
             active.set(Some(name));

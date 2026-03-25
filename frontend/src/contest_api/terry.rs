@@ -64,7 +64,7 @@ impl ContestAPI for Terry {
         task: &str,
         language: &str,
         primary_file: &str,
-        files: Vec<(String, String)>,
+        files: Vec<(String, Vec<u8>)>,
     ) -> Result<SubmitStatus> {
         let input = SendWrapper::new(api::generate_input(&self.path, task)).await?;
         let input_data = SendWrapper::new(api::get_file(&self.path, &input.path)).await?;
@@ -74,11 +74,11 @@ impl ContestAPI for Terry {
             .map(|l| l.extensions[0].clone())
             .unwrap();
 
-        let mut source = String::new();
+        let mut source = Vec::new();
         for (_name, content) in &files {
-            source.push_str(content);
-            if !content.ends_with('\n') {
-                source.push('\n');
+            source.extend_from_slice(content);
+            if !content.ends_with(b"\n") {
+                source.push(b'\n');
             }
         }
 
@@ -99,11 +99,8 @@ impl ContestAPI for Terry {
         backend::for_lang(language).send_message(
             WorkerExecRequest::CompileAndRun {
                 files: files
-                    .iter()
-                    .map(|(name, content)| File {
-                        name: name.clone(),
-                        content: content.clone(),
-                    })
+                    .into_iter()
+                    .map(|(name, content)| File { name, content })
                     .collect(),
                 primary_file: primary_file.to_string(),
                 language: language.to_string(),
@@ -130,7 +127,7 @@ impl ContestAPI for Terry {
             &self.path,
             &input.id,
             &source_name,
-            source.as_bytes(),
+            &source,
         ))
         .await?;
 

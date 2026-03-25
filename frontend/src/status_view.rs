@@ -125,9 +125,10 @@ pub fn StatusView(
                             class="delete"
                             aria-label="delete"
                             on:click=move |_| {
-                                state.update(|s| {
-                                    s.submit = StateSubmit::Ready;
-                                });
+                                state
+                                    .update(|s| {
+                                        s.submit = StateSubmit::Ready;
+                                    });
                             }
                         ></button>
                     </MessageHeader>
@@ -139,9 +140,10 @@ pub fn StatusView(
             <ErrorMessageBar
                 err
                 clear=move || {
-                    state.update(|s| {
-                        s.submit = StateSubmit::Ready;
-                    });
+                    state
+                        .update(|s| {
+                            s.submit = StateSubmit::Ready;
+                        });
                 }
             />
         })),

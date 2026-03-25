@@ -22,7 +22,7 @@ pub async fn run(
     for file in files {
         fs.add_file_with_path(
             format!("/workdir/{}", file.name).as_bytes(),
-            Rc::new(file.content.into_bytes()),
+            Rc::new(file.content),
         );
     }
     fs.add_entry_with_path(b"input.txt", FsEntry::Pipe(stdin.clone()));

@@ -290,8 +290,8 @@ fn App() -> impl IntoView {
             let ws = workspace?;
             let config_file =
                 common::opfs::open_file(&format!("workspace/{ws}/config.json"), false).await;
-            let config = String::from_utf8(config_file.read().await).ok()?;
-            serde_json::from_str::<WorkspaceConfig>(&config).ok()
+            let config = config_file.read().await;
+            serde_json::from_slice::<WorkspaceConfig>(&config).ok()
         }
     });
 
@@ -394,7 +394,7 @@ fn App() -> impl IntoView {
             let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
             for name in dir.list_entries().await {
                 let file = dir.open_file(&name, false).await;
-                let content = String::from_utf8(file.read().await).unwrap();
+                let content = file.read().await;
                 files.push(File { name, content });
             }
 
@@ -469,14 +469,14 @@ fn App() -> impl IntoView {
 
             let config_file =
                 common::opfs::open_file(&format!("workspace/{ws}/config.json"), false).await;
-            let config = String::from_utf8(config_file.read().await).unwrap();
-            let config: WorkspaceConfig = serde_json::from_str(&config).unwrap();
+            let config = config_file.read().await;
+            let config: WorkspaceConfig = serde_json::from_slice(&config).unwrap();
 
             let mut files = Vec::new();
             let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
             for name in dir.list_entries().await {
                 let file = dir.open_file(&name, false).await;
-                let content = String::from_utf8(file.read().await).unwrap();
+                let content = file.read().await;
                 files.push((name, content));
             }
 

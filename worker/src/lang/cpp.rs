@@ -146,7 +146,7 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
     for file in files {
         fs_workdir.add_file_with_path(
             format!("/workdir/{}", file.name).as_bytes(),
-            Rc::new(file.content.into_bytes()),
+            Rc::new(file.content),
         );
     }
     for file in names {
