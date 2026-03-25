@@ -1,11 +1,11 @@
 use common::WorkerExecStatus;
 use common::config::Config;
-use leptos::either::{EitherOf3, EitherOf5};
+use leptos::either::{Either, EitherOf3, EitherOf4, EitherOf5};
 use leptos::prelude::*;
 use tracing::warn;
 
 use crate::i18n::*;
-use crate::{FetchingCompilerProgress, RunState, StateExec, StateLS};
+use crate::{FetchingCompilerProgress, RunState, StateExec, StateLS, StateSubmit};
 
 #[derive(Default)]
 #[slot]
@@ -43,88 +43,120 @@ pub fn StatusView(
 ) -> impl IntoView {
     let i18n = use_i18n();
 
-    let render_exec = move |exec: &StateExec| {
-        match exec {
-            StateExec::Ready | StateExec::Complete { error: None, .. } => None,
+    let render_exec = move |exec: &StateExec| match exec {
+        StateExec::Ready | StateExec::Complete { error: None, .. } => None,
 
-            StateExec::Processing { stopping: true, .. } => Some(EitherOf5::A(
-                view! { <Message kind="is-warning">{t!(i18n, stopping_execution)}</Message> },
-            )),
+        StateExec::Processing { stopping: true, .. } => Some(EitherOf5::A(
+            view! { <Message kind="is-warning">{t!(i18n, stopping_execution)}</Message> },
+        )),
 
-            // TODO(virv): status: None should have its own variant?
-            StateExec::Processing { status: None, .. }
-            | StateExec::Processing {
-                status: Some(WorkerExecStatus::FetchingCompiler),
-                ..
-            } => Some(EitherOf5::B(
-                view! { <FetchingCompilerMessageBar fetching_compiler_progress /> },
-            )),
+        StateExec::Processing {
+            status: Some(WorkerExecStatus::FetchingCompiler),
+            ..
+        } => Some(EitherOf5::B(
+            view! { <FetchingCompilerMessageBar fetching_compiler_progress /> },
+        )),
 
-            StateExec::Processing {
-                status: Some(WorkerExecStatus::Compiling),
-                ..
-            } => Some(EitherOf5::C(
-                view! { <Message kind="is-success">{t!(i18n, compiling)}</Message> },
-            )),
+        StateExec::Processing {
+            status: Some(WorkerExecStatus::Compiling),
+            ..
+        } => Some(EitherOf5::C(
+            view! { <Message kind="is-success">{t!(i18n, compiling)}</Message> },
+        )),
 
-            StateExec::Processing {
-                status: Some(WorkerExecStatus::Running),
-                ..
-            } => Some(EitherOf5::D(
-                view! { <Message kind="is-success">{t!(i18n, executing)}</Message> },
-            )),
+        StateExec::Processing {
+            status: None | Some(WorkerExecStatus::Running),
+            ..
+        } => Some(EitherOf5::D(
+            view! { <Message kind="is-success">{t!(i18n, executing)}</Message> },
+        )),
 
-            StateExec::Complete {
-                error: Some(err), ..
-            } => Some(EitherOf5::E(view! {
-                <ErrorMessageBar
-                    err
-                    clear=move || {
-                        match &mut state.write().exec {
-                            StateExec::Complete { error, .. } => {
-                                *error = None;
-                            }
-                            _ => warn!("Unexpected state when hiding error"),
+        StateExec::Complete {
+            error: Some(err), ..
+        } => Some(EitherOf5::E(view! {
+            <ErrorMessageBar
+                err
+                clear=move || {
+                    match &mut state.write().exec {
+                        StateExec::Complete { error, .. } => {
+                            *error = None;
                         }
+                        _ => warn!("Unexpected state when hiding error"),
                     }
-                />
-            })),
-        }
+                }
+            />
+        })),
     };
 
     let render_ls = move |ls: &StateLS| match ls {
         StateLS::Ready => None,
         StateLS::Requested => None,
-        StateLS::FetchingCompiler => {
-            Some(view! { <FetchingCompilerMessageBar fetching_compiler_progress /> }.into_any())
-        }
+        StateLS::FetchingCompiler => Some(Either::Left(
+            view! { <FetchingCompilerMessageBar fetching_compiler_progress /> },
+        )),
         StateLS::Running => None,
-        StateLS::Error(err) => Some(
-            view! {
-                <ErrorMessageBar
-                    err
-                    clear=move || {
-                        match &mut state.write().ls {
-                            ls @ StateLS::Error(_) => {
-                                *ls = StateLS::Ready;
-                            }
-                            _ => warn!("Unexpected state when hiding LS error"),
+        StateLS::Error(err) => Some(Either::Right(view! {
+            <ErrorMessageBar
+                err
+                clear=move || {
+                    match &mut state.write().ls {
+                        ls @ StateLS::Error(_) => {
+                            *ls = StateLS::Ready;
                         }
+                        _ => warn!("Unexpected state when hiding LS error"),
                     }
-                />
-            }
-            .into_any(),
-        ),
+                }
+            />
+        })),
+    };
+
+    let render_submit = move |submit: &StateSubmit| match submit {
+        StateSubmit::Ready => None,
+        StateSubmit::Submitting(_) => Some(EitherOf3::A(
+            view! { <Message kind="is-success">{t!(i18n, submitting)}</Message> },
+        )),
+        StateSubmit::Complete(status) => {
+            let status = status.clone();
+            Some(EitherOf3::B(view! {
+                <Message kind="is-success">
+                    <MessageHeader slot>
+                        <p>"Submission"</p>
+                        <button
+                            class="delete"
+                            aria-label="delete"
+                            on:click=move |_| {
+                                state.update(|s| {
+                                    s.submit = StateSubmit::Ready;
+                                });
+                            }
+                        ></button>
+                    </MessageHeader>
+                    <p>{format!("Score: {}", status.score)}</p>
+                </Message>
+            }))
+        }
+        StateSubmit::Error(err) => Some(EitherOf3::C(view! {
+            <ErrorMessageBar
+                err
+                clear=move || {
+                    state.update(|s| {
+                        s.submit = StateSubmit::Ready;
+                    });
+                }
+            />
+        })),
     };
 
     move || {
-        let state = state.read();
-        if let Some(view) = render_exec(&state.exec) {
-            EitherOf3::A(view)
-        } else if let Some(view) = render_ls(&state.ls) {
-            EitherOf3::B(view)
+        let snapshot = state.read();
+        if let Some(view) = render_exec(&snapshot.exec) {
+            EitherOf4::A(view)
+        } else if let Some(view) = render_submit(&snapshot.submit) {
+            EitherOf4::B(view)
+        } else if let Some(view) = render_ls(&snapshot.ls) {
+            EitherOf4::C(view)
         } else {
-            EitherOf3::C(())
+            EitherOf4::D(())
         }
     }
 }

@@ -10,6 +10,8 @@
   "not_yet_executed": "Programa encara no executat.",
 
   "run": "Executar",
+  "submit": "Envia",
+  "submitting": "Enviant...",
   "stop": "Aturar",
 
   "output": "Sortida",
@@ -56,7 +58,5 @@
 
   "create_file_title": "Crea un fitxer",
   "create_file": "Crea",
-  "rename_file_title": "Canvia el nom del fitxer",
-  "rename_file": "Canvia el nom",
   "other": "Altre"
 }

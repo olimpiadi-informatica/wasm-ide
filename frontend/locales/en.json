@@ -10,6 +10,8 @@
   "not_yet_executed": "Program not run yet.",
 
   "run": "Run",
+  "submit": "Submit",
+  "submitting": "Submitting...",
   "stop": "Stop",
 
   "output": "Output",
@@ -55,7 +57,5 @@
 
   "create_file_title": "Create file",
   "create_file": "Create",
-  "rename_file_title": "Rename file",
-  "rename_file": "Rename",
   "other": "Other"
 }

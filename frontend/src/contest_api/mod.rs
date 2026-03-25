@@ -12,11 +12,24 @@ pub struct Task {
     pub name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct SubmitStatus {
+    pub score: f64,
+}
+
 #[async_trait]
 pub trait ContestAPI {
     async fn list_tasks(&self) -> Result<Vec<Task>>;
 
     async fn init_workspace(&self, task: &str, lang: &str) -> Result<Workspace>;
+
+    async fn submit(
+        &self,
+        task: &str,
+        language: &str,
+        primary_file: &str,
+        files: Vec<(String, String)>,
+    ) -> Result<SubmitStatus>;
 }
 
 pub type DynContestAPI = Arc<dyn ContestAPI + Send + Sync>;

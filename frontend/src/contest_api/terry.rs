@@ -1,11 +1,17 @@
-use anyhow::Result;
+use std::sync::Arc;
+
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use common::config::Workspace;
+use common::{
+    ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerResponse, config::Workspace,
+};
+use futures_util::StreamExt;
+use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 
 use crate::{
-    backend,
-    contest_api::{ContestAPI, Task},
+    RunState, StateSubmit, backend,
+    contest_api::{ContestAPI, SubmitStatus, Task},
 };
 
 pub struct Terry {
@@ -52,14 +58,168 @@ impl ContestAPI for Terry {
         let stdin = [(input_filename, input.into())].into_iter().collect();
         Ok(Workspace { code, stdin })
     }
+
+    async fn submit(
+        &self,
+        task: &str,
+        language: &str,
+        primary_file: &str,
+        files: Vec<(String, String)>,
+    ) -> Result<SubmitStatus> {
+        let input = SendWrapper::new(api::generate_input(&self.path, task)).await?;
+        let input_data = SendWrapper::new(api::get_file(&self.path, &input.path)).await?;
+        let lang_ext = backend::languages()
+            .iter()
+            .find(|l| l.name == language)
+            .map(|l| l.extensions[0].clone())
+            .unwrap();
+
+        let mut source = String::new();
+        for (_name, content) in &files {
+            source.push_str(content);
+            if !content.ends_with('\n') {
+                source.push('\n');
+            }
+        }
+
+        let state: RwSignal<RunState> = expect_context();
+        let (sender, mut receiver) = futures_channel::mpsc::unbounded();
+        match &mut state.write().submit {
+            StateSubmit::Submitting(proxy) => proxy.replace(Arc::new(move |msg| {
+                let WorkerResponse::Execution(msg) = msg else {
+                    unreachable!("Expected WorkerExecResponse");
+                };
+                sender
+                    .unbounded_send(msg)
+                    .expect("Failed to send message to submission proxy");
+            })),
+            _ => unreachable!("State should be in Submitting state when submit is called"),
+        };
+
+        backend::for_lang(language).send_message(
+            WorkerExecRequest::CompileAndRun {
+                files: files
+                    .iter()
+                    .map(|(name, content)| File {
+                        name: name.clone(),
+                        content: content.clone(),
+                    })
+                    .collect(),
+                primary_file: primary_file.to_string(),
+                language: language.to_string(),
+                input: Some(input_data),
+                config: ExecConfig::default(),
+            }
+            .into(),
+        );
+
+        let mut output = Vec::new();
+        while let Some(msg) = receiver.next().await {
+            match msg {
+                WorkerExecResponse::StdoutChunk(chunk) => output.extend_from_slice(&chunk),
+                WorkerExecResponse::Success => break,
+                WorkerExecResponse::Error(err) => return Err(anyhow!(err)),
+                WorkerExecResponse::Status(_)
+                | WorkerExecResponse::CompilationMessageChunk(_)
+                | WorkerExecResponse::StderrChunk(_) => {}
+            }
+        }
+
+        let source_name = format!("{task}.{lang_ext}");
+        let uploaded_source = SendWrapper::new(api::upload_source(
+            &self.path,
+            &input.id,
+            &source_name,
+            source.as_bytes(),
+        ))
+        .await?;
+
+        let output_name = format!("{task}.output.txt");
+        let uploaded_output = SendWrapper::new(api::upload_output(
+            &self.path,
+            &input.id,
+            &output_name,
+            &output,
+        ))
+        .await?;
+
+        let sub = SendWrapper::new(api::submit(
+            &self.path,
+            &input.id,
+            uploaded_output.id,
+            uploaded_source.id,
+        ))
+        .await?;
+        Ok(SubmitStatus { score: sub.score })
+    }
 }
 
 mod api {
     #![allow(dead_code)]
 
-    use anyhow::{Result, ensure};
+    use std::ops::Range;
+
+    use anyhow::{Result, anyhow, ensure};
+    use chrono::{DateTime, Utc};
     use gloo_net::http::Request;
-    use serde::Deserialize;
+    use js_sys::Uint8Array;
+    use serde::{Deserialize, Serialize};
+    use web_sys::{Blob, FormData};
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum ValidationStatus {
+        Missing,
+        Parsed,
+        Invalid,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct ValidationCase {
+        pub status: ValidationStatus,
+        pub message: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum AlertSeverity {
+        Warning,
+        Danger,
+        Success,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Alert {
+        pub severity: AlertSeverity,
+        pub message: String,
+        pub blocking: bool,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Validation {
+        pub alerts: Vec<Alert>,
+        pub cases: Vec<ValidationCase>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct FeedbackCase {
+        pub correct: bool,
+        pub message: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Feedback {
+        pub alerts: Vec<Alert>,
+        pub cases: Vec<FeedbackCase>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Subtask {
+        pub score: f64,
+        pub max_score: f64,
+        pub testcases: Vec<u32>,
+        pub labels: Option<Vec<String>>,
+    }
 
     #[derive(Debug, Deserialize)]
     pub struct Task {
@@ -74,7 +234,7 @@ mod api {
     #[derive(Debug, Deserialize)]
     pub struct ContestStatus {
         pub has_started: bool,
-        //pub time: Range<DateTime<Utc>>,
+        pub time: Range<DateTime<Utc>>,
         pub name: String,
         pub description: String,
         //pub extra_material: Vec<ExtraMaterialSection>,
@@ -86,6 +246,58 @@ mod api {
     pub struct StatusResponse {
         //pub user: Option<UserStatus>,
         pub contest: ContestStatus,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Input {
+        pub id: String,
+        pub token: String,
+        pub task: String,
+        pub attempt: i64,
+        pub date: DateTime<Utc>,
+        pub path: String,
+        pub size: i64,
+        pub expiry_date: Option<DateTime<Utc>>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Output {
+        pub id: String,
+        pub input: String,
+        pub date: DateTime<Utc>,
+        pub path: String,
+        pub size: i64,
+        pub validation: Validation,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Source {
+        pub id: String,
+        pub input: String,
+        pub date: DateTime<Utc>,
+        pub path: String,
+        pub size: i64,
+        pub validation: Validation,
+    }
+
+    #[derive(Debug, Serialize)]
+    pub struct SubmitRequest {
+        pub output_id: String,
+        pub source_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Submission {
+        pub id: String,
+        pub token: String,
+        pub task: String,
+        pub score: f64,
+        pub date: DateTime<Utc>,
+        pub feedback: Feedback,
+        pub input: Input,
+        pub output: Output,
+        pub source: Source,
+        pub subtasks: Vec<Subtask>,
     }
 
     pub async fn status(path: &str) -> Result<StatusResponse> {
@@ -101,6 +313,84 @@ mod api {
             .await?;
         ensure!(res.ok(), "Failed to get statement file: {}", res.status());
         let res = res.binary().await?;
+        Ok(res)
+    }
+
+    pub async fn get_file(path: &str, file: &str) -> Result<Vec<u8>> {
+        let res = Request::get(&format!("{path}/files/{file}")).send().await?;
+        ensure!(res.ok(), "Failed to get file: {}", res.status());
+        let res = res.binary().await?;
+        Ok(res)
+    }
+
+    pub async fn generate_input(path: &str, task: &str) -> Result<Input> {
+        let res = Request::post(&format!("{path}/api/generate_input/{task}"))
+            .send()
+            .await?;
+        ensure!(res.ok(), "Failed to generate input: {}", res.status());
+        let res = res.json().await?;
+        Ok(res)
+    }
+
+    pub async fn upload_output(
+        path: &str,
+        input_id: &str,
+        file_name: &str,
+        data: &[u8],
+    ) -> Result<Output> {
+        let array = js_sys::Array::of1(&Uint8Array::from(data));
+        let blob = Blob::new_with_u8_array_sequence(&array)
+            .map_err(|err| anyhow!("Failed to create blob: {err:?}"))?;
+        let form = FormData::new().map_err(|err| anyhow!("Failed to create form data: {err:?}"))?;
+        form.append_with_blob_and_filename("file", &blob, file_name)
+            .map_err(|err| anyhow!("Failed to append file to form data: {err:?}"))?;
+
+        let res = Request::post(&format!("{path}/api/upload_output/{input_id}"))
+            .body(form)?
+            .send()
+            .await?;
+        ensure!(res.ok(), "Failed to upload output: {}", res.status());
+        let res = res.json().await?;
+        Ok(res)
+    }
+
+    pub async fn upload_source(
+        path: &str,
+        input_id: &str,
+        file_name: &str,
+        data: &[u8],
+    ) -> Result<Source> {
+        let array = js_sys::Array::of1(&Uint8Array::from(data));
+        let blob = Blob::new_with_u8_array_sequence(&array)
+            .map_err(|err| anyhow!("Failed to create blob: {err:?}"))?;
+        let form = FormData::new().map_err(|err| anyhow!("Failed to create form data: {err:?}"))?;
+        form.append_with_blob_and_filename("file", &blob, file_name)
+            .map_err(|err| anyhow!("Failed to append file to form data: {err:?}"))?;
+
+        let res = Request::post(&format!("{path}/api/upload_source/{input_id}"))
+            .body(form)?
+            .send()
+            .await?;
+        ensure!(res.ok(), "Failed to upload source: {}", res.status());
+        let res = res.json().await?;
+        Ok(res)
+    }
+
+    pub async fn submit(
+        path: &str,
+        input_id: &str,
+        output_id: String,
+        source_id: String,
+    ) -> Result<Submission> {
+        let res = Request::post(&format!("{path}/api/submit/{input_id}"))
+            .json(&SubmitRequest {
+                output_id,
+                source_id,
+            })?
+            .send()
+            .await?;
+        ensure!(res.ok(), "Failed to submit: {}", res.status());
+        let res = res.json().await?;
         Ok(res)
     }
 }

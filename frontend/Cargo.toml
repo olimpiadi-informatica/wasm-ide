@@ -26,6 +26,7 @@ futures-util = "0.3.31"
 gloo-net = "0.6.0"
 futures-channel = "0.3.31"
 async-trait = "0.1.89"
+chrono = { version = "0.4.44", features = ["serde"] }
 
 [package.metadata.leptos-i18n]
 default = "en"
