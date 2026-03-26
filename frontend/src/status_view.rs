@@ -120,7 +120,7 @@ pub fn StatusView(
             Some(EitherOf3::B(view! {
                 <Message kind="is-success">
                     <MessageHeader slot>
-                        <p>"Submission"</p>
+                        <p>{t!(i18n, submission)}</p>
                         <button
                             class="delete"
                             aria-label="delete"
@@ -132,7 +132,8 @@ pub fn StatusView(
                             }
                         ></button>
                     </MessageHeader>
-                    <p>{format!("Score: {}", status.score)}</p>
+                    <p>{t!(i18n, submission_score, score = status.score)}</p>
+                    {status.message.map(|message| view! { <pre>{message}</pre> })}
                 </Message>
             }))
         }

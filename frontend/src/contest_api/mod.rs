@@ -15,6 +15,7 @@ pub struct Task {
 #[derive(Debug, Clone)]
 pub struct SubmitStatus {
     pub score: f64,
+    pub message: Option<String>,
 }
 
 #[async_trait]
@@ -22,6 +23,8 @@ pub trait ContestAPI {
     async fn list_tasks(&self) -> Result<Vec<Task>>;
 
     async fn init_workspace(&self, task: &str, lang: &str) -> Result<Workspace>;
+
+    async fn task_score(&self, task: &str) -> Result<(f64, f64)>;
 
     async fn submit(
         &self,

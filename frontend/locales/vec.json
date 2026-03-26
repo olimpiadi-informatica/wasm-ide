@@ -11,6 +11,9 @@
 
   "run": "Esegui",
   "submit": "Manda",
+  "task_score": "Pontejo",
+  "submission": "Sotopoxision",
+  "submission_score": "Pontejo: {{score}}",
   "submitting": "Mandando...",
   "stop": "Ferma",
 

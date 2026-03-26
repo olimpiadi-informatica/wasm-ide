@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
 use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerResponse, config::Workspace,
@@ -59,6 +59,23 @@ impl ContestAPI for Terry {
         Ok(Workspace { code, stdin })
     }
 
+    async fn task_score(&self, task: &str) -> Result<(f64, f64)> {
+        let status = SendWrapper::new(api::status(&self.path)).await?;
+        let max_score = status
+            .contest
+            .tasks
+            .unwrap_or_default()
+            .into_iter()
+            .find(|contest_task| contest_task.name == task)
+            .map(|contest_task| contest_task.max_score)
+            .unwrap_or(0.0);
+        let score = status
+            .user
+            .and_then(|user| user.tasks.get(task).map(|task| task.score))
+            .unwrap_or(0.0);
+        Ok((score, max_score))
+    }
+
     async fn submit(
         &self,
         task: &str,
@@ -66,7 +83,15 @@ impl ContestAPI for Terry {
         primary_file: &str,
         files: Vec<(String, Vec<u8>)>,
     ) -> Result<SubmitStatus> {
-        let input = SendWrapper::new(api::generate_input(&self.path, task)).await?;
+        let input = if let Some(input) = SendWrapper::new(api::status(&self.path))
+            .await?
+            .user
+            .and_then(|mut user| user.tasks.remove(task).and_then(|task| task.current_input))
+        {
+            input
+        } else {
+            SendWrapper::new(api::generate_input(&self.path, task)).await?
+        };
         let input_data = SendWrapper::new(api::get_file(&self.path, &input.path)).await?;
         let lang_ext = backend::languages()
             .iter()
@@ -105,17 +130,25 @@ impl ContestAPI for Terry {
                 primary_file: primary_file.to_string(),
                 language: language.to_string(),
                 input: Some(input_data),
-                config: ExecConfig::default(),
+                config: ExecConfig {
+                    time_limit: Some(15.),
+                    ..Default::default()
+                },
             }
             .into(),
         );
 
         let mut output = Vec::new();
+        let mut message = None;
         while let Some(msg) = receiver.next().await {
             match msg {
                 WorkerExecResponse::StdoutChunk(chunk) => output.extend_from_slice(&chunk),
                 WorkerExecResponse::Success => break,
-                WorkerExecResponse::Error(err) => return Err(anyhow!(err)),
+                WorkerExecResponse::Error(err) => {
+                    message = Some(err);
+                    // Even if the execution fails, we still want to submit whatever output it produced
+                    break;
+                }
                 WorkerExecResponse::Status(_)
                 | WorkerExecResponse::CompilationMessageChunk(_)
                 | WorkerExecResponse::StderrChunk(_) => {}
@@ -147,14 +180,17 @@ impl ContestAPI for Terry {
             uploaded_source.id,
         ))
         .await?;
-        Ok(SubmitStatus { score: sub.score })
+        Ok(SubmitStatus {
+            score: sub.score,
+            message,
+        })
     }
 }
 
 mod api {
     #![allow(dead_code)]
 
-    use std::ops::Range;
+    use std::{collections::HashMap, ops::Range};
 
     use anyhow::{Result, anyhow, ensure};
     use chrono::{DateTime, Utc};
@@ -240,8 +276,21 @@ mod api {
     }
 
     #[derive(Debug, Deserialize)]
+    pub struct UserTaskInfo {
+        pub name: String,
+        pub score: f64,
+        pub current_input: Option<Input>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct UserStatus {
+        pub tasks: HashMap<String, UserTaskInfo>,
+        pub total_score: f64,
+    }
+
+    #[derive(Debug, Deserialize)]
     pub struct StatusResponse {
-        //pub user: Option<UserStatus>,
+        pub user: Option<UserStatus>,
         pub contest: ContestStatus,
     }
 

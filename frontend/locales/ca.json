@@ -11,6 +11,9 @@
 
   "run": "Executar",
   "submit": "Envia",
+  "task_score": "Puntuació",
+  "submission": "Tramesa",
+  "submission_score": "Puntuació: {{score}}",
   "submitting": "Enviant...",
   "stop": "Aturar",
 

@@ -11,6 +11,9 @@
 
   "run": "Esegui",
   "submit": "Invia",
+  "task_score": "Punteggio",
+  "submission": "Sottoposizione",
+  "submission_score": "Punteggio: {{score}}",
   "submitting": "Invio in corso...",
   "stop": "Stop",
 
