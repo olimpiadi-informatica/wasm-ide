@@ -10,6 +10,8 @@
   "not_yet_executed": "El programa no'l xe ancora stà eseguìo.",
 
   "run": "Esegui",
+  "submit": "Manda",
+  "submitting": "Mandando...",
   "stop": "Ferma",
 
   "output": "Output",
@@ -56,7 +58,5 @@
 
   "create_file_title": "Crea file",
   "create_file": "Crea",
-  "rename_file_title": "Renòmena file",
-  "rename_file": "Renòmena",
   "other": "Altro"
 }

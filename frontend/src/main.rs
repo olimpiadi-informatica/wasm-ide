@@ -14,9 +14,9 @@ use common::{
 use futures_channel::mpsc::{UnboundedSender, unbounded};
 use gloo_net::http::Request;
 use leptos::prelude::*;
+use leptos::task::{spawn_local, spawn_local_scoped};
 use send_wrapper::SendWrapper;
 use tracing::{debug, info, warn};
-use wasm_bindgen_futures::spawn_local;
 
 mod backend;
 mod contest_api;
@@ -31,6 +31,7 @@ mod util;
 mod workspace;
 
 use crate::backend::{RemoteBackend, WorkerBackend};
+use crate::contest_api::SubmitStatus;
 use crate::editor_dir::EditorDirController;
 use crate::editor_view::EditorView;
 use crate::enum_select::EnumSelect;
@@ -39,7 +40,7 @@ use crate::output::OutputView;
 use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use_settings};
 use crate::status_view::StatusView;
 use crate::util::{Icon, get_input_mode};
-use crate::workspace::WorkspaceSelector;
+use crate::workspace::{WorkspaceConfig, WorkspaceSelector};
 
 #[derive(Clone, Debug, Default)]
 pub struct Outcome {
@@ -50,10 +51,11 @@ pub struct Outcome {
 
 type FetchingCompilerProgress = HashMap<String, u64>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct RunState {
     exec: StateExec,
     ls: StateLS,
+    submit: StateSubmit,
 }
 
 #[derive(Clone, Debug)]
@@ -79,9 +81,17 @@ enum StateLS {
     Error(String),
 }
 
+#[derive(Clone)]
+enum StateSubmit {
+    Ready,
+    Submitting(Option<backend::Callback>),
+    Complete(SubmitStatus),
+    Error(String),
+}
+
 impl RunState {
     fn can_start(&self) -> bool {
-        !self.is_running()
+        !self.is_running() && !matches!(self.submit, StateSubmit::Submitting(_))
     }
 
     fn can_stop(&self) -> bool {
@@ -133,6 +143,11 @@ fn handle_message(
 
 fn handle_exec_message(msg: WorkerExecResponse, state: RwSignal<RunState>) -> Result<()> {
     let mut state = state.write();
+
+    if let StateSubmit::Submitting(Some(proxy)) = &state.submit {
+        proxy(WorkerResponse::Execution(msg));
+        return Ok(());
+    }
 
     match (msg, &mut state.exec) {
         (WorkerExecResponse::Status(new), StateExec::Processing { status, .. }) => {
@@ -244,7 +259,11 @@ fn App() -> impl IntoView {
     let state = RwSignal::new(RunState {
         exec: StateExec::Ready,
         ls: StateLS::Ready,
+        submit: StateSubmit::Ready,
     });
+
+    // TODO(virv): a bit of bad design, used to make the StateSubmit::Submitting proxy work
+    provide_context::<RwSignal<RunState>>(state);
 
     let (ls_sender, ls_receiver) = unbounded();
 
@@ -265,6 +284,16 @@ fn App() -> impl IntoView {
     }));
 
     let workspace = RwSignal::new(None);
+    let workspace_config = LocalResource::new(move || {
+        let workspace = workspace.get();
+        async move {
+            let ws = workspace?;
+            let config_file =
+                common::opfs::open_file(&format!("workspace/{ws}/config.json"), false).await;
+            let config = String::from_utf8(config_file.read().await).ok()?;
+            serde_json::from_str::<WorkspaceConfig>(&config).ok()
+        }
+    });
 
     let code = EditorDirController::new(Signal::derive(move || {
         workspace
@@ -404,6 +433,76 @@ fn App() -> impl IntoView {
         send_worker_message(WorkerExecRequest::Cancel.into());
     };
 
+    let disable_submit = Memo::new(move |_| {
+        state.with(|s| matches!(s.submit, StateSubmit::Submitting(_)) || s.is_running())
+            || workspace.get().is_none()
+            || workspace_config
+                .get()
+                .map(|cfg| cfg.and_then(|cfg| cfg.task).is_none())
+                .unwrap_or(false)
+    });
+
+    let do_submit = Callback::new(move |_| {
+        let Some(ws) = workspace.get_untracked() else {
+            warn!("asked to submit without a workspace");
+            return;
+        };
+        let Some(primary_file) = code.open_filename().get_untracked() else {
+            warn!("asked to submit without a primary file");
+            return;
+        };
+        let Some(api) = contest_api::get() else {
+            warn!("asked to submit without contest api");
+            return;
+        };
+        let primary_file = primary_file
+            .split('/')
+            .next_back()
+            .unwrap_or(&primary_file)
+            .to_string();
+        state.update(|s| {
+            s.submit = StateSubmit::Submitting(None);
+        });
+
+        spawn_local_scoped(async move {
+            code.wait_sync().await;
+
+            let config_file =
+                common::opfs::open_file(&format!("workspace/{ws}/config.json"), false).await;
+            let config = String::from_utf8(config_file.read().await).unwrap();
+            let config: WorkspaceConfig = serde_json::from_str(&config).unwrap();
+
+            let mut files = Vec::new();
+            let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
+            for name in dir.list_entries().await {
+                let file = dir.open_file(&name, false).await;
+                let content = String::from_utf8(file.read().await).unwrap();
+                files.push((name, content));
+            }
+
+            let res = api
+                .submit(
+                    config
+                        .task
+                        .as_deref()
+                        .expect("submit without connected task"),
+                    &config.language,
+                    &primary_file,
+                    files,
+                )
+                .await;
+            state.update(|s| {
+                s.submit = match res.as_ref() {
+                    Ok(status) => StateSubmit::Complete(status.clone()),
+                    Err(err) => StateSubmit::Error(err.to_string()),
+                };
+            });
+            if let Err(err) = res {
+                warn!("submit failed: {err:?}");
+            }
+        });
+    });
+
     let navbar = view! {
         <div
             class:is-flex
@@ -449,6 +548,24 @@ fn App() -> impl IntoView {
                 >
                     <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCaretRightFilled />
                     {t!(i18n, run)}
+                </button>
+            </Show>
+            <Show when=move || contest_api::get().is_some()>
+                <button
+                    class:has-icons-left
+                    class:button
+                    class:is-info
+                    class:mr-1
+                    style:width="8em"
+                    disabled=disable_submit
+                    on:click=move |_| {
+                        if !disable_submit.get() {
+                            do_submit.run(())
+                        }
+                    }
+                >
+                    <Icon class:icon class:is-left class:mr-1 icon=icondata::AiSendOutlined />
+                    {t!(i18n, submit)}
                 </button>
             </Show>
         </div>

@@ -10,6 +10,8 @@
   "not_yet_executed": "Programma non ancora eseguito.",
 
   "run": "Esegui",
+  "submit": "Invia",
+  "submitting": "Invio in corso...",
   "stop": "Stop",
 
   "output": "Output",
@@ -56,7 +58,5 @@
 
   "create_file_title": "Crea file",
   "create_file": "Crea",
-  "rename_file_title": "Rinomina file",
-  "rename_file": "Rinomina",
   "other": "Altro"
 }

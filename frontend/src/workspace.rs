@@ -1,10 +1,17 @@
 use common::config::Config;
 use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 
 use crate::util::Icon;
 use crate::{backend, contest_api, i18n::*};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    pub task: Option<String>,
+    pub language: String,
+}
 
 #[component]
 pub fn WorkspaceSelector(
@@ -33,12 +40,13 @@ pub fn WorkspaceSelector(
         let config = expect_context::<Config>();
         spawn_local(async move {
             let task = task.get_untracked();
+            let language = language.get_untracked();
             let ws = if task.is_empty() {
                 config.default_ws
             } else {
                 contest_api::get()
                     .unwrap()
-                    .init_workspace(&task, &language.get_untracked())
+                    .init_workspace(&task, &language)
                     .await
                     .expect("Failed to initialize workspace")
             };
@@ -55,6 +63,14 @@ pub fn WorkspaceSelector(
                         .await;
                 stdin.write(content.as_bytes()).await;
             }
+            let ws_config = serde_json::to_string(&WorkspaceConfig {
+                task: (!task.is_empty()).then_some(task),
+                language,
+            })
+            .unwrap();
+            let config_file =
+                common::opfs::open_file(&format!("workspace/{name}/config.json"), true).await;
+            config_file.write(ws_config.as_bytes()).await;
 
             workspaces.update(|w| w.push(name.clone()));
             active.set(Some(name));
