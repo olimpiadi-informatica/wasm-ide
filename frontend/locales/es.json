@@ -11,6 +11,9 @@
 
   "run": "Ejecutar",
   "submit": "Enviar",
+  "task_score": "Puntuación",
+  "submission": "Presentación",
+  "submission_score": "Puntuación: {{score}}",
   "submitting": "Enviando...",
   "stop": "Parar",
 

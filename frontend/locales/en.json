@@ -11,6 +11,9 @@
 
   "run": "Run",
   "submit": "Submit",
+  "task_score": "Score",
+  "submission": "Submission",
+  "submission_score": "Score: {{score}}",
   "submitting": "Submitting...",
   "stop": "Stop",
 

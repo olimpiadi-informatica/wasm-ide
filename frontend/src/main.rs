@@ -294,6 +294,15 @@ fn App() -> impl IntoView {
             serde_json::from_slice::<WorkspaceConfig>(&config).ok()
         }
     });
+    let task_score = LocalResource::new(move || {
+        let workspace_config = workspace_config.get();
+        async move {
+            let config = workspace_config.flatten()?;
+            let task = config.task?;
+            let api = contest_api::get()?;
+            api.task_score(&task).await.ok()
+        }
+    });
 
     let code = EditorDirController::new(Signal::derive(move || {
         workspace
@@ -497,6 +506,9 @@ fn App() -> impl IntoView {
                     Err(err) => StateSubmit::Error(err.to_string()),
                 };
             });
+            if res.is_ok() {
+                task_score.refetch();
+            }
             if let Err(err) = res {
                 warn!("submit failed: {err:?}");
             }
@@ -514,6 +526,48 @@ fn App() -> impl IntoView {
         >
             <Settings />
             <WorkspaceSelector active=workspace readonly=is_running />
+            <ShowLet some=move || task_score.get().flatten() let:((score, max_score))>
+                <div
+                    class:is-flex
+                    class:is-align-items-center
+                    class:px-3
+                    class:py-2
+                    class:is-size-7
+                    style:background-color="var(--bulma-scheme-main-bis)"
+                    style:border="1px solid var(--bulma-border)"
+                    style:border-radius="0.9rem"
+                    style:box-shadow="0 0.2rem 0.6rem hsla(var(--bulma-shadow-h), var(--bulma-shadow-s), var(--bulma-shadow-l), 0.08)"
+                    style:gap="0.75rem"
+                    style:min-width="11rem"
+                >
+                    <div>
+                        <div
+                            class:is-uppercase
+                            class:has-text-weight-semibold
+                            style:font-size="0.65rem"
+                            style:letter-spacing="0.08em"
+                            style:line-height="1"
+                        >
+                            {t!(i18n, task_score)}
+                        </div>
+                        <div
+                            class:has-text-weight-semibold
+                            class:is-family-monospace
+                            style:font-size="0.95rem"
+                            style:line-height="1.1"
+                        >
+                            {format!("{score:.0} / {max_score:.0}")}
+                        </div>
+                    </div>
+                    <progress
+                        class="progress is-info"
+                        style:width="4.5rem"
+                        style:margin="0"
+                        value=score
+                        max=max_score
+                    />
+                </div>
+            </ShowLet>
             <div class="is-flex-grow-1" />
             <Show when=move || backend::for_lang(language.read().deref()).has_dynamic_io()>
                 <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
