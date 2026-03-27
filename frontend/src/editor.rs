@@ -125,22 +125,30 @@ pub fn Editor(
                 .is_none_or(|(a, b)| a != b)
     });
 
+    let writer_running = RwSignal::new(false);
     let onchange = move |_: JsValue| {
-        let old_pending = pending_changes
-            .try_update(|v| std::mem::replace(v, true))
+        pending_changes.set(true);
+        let already_running = writer_running
+            .try_update(|running| std::mem::replace(running, true))
             .unwrap();
-        if old_pending {
+        if already_running {
             return;
         }
         spawn_local(async move {
-            TimeoutFuture::new(100).await;
-            if let Some(name) = open_filename.get_untracked() {
-                let text = controller.get_text();
-                debug!("onchange: writing {} bytes", text.len());
-                let file = common::opfs::open_file(&name, true).await;
-                file.write(text.as_bytes()).await;
+            loop {
+                TimeoutFuture::new(100).await;
+                pending_changes.set(false);
+                if let Some(name) = open_filename.get_untracked() {
+                    let text = controller.get_text();
+                    debug!("onchange: writing {} bytes", text.len());
+                    let file = common::opfs::open_file(&name, true).await;
+                    file.write(text.as_bytes()).await;
+                }
+                if !pending_changes.get_untracked() {
+                    writer_running.set(false);
+                    break;
+                }
             }
-            pending_changes.set(false);
         });
     };
 
