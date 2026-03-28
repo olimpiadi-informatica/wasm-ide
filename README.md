@@ -41,7 +41,3 @@ trunk serve $(find worker frontend common -type f | xargs -n 1 echo -w) \
 ```
 
 Note: you still need to add COEP and COOP headers.
-
-## Initial code and stdin
-If files `frontend/code.txt` and `frontend/stdin.txt` exist at compilation time, they will be
-used as the code/stdin shown to first-time users.

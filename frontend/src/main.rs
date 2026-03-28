@@ -332,6 +332,7 @@ fn App() -> impl IntoView {
             .unwrap_or("C++".to_owned())
     });
 
+    // TODO(virv): remove this
     let send_worker_message = move |msg: WorkerRequest| {
         backend::for_lang(&language.get_untracked()).send_message(msg);
     };
@@ -342,14 +343,18 @@ fn App() -> impl IntoView {
 
     {
         let ls_sender = ls_sender.clone();
-        Effect::new(move |_| {
+        Effect::new(move |old: Option<String>| {
             let lang = language.get();
             info!("Requesting language server for {lang:?}");
             state.update(|s| {
                 s.ls = StateLS::Requested;
             });
+            if let Some(old) = old {
+                backend::for_lang(&old).send_message(WorkerLSRequest::Stop.into());
+            }
             ls_sender.unbounded_send(WorkerLSResponse::Stopped).unwrap();
-            send_worker_message(WorkerLSRequest::Start(lang).into());
+            send_worker_message(WorkerLSRequest::Start(lang.clone()).into());
+            lang
         });
     }
 
@@ -410,7 +415,7 @@ fn App() -> impl IntoView {
             info!("Requesting execution");
             let lng = language.get_untracked();
             send_worker_message(
-                WorkerExecRequest::CompileAndRun {
+                WorkerExecRequest::Run {
                     files,
                     primary_file,
                     language: lng,

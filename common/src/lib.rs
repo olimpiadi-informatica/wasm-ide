@@ -45,7 +45,7 @@ pub enum WorkerResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerExecRequest {
     /// Ask the worker to compile `source` in `language` and then run it.
-    CompileAndRun {
+    Run {
         /// The name of the project to compile
         files: Vec<File>,
         /// The primary source file used by languages with multiple entry points (e.g. Python).
@@ -99,6 +99,8 @@ pub enum WorkerLSRequest {
     Start(String),
     /// Forward a raw Language Server Protocol message to the worker.
     Message(String),
+    /// Stop the currently running language server.
+    Stop,
 }
 
 /// Messages emitted by the worker back to the frontend to report on the

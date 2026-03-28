@@ -46,7 +46,7 @@ impl Backend for RemoteBackend {
         };
 
         match exec {
-            WorkerExecRequest::CompileAndRun {
+            WorkerExecRequest::Run {
                 files,
                 primary_file,
                 language,

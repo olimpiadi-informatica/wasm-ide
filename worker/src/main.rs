@@ -1,26 +1,25 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use common::{
-    WorkerExecRequest, WorkerExecResponse, WorkerLSRequest, WorkerLSResponse, WorkerRequest,
-    WorkerResponse, init_logging,
-};
+use common::{WorkerRequest, WorkerResponse, init_logging};
+use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
-use futures::channel::oneshot::{Sender, channel};
 use futures::lock::Mutex;
-use futures::{FutureExt, StreamExt, select};
 use gloo_timers::future::TimeoutFuture;
 use send_wrapper::SendWrapper;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent};
 
-use crate::os::{Fs, Pipe};
+use crate::exec::{WorkerStateExec, handle_exec_request};
+use crate::ls::{WorkerStateLS, handle_ls_request};
+use crate::os::Fs;
 
+mod exec;
 mod lang;
+mod ls;
 mod os;
 mod util;
 
@@ -30,17 +29,13 @@ pub mod test;
 struct WorkerState {
     send_msg: UnboundedSender<WorkerResponse>,
     fs_cache: Mutex<HashMap<String, Fs>>,
-
-    stop: RefCell<Option<Sender<()>>>,
-    stdin: RefCell<Option<Pipe>>,
-
-    ls_stop: RefCell<Option<Sender<()>>>,
-    ls_stdin: RefCell<Option<Pipe>>,
+    exec: WorkerStateExec,
+    ls: WorkerStateLS,
 }
 
 static WORKER_STATE: OnceLock<SendWrapper<WorkerState>> = OnceLock::new();
 
-fn worker_state() -> &'static WorkerState {
+fn state() -> &'static WorkerState {
     WORKER_STATE.get().expect("worker state not initialized")
 }
 
@@ -51,16 +46,15 @@ fn main() {
 
     let (s, mut r) = unbounded();
 
-    WORKER_STATE.get_or_init(|| {
-        SendWrapper::new(WorkerState {
+    WORKER_STATE
+        .set(SendWrapper::new(WorkerState {
             send_msg: s,
             fs_cache: Mutex::new(HashMap::new()),
-            stop: RefCell::new(None),
-            stdin: RefCell::new(None),
-            ls_stop: RefCell::new(None),
-            ls_stdin: RefCell::new(None),
-        })
-    });
+            exec: WorkerStateExec::default(),
+            ls: WorkerStateLS::default(),
+        }))
+        .ok()
+        .expect("worker state already initialized");
 
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
@@ -96,7 +90,7 @@ fn main() {
 
 fn send_msg(msg: impl Into<WorkerResponse>) {
     let msg: WorkerResponse = msg.into();
-    worker_state()
+    state()
         .send_msg
         .unbounded_send(msg)
         .expect("failed to send message");
@@ -117,189 +111,5 @@ fn handle_message(msg: JsValue) {
     match req {
         WorkerRequest::Execution(req) => handle_exec_request(req),
         WorkerRequest::LS(req) => handle_ls_request(req),
-    }
-}
-
-fn handle_exec_request(req: WorkerExecRequest) {
-    match req {
-        WorkerExecRequest::CompileAndRun {
-            files,
-            primary_file,
-            language,
-            input,
-            config,
-        } => {
-            info!("Starting execution of {:?} code", language);
-
-            let (sender, mut receiver) = channel();
-            worker_state().stop.borrow_mut().replace(sender);
-            let stdin = Pipe::new();
-            if let Some(input) = input {
-                stdin.write(&input);
-                stdin.close();
-            }
-            worker_state().stdin.borrow_mut().replace(stdin.clone());
-            let stdout = Pipe::new();
-
-            spawn_local({
-                let stdout = stdout.clone();
-                async move {
-                    let running = lang::run(language, config, files, primary_file, stdin, stdout);
-                    select! {
-                        _ = receiver => {
-                            info!("Received stop command, cancelling execution");
-                            send_msg(WorkerExecResponse::Error("Execution cancelled by user".to_string()));
-                        }
-                        res = running.fuse() => {
-                            info!("Execution finished");
-                            match res {
-                                Ok(()) => send_msg(WorkerExecResponse::Success),
-                                Err(e) => send_msg(WorkerExecResponse::Error(format!("{e:?}"))),
-                            }
-                        }
-                    };
-                }
-            });
-
-            spawn_local(async move {
-                loop {
-                    let len = stdout
-                        .fill_buf(|buf| {
-                            if !buf.is_empty() {
-                                util::send_stdout(buf);
-                            }
-                            buf.len()
-                        })
-                        .await;
-                    if len == 0 {
-                        break;
-                    }
-                }
-            });
-        }
-
-        WorkerExecRequest::StdinChunk(chunk) => {
-            if let Some(stdin) = &*worker_state().stdin.borrow_mut() {
-                stdin.write(&chunk);
-            } else {
-                warn!("Received stdin chunk but no pipe is set");
-            }
-        }
-
-        WorkerExecRequest::Cancel => {
-            if let Some(s) = worker_state().stop.borrow_mut().take() {
-                let _ = s.send(());
-            } else {
-                warn!("Received cancel message but no execution is running");
-            }
-            if let Some(stdin) = worker_state().stdin.borrow_mut().take() {
-                stdin.close();
-            }
-        }
-    }
-}
-
-fn handle_ls_request(req: WorkerLSRequest) {
-    match req {
-        WorkerLSRequest::Start(lang) => {
-            if let Some(s) = worker_state().ls_stop.borrow_mut().take() {
-                let _ = s.send(());
-            }
-            if let Some(stdin) = worker_state().ls_stdin.borrow_mut().take() {
-                stdin.close();
-            }
-
-            // TODO: wait for previous LS to stop?
-
-            info!("Starting LS for {:?}", lang);
-
-            let (sender, mut receiver) = channel();
-            worker_state().ls_stop.borrow_mut().replace(sender);
-            let stdin = Pipe::new();
-            worker_state().ls_stdin.borrow_mut().replace(stdin.clone());
-            let stdout = Pipe::new();
-            let stderr = Pipe::new();
-
-            spawn_local({
-                let stdout = stdout.clone();
-                let stderr = stderr.clone();
-                async move {
-                    let running = lang::run_ls(lang, stdin, stdout, stderr);
-                    select! {
-                        _ = receiver => {
-                            info!("Received stop command, stopping LS");
-                            send_msg(WorkerLSResponse::Stopped);
-                        }
-                        res = running.fuse() => {
-                            info!("LS finished");
-                            match res {
-                                Ok(()) => {
-                                    tracing::warn!("LS exited unexpectedly");
-                                    send_msg(WorkerLSResponse::Stopped);
-                                }
-                                Err(e) => send_msg(WorkerLSResponse::Error(format!("{e:?}"))),
-                            }
-                        }
-                    }
-                }
-            });
-
-            spawn_local(async move {
-                let mut content_length = 0usize;
-                let mut line = Vec::new();
-                loop {
-                    stdout.read_until(b'\n', &mut line).await;
-                    if line.is_empty() {
-                        break;
-                    }
-                    if line.last() != Some(&b'\n') {
-                        warn!("Partial message from LS");
-                        continue;
-                    }
-                    if line.starts_with(b"Content-Length: ") {
-                        content_length = std::str::from_utf8(&line[16..line.len() - 2])
-                            .ok()
-                            .and_then(|s| s.parse::<usize>().ok())
-                            .expect("Invalid Content-Length");
-                    }
-                    if line == b"\r\n" {
-                        line.resize(content_length, 0);
-                        if stdout.read_exact(&mut line).await.is_err() {
-                            warn!("Partial message from LS");
-                            break;
-                        }
-                        let msg = String::from_utf8(line.clone()).unwrap();
-                        debug!("LS response: {}", msg);
-                        send_msg(WorkerLSResponse::Message(msg));
-                    }
-                }
-            });
-
-            spawn_local(async move {
-                let mut line = Vec::new();
-                loop {
-                    stderr.read_until(b'\n', &mut line).await;
-                    if line.is_empty() {
-                        break;
-                    }
-                    if line.last() != Some(&b'\n') {
-                        warn!("Partial line from LS stderr");
-                        continue;
-                    }
-                    let msg = String::from_utf8_lossy(&line[..line.len() - 1]);
-                    debug!("LS stderr: {}", msg);
-                }
-            });
-        }
-
-        WorkerLSRequest::Message(msg) => {
-            if let Some(stdin) = &*worker_state().ls_stdin.borrow_mut() {
-                debug!("Received LS message: {}", msg);
-                stdin.write(format!("Content-Length: {}\r\n\r\n", msg.len()).as_bytes());
-                stdin.write(msg.as_bytes());
-            } else {
-                warn!("Received LS message but no pipe is set");
-            }
-        }
     }
 }

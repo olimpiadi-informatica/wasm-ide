@@ -122,7 +122,7 @@ impl ContestAPI for Terry {
         };
 
         backend::for_lang(language).send_message(
-            WorkerExecRequest::CompileAndRun {
+            WorkerExecRequest::Run {
                 files: files
                     .into_iter()
                     .map(|(name, content)| File { name, content })
