@@ -50,6 +50,9 @@
 
   "workspaces": "Workspaces",
   "workspace_name": "Workspace name",
+  "workspace_name_empty": "Workspace name cannot be empty",
+  "workspace_name_invalid": "Workspace name cannot be . or .. and cannot contain / or \\",
+  "workspace_name_taken": "A workspace with this name already exists",
   "create_workspace": "Create",
   "choose_workspace": "Choose workspace",
 

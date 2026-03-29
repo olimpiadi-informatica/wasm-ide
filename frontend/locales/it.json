@@ -51,6 +51,9 @@
 
   "workspaces": "Spazi di lavoro",
   "workspace_name": "Nome dello spazio di lavoro",
+  "workspace_name_empty": "Il nome dello spazio di lavoro non può essere vuoto",
+  "workspace_name_invalid": "Il nome dello spazio di lavoro non può essere . o .. e non può contenere / o \\",
+  "workspace_name_taken": "Esiste già uno spazio di lavoro con questo nome",
   "create_workspace": "Crea",
   "choose_workspace": "Scegli uno spazio di lavoro",
 

@@ -51,6 +51,9 @@
 
   "workspaces": "Spasi de łavoro",
   "workspace_name": "Nome del spasio de łavoro",
+  "workspace_name_empty": "El nome del spasio de łavoro no'l pol èsar vodo",
+  "workspace_name_invalid": "El nome del spasio de łavoro no'l pol èsar . o .. e no'l pol contener / o \\",
+  "workspace_name_taken": "Ghe xe za un spasio de łavoro co sto nome",
   "create_workspace": "Crea",
   "choose_workspace": "Sèłi un spasio de łavoro",
 
