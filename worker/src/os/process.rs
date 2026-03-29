@@ -35,6 +35,7 @@ pub enum FdEntry {
 pub struct Process {
     pub module: Module,
     pub memory: Memory,
+    pub name: Option<String>,
     pub start_instant: Instant,
     pub args: Vec<Vec<u8>>,
     pub env: Vec<Vec<u8>>,
@@ -93,6 +94,9 @@ impl Process {
         let path = wasm_bindgen::link_to!(module = "/src/os/start_proc.js");
         let options = WorkerOptions::default();
         options.set_type(WorkerType::Module);
+        if let Some(name) = &self.name {
+            options.set_name(&format!("{name} [{tid}]"));
+        }
         let worker = Worker::new_with_options(&path, &options).expect("couldn't start thread");
 
         let msg = Object::new();
@@ -132,6 +136,7 @@ pub struct ProcessHandle {
 #[derive(Default)]
 pub struct Builder {
     fs: Option<Fs>,
+    name: Option<String>,
     preopen: Option<Vec<Vec<u8>>>,
     stdin: Option<FdEntry>,
     stdout: Option<FdEntry>,
@@ -143,6 +148,12 @@ pub struct Builder {
 }
 
 impl Builder {
+    #[allow(dead_code)]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
     pub fn fs(mut self, fs: Fs) -> Self {
         self.fs = Some(fs);
         self
@@ -258,6 +269,7 @@ impl Builder {
         let proc = Rc::new(Process {
             module,
             memory,
+            name: self.name,
             start_instant,
             args: self.args,
             env: self.env,

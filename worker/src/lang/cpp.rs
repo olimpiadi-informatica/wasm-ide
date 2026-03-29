@@ -25,6 +25,7 @@ async fn compile(llvm: Module, fs: Fs, file: &str) -> Result<Vec<u8>> {
     let compiled = Rc::new(RefCell::new(Vec::new()));
     let compiled2 = compiled.clone();
     let proc = ProcessHandle::builder()
+        .name("clang++")
         .fs(fs)
         .stdin(FdEntry::Data {
             data: Vec::new(),
@@ -88,6 +89,7 @@ async fn link(llvm: Module, mut fs: Fs, compiled: Vec<(String, Vec<u8>)>) -> Res
         fs.add_file_with_path(format!("/workdir/{}", name).as_bytes(), Rc::new(data));
     }
     let proc = ProcessHandle::builder()
+        .name("wasm-ld")
         .fs(fs)
         .stdout(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
             linked2.borrow_mut().extend_from_slice(buf);
@@ -166,6 +168,7 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
     fs.add_entry_with_path(b"input.txt", FsEntry::Pipe(stdin.clone()));
     fs.add_entry_with_path(b"output.txt", FsEntry::Pipe(stdout.clone()));
     let proc = ProcessHandle::builder()
+        .name("solution")
         .fs(fs_workdir)
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
@@ -209,6 +212,7 @@ pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Resul
         ),
     );
     let proc = ProcessHandle::builder()
+        .name("clangd")
         .fs(fs)
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))

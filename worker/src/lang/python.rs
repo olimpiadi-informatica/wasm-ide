@@ -28,6 +28,7 @@ pub async fn run(
     fs.add_entry_with_path(b"input.txt", FsEntry::Pipe(stdin.clone()));
     fs.add_entry_with_path(b"output.txt", FsEntry::Pipe(stdout.clone()));
     let proc = ProcessHandle::builder()
+        .name("python3")
         .fs(fs)
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
@@ -54,6 +55,7 @@ pub async fn run_ls(stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
         .context("Failed to get Python filesystem")?;
     fs.add_file_with_path(b"/ruff.toml", Rc::new(b"indent-width = 2".to_vec()));
     let proc = ProcessHandle::builder()
+        .name("ty")
         .fs(fs)
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
