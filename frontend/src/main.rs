@@ -15,7 +15,6 @@ use futures_channel::mpsc::{UnboundedSender, unbounded};
 use gloo_net::http::Request;
 use leptos::prelude::*;
 use leptos::task::{spawn_local, spawn_local_scoped};
-use send_wrapper::SendWrapper;
 use tracing::{debug, info, warn};
 
 mod backend;
@@ -233,22 +232,28 @@ fn handle_ls_message(
 #[component]
 fn StoragePersistView() -> impl IntoView {
     let i18n = use_i18n();
+    let settings = use_settings();
+    let ok = LocalResource::new(move || async move {
+        if settings.persist_storage.get() {
+            common::opfs::persist().await
+        } else {
+            true
+        }
+    });
 
     view! {
-        <Await future=SendWrapper::new(common::opfs::persist()) let:(&persist)>
-            <Show when=move || !persist>
-                <div
-                    class:message
-                    class:is-warning
-                    style:position="absolute"
-                    style:bottom="1px"
-                    style:right="1px"
-                    style:z-index="100"
-                >
-                    <div class:message-body>{t!(i18n, storage_denied)}</div>
-                </div>
-            </Show>
-        </Await>
+        <Show when=move || ok.get() == Some(false)>
+            <div
+                class:message
+                class:is-warning
+                style:position="absolute"
+                style:bottom="1px"
+                style:right="1px"
+                style:z-index="100"
+            >
+                <div class:message-body>{t!(i18n, storage_denied)}</div>
+            </div>
+        </Show>
     }
 }
 

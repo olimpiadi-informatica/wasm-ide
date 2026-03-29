@@ -30,6 +30,9 @@
   "storage_denied": "Permiso denegado para guardar datos en el almacenamiento persistente.",
 
   "settings": "Configuración",
+  "persist_storage": "Almacenamiento persistente",
+  "enabled": "Activado",
+  "disabled": "Desactivado",
   "interface_language": "Idioma",
   "time_limit": "Límite de tiempo",
 

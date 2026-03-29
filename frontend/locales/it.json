@@ -30,6 +30,9 @@
   "storage_denied": "Autorizzazione negata per salvare i dati nell'archiviazione persistente.",
 
   "settings": "Impostazioni",
+  "persist_storage": "Archiviazione persistente",
+  "enabled": "Abilitato",
+  "disabled": "Disabilitato",
   "interface_language": "Lingua",
   "time_limit": "Limite di tempo",
 

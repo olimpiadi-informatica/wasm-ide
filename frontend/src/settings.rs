@@ -61,6 +61,7 @@ struct StoredSettings {
     theme: Option<Theme>,
     keyboard_mode: KeyboardMode,
     input_mode: InputMode,
+    persist_storage: bool,
     editor_width_percent: f32,
     mem_limit: Option<u32>,
     time_limit: Option<f64>,
@@ -72,6 +73,7 @@ impl Default for StoredSettings {
             theme: None,
             keyboard_mode: KeyboardMode::Standard,
             input_mode: InputMode::Batch,
+            persist_storage: false,
             editor_width_percent: 65.0,
             mem_limit: None,
             time_limit: None,
@@ -87,17 +89,18 @@ pub struct SettingsProvider {
     pub editor_width_percent: Signal<f32>,
     pub keyboard_mode: Signal<KeyboardMode>,
     pub input_mode: Signal<InputMode>,
+    pub persist_storage: Signal<bool>,
     pub mem_limit: Signal<Option<u32>>,
     pub time_limit: Signal<Option<f64>>,
 }
 
 impl SettingsProvider {
     pub fn install() {
-        let (read_settings, write_settings, _) =
+        let (read, write, _) =
             use_local_storage::<StoredSettings, JsonSerdeCodec>("wasm_ide_settings");
         let prefers_dark = use_preferred_dark();
         let theme = Memo::new(move |_| {
-            read_settings.get().theme.unwrap_or(if prefers_dark.get() {
+            read.get().theme.unwrap_or(if prefers_dark.get() {
                 Theme::Dark
             } else {
                 Theme::Light
@@ -110,22 +113,21 @@ impl SettingsProvider {
                 .document_element()
                 .unwrap()
                 .class_list()
-                .set_value(if theme.get() == Theme::Dark {
-                    "theme-dark"
-                } else {
-                    "theme-light"
+                .set_value(match theme.get() {
+                    Theme::Light => "theme-light",
+                    Theme::Dark => "theme-dark",
                 });
         });
         provide_context(Self {
-            write: write_settings,
-            read: read_settings,
+            write,
+            read,
             theme: theme.into(),
-            editor_width_percent: Memo::new(move |_| read_settings.get().editor_width_percent)
-                .into(),
-            keyboard_mode: Memo::new(move |_| read_settings.get().keyboard_mode).into(),
-            input_mode: Memo::new(move |_| read_settings.get().input_mode).into(),
-            mem_limit: Memo::new(move |_| read_settings.get().mem_limit).into(),
-            time_limit: Memo::new(move |_| read_settings.get().time_limit).into(),
+            editor_width_percent: Memo::new(move |_| read.get().editor_width_percent).into(),
+            keyboard_mode: Memo::new(move |_| read.get().keyboard_mode).into(),
+            input_mode: Memo::new(move |_| read.get().input_mode).into(),
+            persist_storage: Memo::new(move |_| read.get().persist_storage).into(),
+            mem_limit: Memo::new(move |_| read.get().mem_limit).into(),
+            time_limit: Memo::new(move |_| read.get().time_limit).into(),
         });
     }
 }
@@ -209,6 +211,7 @@ pub fn Settings() -> impl IntoView {
                         </div>
                     </div>
                     <ThemeControl />
+                    <PersistStorageControl />
                     <hr />
                     <TimeLimit />
                     <MemLimit />
@@ -279,6 +282,42 @@ fn ThemeControl() -> impl IntoView {
                             {t!(i18n, theme_system)}
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn PersistStorageControl() -> impl IntoView {
+    let i18n = use_i18n();
+    let settings = use_settings();
+
+    let toggle = move |_| {
+        settings
+            .write
+            .update(|v| v.persist_storage = !v.persist_storage);
+    };
+
+    view! {
+        <div class:field class:is-horizontal>
+            <div class:field-label class:is-normal>
+                <label class="label">{t!(i18n, persist_storage)}</label>
+            </div>
+            <div class="field-body">
+                <div class="control">
+                    <button
+                        class="button"
+                        class:is-info=move || settings.persist_storage.get()
+                        on:click=toggle
+                        type="button"
+                    >
+                        {move || if settings.persist_storage.get() {
+                            t_string!(i18n, enabled).to_string()
+                        } else {
+                            t_string!(i18n, disabled).to_string()
+                        }}
+                    </button>
                 </div>
             </div>
         </div>

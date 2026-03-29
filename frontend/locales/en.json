@@ -30,6 +30,9 @@
   "storage_denied": "Permission denied to store data in persistent storage.",
 
   "settings": "Settings",
+  "persist_storage": "Persistent storage",
+  "enabled": "Enabled",
+  "disabled": "Disabled",
   "interface_language": "Language",
   "time_limit": "Time limit",
   "memory_limit": "Memory limit",

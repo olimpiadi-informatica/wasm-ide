@@ -30,6 +30,9 @@
   "storage_denied": "Permís denegat per desar dades a l'emmagatzematge persistent.",
 
   "settings": "Configuració",
+  "persist_storage": "Emmagatzematge persistent",
+  "enabled": "Activat",
+  "disabled": "Desactivat",
   "interface_language": "Llengua",
   "time_limit": "Límit de temps",
 

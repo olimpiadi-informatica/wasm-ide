@@ -30,6 +30,9 @@
   "storage_denied": "Permeso negà par salvar i dati inte l'archiviazion persistente.",
 
   "settings": "Inpostazion",
+  "persist_storage": "Archiviazion persistente",
+  "enabled": "Ativà",
+  "disabled": "Disativà",
   "interface_language": "Łéngua",
   "time_limit": "Łimite de tenpo",
 
