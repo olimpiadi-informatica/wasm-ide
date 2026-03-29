@@ -1,43 +1,72 @@
 # wasm-ide
-A simple wasm-based IDE using compilers from
-https://github.com/olimpiadi-informatica/wasm-compilers.
 
-The IDE needs COEP and COOP to work properly. You can set this up i.e. with
-nginx as follows:
+`wasm-ide` is a browser-based IDE for competitive programming, built on top of
+WebAssembly. It compiles and runs code inside a Web Worker, stores workspaces in
+the browser filesystem, and can optionally integrate with remote evaluation and
+contest systems.
 
-```
-add_header 'Cross-Origin-Embedder-Policy' 'require-corp';
-add_header 'Cross-Origin-Opener-Policy' 'same-origin';
-```
+## How to build
 
-## Dependencies
-Install `rustup` and `cargo`, and ensure `~/.cargo/bin` is in your `PATH`.
-Then:
+First install [`rustup`](https://rustup.rs/) and make sure `~/.cargo/bin` is in
+your `PATH`.
 
-```
+Then install the required Rust tooling:
+
+```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-pack wasm-opt
 cargo install --locked trunk
 ```
 
-## Installation
-Download the artefacts from
-https://github.com/olimpiadi-informatica/wasm-compilers/ and place them in a
-folder named `compilers` in the root of this repository; ensure you have both
-`.tar.br` and `.tar` files (use `brotli -d` to extract the `.tar` files from
-the `.tar.br` files).
+You also need these tools available in `PATH`:
 
-Run `trunk build --release`.
+- `npm`
+- `jq`
+- `brotli`
 
-If you use `nginx`, you can use the `brotli_static` directive to have `nginx`
-serve the `.tar.br` files to clients that support the `brotli`
-content-encoding.
+Runtime configuration is loaded from `config.json`. If that file is missing, the
+build falls back to `config.example.json`.
 
-## Development
+The main configuration keys are:
+
+- `default_ws`: files created for a new local workspace
+- `remote_eval`: optional remote evaluation endpoint
+- `terry`: optional contest-system endpoint
+
+Compiler artifacts must be downloaded from
+[`olimpiadi-informatica/wasm-compilers`](https://github.com/olimpiadi-informatica/wasm-compilers)
+and placed in `./compilers`. The build expects the `.tar.br` files there.
+
+Then build the project with:
+
+```bash
+trunk build --release
 ```
-trunk serve $(find worker frontend common -type f | xargs -n 1 echo -w) \
-    -w Cargo.toml -w style/main.scss -w index.html -w start_worker.js \
-    -w codemirror_interface.ts -w Trunk.toml --release
+
+## How to serve
+
+The app requires COEP and COOP headers.
+
+A minimal `nginx` configuration for serving the generated `dist/` directory is:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    root /path/to/wasm-ide/dist;
+    index index.html;
+
+    add_header Cross-Origin-Embedder-Policy require-corp;
+    add_header Cross-Origin-Opener-Policy same-origin;
+
+    location / {
+    }
+
+    location /compilers/ {
+        brotli_static on;
+    }
+}
 ```
 
-Note: you still need to add COEP and COOP headers.
+`brotli_static on;` is useful if you want `nginx` to serve precompressed
+compiler archives directly.

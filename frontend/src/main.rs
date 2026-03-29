@@ -541,7 +541,6 @@ fn App() -> impl IntoView {
                     style:background-color="var(--bulma-scheme-main-bis)"
                     style:border="1px solid var(--bulma-border)"
                     style:border-radius="0.9rem"
-                    style:box-shadow="0 0.2rem 0.6rem hsla(var(--bulma-shadow-h), var(--bulma-shadow-s), var(--bulma-shadow-l), 0.08)"
                     style:gap="0.75rem"
                     style:min-width="11rem"
                 >
