@@ -1,6 +1,8 @@
 import {basicSetup} from "codemirror";
 import {EditorView, keymap} from "@codemirror/view";
 import {Compartment, Prec, EditorState, Facet} from "@codemirror/state";
+import {StreamLanguage} from "@codemirror/language";
+import {pascal} from "@codemirror/legacy-modes/mode/pascal";
 import {cpp} from "@codemirror/lang-cpp";
 import {python} from "@codemirror/lang-python";
 import {go} from "@codemirror/lang-go";
@@ -122,6 +124,13 @@ export class CM6Editor {
       });
       this.view.dispatch({
         effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.py")]),
+      });
+    } else if (lang === "Pascal") {
+      this.view.dispatch({
+        effects: this.language.reconfigure([StreamLanguage.define(pascal), languageId.of("pascal")]),
+      });
+      this.view.dispatch({
+        effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.pas")]),
       });
     } else if (lang === "Go") {
         this.view.dispatch({
