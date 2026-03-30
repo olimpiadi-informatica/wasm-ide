@@ -83,10 +83,18 @@ impl Backend for RemoteBackend {
                             };
 
                             if let Some(compilation) = res.compilation {
-                                callback(
-                                    WorkerExecResponse::CompilationMessageChunk(compilation.stderr.into())
-                                        .into(),
-                                );
+                                let stdout: Vec<u8> = compilation.stdout.into();
+                                if !stdout.is_empty() {
+                                    callback(
+                                        WorkerExecResponse::CompilationMessageChunk(stdout).into(),
+                                    );
+                                }
+                                let stderr: Vec<u8> = compilation.stderr.into();
+                                if !stderr.is_empty() {
+                                    callback(
+                                        WorkerExecResponse::CompilationMessageChunk(stderr).into(),
+                                    );
+                                }
                                 if compilation.status != "Success" {
                                     callback(
                                         WorkerExecResponse::Error(format!(
