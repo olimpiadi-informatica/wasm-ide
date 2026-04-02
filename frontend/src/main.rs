@@ -15,7 +15,7 @@ use futures_channel::mpsc::{UnboundedSender, unbounded};
 use gloo_net::http::Request;
 use leptos::prelude::*;
 use leptos::task::{spawn_local, spawn_local_scoped};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 mod backend;
 mod contest_api;
@@ -118,14 +118,9 @@ fn handle_message(
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
     ls_message_chan: &UnboundedSender<WorkerLSResponse>,
 ) -> Result<()> {
-    debug!("{msg:?}");
     match msg {
-        WorkerResponse::Execution(msg) => {
-            handle_exec_message(msg, state)?;
-        }
-        WorkerResponse::LS(msg) => {
-            handle_ls_message(msg, state, ls_message_chan)?;
-        }
+        WorkerResponse::Execution(msg) => handle_exec_message(msg, state)?,
+        WorkerResponse::LS(msg) => handle_ls_message(msg, state, ls_message_chan)?,
         WorkerResponse::FetchingCompiler(name, progress) => {
             fetching_compiler_progress.update(|x| {
                 x.insert(name, progress);
@@ -283,9 +278,7 @@ fn App() -> impl IntoView {
 
     backend::set_callback(Arc::new({
         let ls_sender = ls_sender.clone();
-        move |msg| {
-            handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap();
-        }
+        move |msg| handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap()
     }));
 
     let workspace = RwSignal::new(None);

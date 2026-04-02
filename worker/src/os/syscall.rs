@@ -577,7 +577,7 @@ fn fd_fdstat_get(proc: &Process, fd: Fd, buf: Addr) -> Errno {
                 Rights::FD_READ | Rights::FD_WRITE | Rights::FD_FILESTAT_GET;
         }
         FdEntry::Pipe(_) => {
-            fdstat.fs_filetype = FileType::CharacterDevice;
+            fdstat.fs_filetype = FileType::Unknown;
             fdstat.fs_flags = FdFlags::APPEND;
             fdstat.fs_rights_base = Rights::FD_READ | Rights::FD_WRITE;
             fdstat.fs_rights_inheriting = Rights::FD_READ | Rights::FD_WRITE;
@@ -639,7 +639,7 @@ fn fd_filestat_get(proc: &Process, fd: Fd, out: Addr) -> Errno {
         }
         FdEntry::Pipe(_) => {
             fstat.dev = 1;
-            fstat.filetype = FileType::CharacterDevice;
+            fstat.filetype = FileType::Unknown;
         }
     }
     if let Err(e) = write_to_mem(proc, out, &fstat) {
@@ -880,7 +880,7 @@ fn fd_readdir(
         let file_type = match proc_inner.fs.entries[*inode as usize] {
             FsEntry::File(_) => FileType::RegularFile,
             FsEntry::Dir(_) => FileType::Directory,
-            FsEntry::Pipe(_) => FileType::CharacterDevice,
+            FsEntry::Pipe(_) => FileType::Unknown,
         };
         buf.extend_from_slice(&(file_type as u32).to_le_bytes());
         buf.extend_from_slice(name);
@@ -1046,7 +1046,7 @@ fn path_filestat_get(
             fstat.size = file.len() as FileSize;
         }
         FsEntry::Pipe(_) => {
-            fstat.filetype = FileType::CharacterDevice;
+            fstat.filetype = FileType::Unknown;
         }
     }
     if let Err(e) = write_to_mem(proc, filestat, &fstat) {
