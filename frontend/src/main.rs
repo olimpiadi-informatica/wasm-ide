@@ -498,7 +498,7 @@ fn App() -> impl IntoView {
                         .task
                         .as_deref()
                         .expect("submit without connected task"),
-                    &config.language,
+                    &language.get_untracked(),
                     &primary_file,
                     files,
                 )
