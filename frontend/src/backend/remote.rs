@@ -40,7 +40,7 @@ impl Backend for RemoteBackend {
         let exec = match msg {
             WorkerRequest::Execution(exec) => exec,
             WorkerRequest::LS(_) => {
-                //unimplemented!("Language server is not supported in remote backend")
+                // Language server is not supported in remote backend
                 return;
             }
         };

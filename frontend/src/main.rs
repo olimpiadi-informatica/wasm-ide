@@ -29,7 +29,7 @@ mod status_view;
 mod util;
 mod workspace;
 
-use crate::backend::{RemoteBackend, WorkerBackend};
+use crate::backend::{JsBackend, RemoteBackend, WorkerBackend};
 use crate::contest_api::SubmitStatus;
 use crate::editor_dir::EditorDirController;
 use crate::editor_view::EditorView;
@@ -679,6 +679,7 @@ fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
         let config: Config = res.json().await.unwrap();
 
         backend::register_backend(WorkerBackend::new().await);
+        backend::register_backend(JsBackend::new().await);
         if let Some(remote_eval) = &config.remote_eval {
             backend::register_backend(RemoteBackend::new(remote_eval.clone()).await.unwrap());
         }

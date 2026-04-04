@@ -5,9 +5,11 @@ use std::{
 
 use common::{Language, WorkerRequest, WorkerResponse};
 
+mod js;
 mod remote;
 mod worker;
 
+pub use js::*;
 pub use remote::*;
 pub use worker::*;
 
