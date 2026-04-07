@@ -32,16 +32,16 @@ const wasi = {
 };
 
 self.onmessage = (msg) => {
-    const imports = {
-        wasi_snapshot_preview1: wasip1,
-        wasi: wasi,
-        env: {
-            memory: msg.data.memory,
-        }
-    };
-    channel = msg.data.channel;
-    let wasm = new WebAssembly.Instance(msg.data.module, imports);
     try {
+        const imports = {
+            wasi_snapshot_preview1: wasip1,
+            wasi: wasi,
+            env: {
+                memory: msg.data.memory,
+            }
+        };
+        channel = msg.data.channel;
+        let wasm = new WebAssembly.Instance(msg.data.module, imports);
         if (msg.data.tid !== undefined) {
             wasm.exports.wasi_thread_start(msg.data.tid, msg.data.arg);
         } else {
@@ -50,7 +50,7 @@ self.onmessage = (msg) => {
         }
     } catch (e) {
         postMessage({ re: e.message });
+    } finally {
+        self.close();
     }
-
-    self.close();
 };

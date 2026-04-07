@@ -3,12 +3,11 @@ use std::rc::Rc;
 
 use anyhow::{Context, Result};
 use common::{ExecConfig, File};
-use js_sys::WebAssembly::Module;
 
-use crate::os::{FdEntry, Fs, FsEntry, Pipe, ProcessHandle};
+use crate::os::{CachedModule, FdEntry, Fs, FsEntry, Pipe, ProcessHandle};
 use crate::util::*;
 
-async fn compile(llvm: Module, fs: Fs, file: &str) -> Result<Vec<u8>> {
+async fn compile(llvm: CachedModule, fs: Fs, file: &str) -> Result<Vec<u8>> {
     let cpp = match file.split('.').next_back() {
         Some("cpp") => true,
         Some("c") => false,
@@ -78,7 +77,7 @@ async fn compile(llvm: Module, fs: Fs, file: &str) -> Result<Vec<u8>> {
     Ok(compiled)
 }
 
-async fn link(llvm: Module, mut fs: Fs, compiled: Vec<(String, Vec<u8>)>) -> Result<Vec<u8>> {
+async fn link(llvm: CachedModule, mut fs: Fs, compiled: Vec<(String, Vec<u8>)>) -> Result<Vec<u8>> {
     let linked = Rc::new(RefCell::new(Vec::new()));
     let linked2 = linked.clone();
     let names = compiled
@@ -135,9 +134,8 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
     let llvm_exe = fs
         .get_file_with_path(b"/bin/llvm")
         .context("Failed to get clang executable")?;
-    let uint8array = js_sys::Uint8Array::new_with_length(llvm_exe.len() as u32);
-    uint8array.copy_from(&llvm_exe);
-    let llvm_module = Module::new(&uint8array).expect("could not create module from wasm bytes");
+    let llvm_module =
+        CachedModule::from_code(&llvm_exe).expect("could not create module from wasm bytes");
 
     let mut compiled = Vec::new();
     let names = files

@@ -97,6 +97,11 @@ self.onmessage = function (e) {
             write(...values, "\n");
         }
 
+        console.log = function(...args) {
+            const text = args.map((arg) => String(arg)).join(" ") + "\n";
+            self.postMessage({ StderrChunk: encoder.encode(text) });
+        }
+
         eval(data.code);
         self.postMessage({ Success: null });
     } catch (err) {

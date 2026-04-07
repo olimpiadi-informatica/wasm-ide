@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, ensure};
 use enum_as_inner::EnumAsInner;
 use futures::channel::oneshot::{Receiver, Sender, channel};
 use futures::lock::Mutex;
@@ -30,6 +30,57 @@ pub enum FdEntry {
     /// inode, offset, append
     File(Inode, usize, bool),
     Pipe(Pipe),
+}
+
+#[derive(Clone)]
+pub struct CachedModule {
+    module: Module,
+    initial_mem: u32,
+    maximum_mem: u32,
+}
+
+impl CachedModule {
+    pub fn from_code(code: &[u8]) -> Result<Self> {
+        let parser = wasmparser::Parser::new(0);
+        let mut memory = None;
+        'mem: for payload in parser.parse_all(code) {
+            let payload = payload.expect("failed to parse wasm code");
+            if let wasmparser::Payload::ImportSection(s) = payload {
+                for import in s.into_imports() {
+                    let import = import.expect("failed to parse import");
+                    if import.module == "env"
+                        && import.name == "memory"
+                        && let wasmparser::TypeRef::Memory(mem) = import.ty
+                    {
+                        memory = Some(mem);
+                        break 'mem;
+                    }
+                }
+            }
+        }
+
+        let memory =
+            memory.ok_or_else(|| anyhow!("module should import memory from env.memory"))?;
+        ensure!(
+            memory.shared,
+            "imported memory should be shared for threads to work correctly"
+        );
+        let initial_mem = memory.initial as _;
+        let maximum_mem = memory
+            .maximum
+            .ok_or_else(|| anyhow!("imported memory should have a maximum size"))?
+            as _;
+
+        let uint8array = js_sys::Uint8Array::new_with_length(code.len() as u32);
+        uint8array.copy_from(code);
+        let module = Module::new(&uint8array).expect("could not create module from wasm bytes");
+
+        Ok(Self {
+            module,
+            initial_mem,
+            maximum_mem,
+        })
+    }
 }
 
 pub struct Process {
@@ -212,29 +263,18 @@ impl Builder {
         self
     }
 
-    pub fn spawn_with_module(self, module: Module) -> ProcessHandle {
-        let imports_memory = Module::imports(&module).iter().any(|import| {
-            let kind = Reflect::get(&import, &"kind".into()).expect("could not get import kind");
-            let module =
-                Reflect::get(&import, &"module".into()).expect("could not get import module");
-            let name = Reflect::get(&import, &"name".into()).expect("could not get import name");
-            kind.as_string() == Some("memory".to_string())
-                && module.as_string() == Some("env".to_string())
-                && name.as_string() == Some("memory".to_string())
-        });
-        assert!(
-            imports_memory,
-            "module should import memory from env.memory"
-        );
-
-        // TODO: get the opts from the module
+    pub fn spawn_with_module(self, module: CachedModule) -> ProcessHandle {
         let mem_opts = Object::new();
-        Reflect::set(&mem_opts, &"initial".into(), &640.into())
+        Reflect::set(&mem_opts, &"initial".into(), &module.initial_mem.into())
             .expect("could not set initial memory size");
         Reflect::set(
             &mem_opts,
             &"maximum".into(),
-            &self.mem_limit.unwrap_or(65536).into(),
+            &self
+                .mem_limit
+                .unwrap_or(65536)
+                .min(module.maximum_mem)
+                .into(),
         )
         .expect("could not set maximum memory size");
         Reflect::set(&mem_opts, &"shared".into(), &true.into())
@@ -267,7 +307,7 @@ impl Builder {
         };
 
         let proc = Rc::new(Process {
-            module,
+            module: module.module,
             memory,
             name: self.name,
             start_instant,
@@ -293,9 +333,7 @@ impl Builder {
     }
 
     pub fn spawn_with_code(self, code: &[u8]) -> ProcessHandle {
-        let uint8array = js_sys::Uint8Array::new_with_length(code.len() as u32);
-        uint8array.copy_from(code);
-        let module = Module::new(&uint8array).expect("could not create module from wasm bytes");
+        let module = CachedModule::from_code(code).expect("failed to parse module");
         self.spawn_with_module(module)
     }
 
