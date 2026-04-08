@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use common::config::Config;
 use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
@@ -38,7 +38,7 @@ use crate::i18n::*;
 use crate::output::OutputView;
 use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use_settings};
 use crate::status_view::StatusView;
-use crate::util::{Icon, get_input_mode};
+use crate::util::{Icon, check_response, get_input_mode};
 use crate::workspace::{WorkspaceConfig, WorkspaceSelector};
 
 #[derive(Clone, Debug, Default)]
@@ -672,28 +672,64 @@ fn LoadingView() -> impl IntoView {
 }
 
 #[component]
+fn StartupErrorView(#[prop(into)] err: String) -> impl IntoView {
+    view! {
+        <div
+            class:is-flex
+            class:is-align-items-center
+            class:is-justify-content-center
+            style:height="100dvh"
+            class:px-4
+        >
+            <div class="message is-danger" style:max-width="48rem" style:width="100%">
+                <div class="message-header">
+                    <p>"Startup Error"</p>
+                </div>
+                <div class="message-body">
+                    <pre>{err}</pre>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
     let config = LocalResource::new(|| async {
-        let res = Request::get("config.json").send().await.unwrap();
-        assert!(res.ok(), "could not load config: {}", res.status());
-        let config: Config = res.json().await.unwrap();
+        let config = async {
+            let res = Request::get("config.json")
+                .send()
+                .await
+                .context("Failed to fetch config.json")?;
+            check_response(&res, "Failed to load config.json").await?;
+            let config: Config = res.json().await.context("Failed to parse config.json")?;
 
-        backend::register_backend(WorkerBackend::new().await);
-        backend::register_backend(JsBackend::new().await);
-        if let Some(remote_eval) = &config.remote_eval {
-            backend::register_backend(RemoteBackend::new(remote_eval.clone()).await.unwrap());
+            backend::register_backend(WorkerBackend::new().await);
+            backend::register_backend(JsBackend::new().await);
+            if let Some(remote_eval) = &config.remote_eval {
+                let backend = RemoteBackend::new(remote_eval.clone())
+                    .await
+                    .with_context(|| {
+                        format!("Failed to initialize remote backend at {remote_eval}")
+                    })?;
+                backend::register_backend(backend);
+            }
+
+            contest_api::init(&config).await;
+
+            Ok::<_, anyhow::Error>(config)
         }
+        .await;
 
-        contest_api::init(&config).await;
-
-        config
+        config.map_err(|err| format!("{err:?}"))
     });
 
     move || match config.get() {
-        Some(config) => {
+        Some(Ok(config)) => {
             provide_context::<Config>(config);
             children()
         }
+        Some(Err(err)) => view! { <StartupErrorView err=err.to_string() /> }.into_any(),
         None => view! { <LoadingView /> }.into_any(),
     }
 }

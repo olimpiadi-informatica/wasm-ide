@@ -1,3 +1,6 @@
+use anyhow::{Result, bail};
+use gloo_net::http::Response;
+use http::StatusCode;
 use js_sys::Uint8Array;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -44,4 +47,20 @@ pub fn get_input_mode(input_mode: InputMode, lang: &str) -> InputMode {
         true => input_mode,
         false => InputMode::Batch,
     }
+}
+
+pub async fn check_response(res: &Response, msg: &str) -> Result<()> {
+    if !res.ok() {
+        let status = res.status();
+        let status_text = StatusCode::from_u16(status)
+            .ok()
+            .and_then(|status| status.canonical_reason())
+            .unwrap_or_default();
+        let text = res
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("Failed to read response text: {e}"));
+        bail!("{msg}: {status} {status_text}\n\n{text}");
+    }
+    Ok(())
 }

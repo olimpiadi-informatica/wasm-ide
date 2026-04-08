@@ -312,10 +312,12 @@ fn PersistStorageControl() -> impl IntoView {
                         on:click=toggle
                         type="button"
                     >
-                        {move || if settings.persist_storage.get() {
-                            t_string!(i18n, enabled).to_string()
-                        } else {
-                            t_string!(i18n, disabled).to_string()
+                        {move || {
+                            if settings.persist_storage.get() {
+                                t_string!(i18n, enabled).to_string()
+                            } else {
+                                t_string!(i18n, disabled).to_string()
+                            }
                         }}
                     </button>
                 </div>

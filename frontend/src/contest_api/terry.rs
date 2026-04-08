@@ -192,12 +192,14 @@ mod api {
 
     use std::{collections::HashMap, ops::Range};
 
-    use anyhow::{Result, anyhow, ensure};
+    use anyhow::{Result, anyhow};
     use chrono::{DateTime, Utc};
     use gloo_net::http::Request;
     use js_sys::Uint8Array;
     use serde::{Deserialize, Serialize};
     use web_sys::{Blob, FormData};
+
+    use crate::util::check_response;
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "lowercase")]
@@ -348,7 +350,7 @@ mod api {
 
     pub async fn status(path: &str) -> Result<StatusResponse> {
         let res = Request::get(&format!("{path}/api/status")).send().await?;
-        ensure!(res.ok(), "Failed to get contest status: {}", res.status());
+        check_response(&res, "Failed to get contest status").await?;
         let res = res.json().await?;
         Ok(res)
     }
@@ -357,14 +359,14 @@ mod api {
         let res = Request::get(&format!("{path}/statements/{task}/{file}"))
             .send()
             .await?;
-        ensure!(res.ok(), "Failed to get statement file: {}", res.status());
+        check_response(&res, "Failed to get statement file").await?;
         let res = res.binary().await?;
         Ok(res)
     }
 
     pub async fn get_file(path: &str, file: &str) -> Result<Vec<u8>> {
         let res = Request::get(&format!("{path}/files/{file}")).send().await?;
-        ensure!(res.ok(), "Failed to get file: {}", res.status());
+        check_response(&res, "Failed to get file").await?;
         let res = res.binary().await?;
         Ok(res)
     }
@@ -373,7 +375,7 @@ mod api {
         let res = Request::post(&format!("{path}/api/generate_input/{task}"))
             .send()
             .await?;
-        ensure!(res.ok(), "Failed to generate input: {}", res.status());
+        check_response(&res, "Failed to generate input").await?;
         let res = res.json().await?;
         Ok(res)
     }
@@ -395,7 +397,7 @@ mod api {
             .body(form)?
             .send()
             .await?;
-        ensure!(res.ok(), "Failed to upload output: {}", res.status());
+        check_response(&res, "Failed to upload output").await?;
         let res = res.json().await?;
         Ok(res)
     }
@@ -417,7 +419,7 @@ mod api {
             .body(form)?
             .send()
             .await?;
-        ensure!(res.ok(), "Failed to upload source: {}", res.status());
+        check_response(&res, "Failed to upload source").await?;
         let res = res.json().await?;
         Ok(res)
     }
@@ -435,7 +437,7 @@ mod api {
             })?
             .send()
             .await?;
-        ensure!(res.ok(), "Failed to submit: {}", res.status());
+        check_response(&res, "Failed to submit").await?;
         let res = res.json().await?;
         Ok(res)
     }

@@ -150,9 +150,11 @@ impl Backend for RemoteBackend {
 }
 
 mod api {
-    use anyhow::{Result, ensure};
+    use anyhow::Result;
     use gloo_net::http::Request;
     use serde::{Deserialize, Serialize};
+
+    use crate::util::check_response;
 
     use super::Language;
 
@@ -200,7 +202,7 @@ mod api {
 
     pub async fn languages(address: &str) -> Result<Vec<Language>> {
         let res = Request::get(&format!("{address}/languages")).send().await?;
-        ensure!(res.ok(), "Failed to fetch languages: {}", res.status());
+        check_response(&res, "Failed to fetch languages").await?;
         Ok(res.json().await?)
     }
 
@@ -253,7 +255,7 @@ mod api {
         let req = req.json(&req_body)?;
         let res = req.send().await?;
 
-        ensure!(res.ok(), "Failed to evaluate: {}", res.status());
+        check_response(&res, "Failed to evaluate").await?;
 
         let res: EvalRes = res.json().await?;
 
