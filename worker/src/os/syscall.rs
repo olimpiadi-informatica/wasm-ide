@@ -1,9 +1,10 @@
 use std::rc::Rc;
 
 use bitflags::bitflags;
+use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
+use gloo_timers::future::TimeoutFuture;
 use js_sys::{Atomics, Int32Array, SharedArrayBuffer, Uint8Array};
 use serde::Deserialize;
-use serde_repr::Deserialize_repr;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::MessageEvent;
@@ -25,7 +26,7 @@ type Signal = u8;
 type LookupFlags = u32;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, Deserialize_repr, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Whence {
     Set = 0,
     Cur = 1,
@@ -33,17 +34,16 @@ enum Whence {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, Deserialize_repr)]
+#[derive(Debug, Clone, Copy)]
 enum ClockId {
-    Monotonic = 0,
-    Realtime = 1,
+    Realtime = 0,
+    Monotonic = 1,
     ProcessCpu = 2,
     ThreadCpu = 3,
 }
 
-#[derive(Debug, Clone, Copy, Immutable, IntoBytes, Deserialize)]
+#[derive(Debug, Clone, Copy, Immutable, IntoBytes)]
 #[repr(transparent)]
-#[serde(transparent)]
 struct Rights(u64);
 
 bitflags! {
@@ -81,9 +81,8 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Copy, Immutable, IntoBytes, Deserialize)]
+#[derive(Debug, Clone, Copy, Immutable, IntoBytes)]
 #[repr(transparent)]
-#[serde(transparent)]
 struct FdFlags(u16);
 
 bitflags! {
@@ -96,9 +95,8 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Copy, Immutable, IntoBytes, Deserialize)]
+#[derive(Debug, Clone, Copy, Immutable, IntoBytes)]
 #[repr(transparent)]
-#[serde(transparent)]
 struct OFlags(u16);
 
 bitflags! {
@@ -111,7 +109,7 @@ bitflags! {
 }
 
 #[repr(u16)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, IntoBytes, Immutable)]
 #[allow(dead_code)]
 #[non_exhaustive]
 enum Errno {
@@ -209,8 +207,8 @@ async fn handle_message_inner(proc: &Rc<Process>, msg: ProcMsg) -> Option<Option
     impl Arg<ClockId> for i64 {
         fn a(self) -> Option<ClockId> {
             match self {
-                0 => Some(ClockId::Monotonic),
-                1 => Some(ClockId::Realtime),
+                0 => Some(ClockId::Realtime),
+                1 => Some(ClockId::Monotonic),
                 2 => Some(ClockId::ProcessCpu),
                 3 => Some(ClockId::ThreadCpu),
                 _ => None,
@@ -340,7 +338,9 @@ async fn handle_message_inner(proc: &Rc<Process>, msg: ProcMsg) -> Option<Option
             sock_send(proc, a.a()?, b.a()?, c.a()?, d.a()?, e.a()?) as _
         }
         ("sock_shutdown", &[a, b]) => sock_shutdown(proc, a.a()?, b.a()?) as _,
-        ("poll_oneoff", &[a, b, c, d]) => poll_oneoff(proc, a.a()?, b.a()?, c.a()?, d.a()?) as _,
+        ("poll_oneoff", &[a, b, c, d]) => {
+            poll_oneoff(proc, a.a()?, b.a()?, c.a()?, d.a()?).await as _
+        }
         ("thread_spawn", &[a]) => thread_spawn(proc, a.a()?),
         _ => return None,
     }))
@@ -493,8 +493,8 @@ fn clock_res_get(proc: &Process, clock_id: ClockId, out: Addr) -> Errno {
 
 fn clock_time_get(proc: &Process, clock_id: ClockId, _precision: Timestamp, time: Addr) -> Errno {
     let val = match clock_id {
-        ClockId::Monotonic => web_time::UNIX_EPOCH.elapsed().unwrap().as_nanos() as Timestamp,
-        ClockId::Realtime => proc.start_instant.elapsed().as_nanos() as Timestamp,
+        ClockId::Realtime => web_time::UNIX_EPOCH.elapsed().unwrap().as_nanos() as Timestamp,
+        ClockId::Monotonic => proc.start_instant.elapsed().as_nanos() as Timestamp,
         ClockId::ProcessCpu => unimplemented!(),
         ClockId::ThreadCpu => unimplemented!(),
     };
@@ -1267,14 +1267,96 @@ fn sock_shutdown(proc: &Process, fd: Fd, _how: u8) -> Errno {
     Errno::NotSock
 }
 
-fn poll_oneoff(
-    _proc: &Process,
-    _subs_addr: Addr,
-    _events_addr: Addr,
-    _num_subs: Size,
-    _out: Addr,
+async fn poll_oneoff(
+    proc: &Process,
+    subs_addr: Addr,
+    events_addr: Addr,
+    num_subs: Size,
+    out: Addr,
 ) -> Errno {
-    Errno::Perm
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, IntoBytes, FromBytes)]
+    struct Subscription {
+        userdata: u64,
+        event_type: u8,
+        _pad: [u8; 7],
+        body: [u64; 4],
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, IntoBytes, Immutable)]
+    struct Event {
+        userdata: u64,
+        error: Errno,
+        event_type: u8,
+        _pad: [u8; 5],
+        data: [u64; 2],
+    }
+
+    let mut subs = vec![
+        Subscription {
+            userdata: 0,
+            event_type: 0,
+            _pad: [0; 7],
+            body: [0; 4],
+        };
+        num_subs as usize
+    ];
+    if let Err(e) = read_from_mem(proc, subs_addr, &mut subs[..]) {
+        return e;
+    }
+
+    let mut futures: FuturesUnordered<_> = subs
+        .into_iter()
+        .map(|sub| async move {
+            if sub.event_type == 0 {
+                let nanos = if sub.body[3] & 1 == 0 {
+                    sub.body[1]
+                } else {
+                    let val = match sub.body[0] {
+                        0 /* ClockId::Realtime */ => web_time::UNIX_EPOCH.elapsed().unwrap().as_nanos() as Timestamp,
+                        1 /* ClockId::Monotonic */ => proc.start_instant.elapsed().as_nanos() as Timestamp,
+                        _ => unimplemented!(),
+                    };
+                    sub.body[1].saturating_sub(val)
+                };
+                TimeoutFuture::new(nanos.div_ceil(1_000_000).try_into().unwrap_or(u32::MAX)).await;
+                Event {
+                    userdata: sub.userdata,
+                    error: Errno::Success,
+                    event_type: sub.event_type,
+                    _pad: [0; 5],
+                    data: [0; 2],
+                }
+            } else {
+                // TODO(virv): support fd events
+                Event {
+                    userdata: sub.userdata,
+                    error: Errno::Inval,
+                    event_type: sub.event_type,
+                    _pad: [0; 5],
+                    data: [0; 2],
+                }
+            }
+        })
+        .collect();
+
+    let mut events = Vec::new();
+    if let Some(ev) = futures.next().await {
+        events.push(ev);
+    }
+    while let Some(ev) = futures.next().now_or_never().flatten() {
+        events.push(ev);
+    }
+
+    if let Err(e) = write_to_mem(proc, events_addr, &events[..]) {
+        return e;
+    }
+    if let Err(e) = write_to_mem(proc, out, &events.len()) {
+        return e;
+    }
+
+    Errno::Success
 }
 
 fn thread_spawn(proc: &Rc<Process>, attr: i32) -> i32 {
