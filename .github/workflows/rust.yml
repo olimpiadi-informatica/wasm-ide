@@ -31,7 +31,7 @@ jobs:
         run: ./testsuite/build.sh
 
       - name: Upload testsuite artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: testsuite
           path: ./testsuite
