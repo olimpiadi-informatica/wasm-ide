@@ -23,7 +23,7 @@ tracing = { version = "0.1.44" }
 zerocopy = { version = "0.8.48", features = ["derive"] }
 bitflags = "2.10.0"
 thiserror = "2.0.18"
-enum-as-inner = "0.6.1"
+enum-as-inner = "0.7.0"
 wasmparser = "0.246.2"
 
 [dev-dependencies]
