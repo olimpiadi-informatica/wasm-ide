@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -42,7 +42,7 @@ jobs:
     needs: prepare
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -79,7 +79,7 @@ jobs:
     needs: prepare
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
