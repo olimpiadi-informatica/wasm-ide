@@ -15,7 +15,7 @@
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-terser": "^1.0.0",
     "@rollup/plugin-typescript": "^11.1.6",
-    "@uiw/codemirror-theme-solarized": "^4.22.1",
+    "@uiw/codemirror-theme-solarized": "^4.25.9",
     "codemirror": "^6.0.2",
     "rollup": "^4.59.0"
   },
