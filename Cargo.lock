@@ -637,6 +637,7 @@ dependencies = [
  "futures-util",
  "gloo-net",
  "gloo-timers",
+ "gloo-utils",
  "http",
  "icondata",
  "js-sys",
