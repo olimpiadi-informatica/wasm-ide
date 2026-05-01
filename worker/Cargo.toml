@@ -18,7 +18,7 @@ wasm-bindgen-futures = "0.4.55"
 web-sys = { version = "0.3.82", features = ["DedicatedWorkerGlobalScope", "WorkerLocation", "MessageEvent", "Worker", "WorkerOptions", "WorkerType", "ReadableStreamDefaultReader"] }
 web-time = "1.1.0"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-gloo-net = "0.6.0"
+gloo-net = "0.7.0"
 tracing = { version = "0.1.44" }
 zerocopy = { version = "0.8.48", features = ["derive"] }
 bitflags = "2.10.0"
