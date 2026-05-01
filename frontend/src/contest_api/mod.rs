@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use common::config::{Config, Workspace};
 
+mod cms;
 mod terry;
 
 #[derive(Debug, Clone)]
@@ -44,7 +45,9 @@ pub fn get() -> Option<DynContestAPI> {
 }
 
 pub async fn init(config: &Config) {
-    let api: Option<DynContestAPI> = if let Some(terry) = config.terry.clone() {
+    let api: Option<DynContestAPI> = if let Some(cms) = config.cms.clone() {
+        Some(Arc::new(cms::Cms::new(cms)))
+    } else if let Some(terry) = config.terry.clone() {
         Some(Arc::new(terry::Terry::new(terry)))
     } else {
         None

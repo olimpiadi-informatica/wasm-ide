@@ -13,6 +13,8 @@ pub struct Config {
     pub remote_eval: Option<String>,
     /// Endpoint for the Terry contest API. If `None`, Terry integration is disabled.
     pub terry: Option<String>,
+    /// Endpoint for the CMS contest API. If `None`, CMS integration is disabled.
+    pub cms: Option<String>,
     /// Size in bytes of compilers tarball.
     pub compilers: HashMap<String, u64>,
 }
