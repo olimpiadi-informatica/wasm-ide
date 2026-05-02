@@ -1,5 +1,5 @@
 use leptos::{prelude::*, task::spawn_local};
-use web_sys::{KeyboardEvent, SubmitEvent};
+use web_sys::{DragEvent, FileList, KeyboardEvent, SubmitEvent};
 
 use crate::{
     backend,
@@ -231,9 +231,69 @@ pub fn EditorDir(
         }
     };
 
+    let import_files = move |files: FileList| {
+        let Some(dir_path) = dir.get_untracked() else {
+            tracing::error!("Directory not set when trying to import files");
+            return;
+        };
+        spawn_local(async move {
+            let mut file_to_open = None;
+            for i in 0..files.length() {
+                let file = files.get(i).expect("Failed to get file from FileList");
+                let file_name = file.name();
+                if !valid_filename(&file_name)
+                    || tabs
+                        .get_untracked()
+                        .iter()
+                        .any(|existing| existing == &file_name)
+                {
+                    continue;
+                }
+
+                let Ok(bytes) = file.bytes().await else {
+                    tracing::error!("Failed to read imported file {file_name}");
+                    continue;
+                };
+                let bytes = js_sys::Uint8Array::new(&bytes).to_vec();
+                let file_path = format!("{dir_path}/{file_name}");
+                let new_file = common::opfs::open_file(&file_path, true).await;
+                new_file.write(&bytes).await;
+                tabs.update(|t| t.push(file_name.clone()));
+                if file_to_open.is_none() && std::str::from_utf8(&bytes).is_ok() {
+                    file_to_open = Some(file_path);
+                }
+            }
+
+            if let Some(file_path) = file_to_open {
+                controller.editor_ctrl.filename.set(Some(file_path));
+            }
+        });
+    };
+
+    let dragover_handler = move |ev: DragEvent| {
+        ev.prevent_default();
+    };
+
+    let drop_handler = move |ev: DragEvent| {
+        ev.prevent_default();
+        let Some(data_transfer) = ev.data_transfer() else {
+            return;
+        };
+        let Some(files) = data_transfer.files() else {
+            return;
+        };
+        import_files(files);
+    };
+
     view! {
         <div class:is-flex class:is-flex-direction-column style:height="100%">
-            <div class:is-flex class:is-align-items-center class:is-justify-content-space-between>
+            <div
+                class:is-flex
+                class:is-align-items-center
+                class:is-justify-content-space-between
+                on:dragover=dragover_handler
+                on:drop=drop_handler
+            >
                 <div class:tabs class:is-boxed class:mb-0 style:width="fit-content">
                     <For
                         each=move || tabs.get().into_iter()
