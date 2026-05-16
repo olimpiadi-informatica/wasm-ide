@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
-leptos = { version = "0.8.14", features = ["csr"] }
+leptos = { version = "0.8.19", features = ["csr"] }
 common = { path = "../common" }
 web-sys = { version = "0.3.82", features = ["Document", "HtmlDocument", "Worker", "WorkerOptions", "WorkerType", "Storage", "Window"] }
 wasm-bindgen-futures = "0.4.55"
