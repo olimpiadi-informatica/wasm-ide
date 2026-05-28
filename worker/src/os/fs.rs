@@ -124,6 +124,33 @@ impl Fs {
         }
     }
 
+    pub fn create_dir(&mut self, mut parent: Inode, path: &[u8]) -> Result<Inode, FsError> {
+        let mut dirs = path.split(|x| *x == b'/').filter(|x| !x.is_empty());
+        let Some(name) = dirs.next_back() else {
+            return Err(FsError::Exist);
+        };
+        for cur in dirs {
+            let FsEntry::Dir(dir) = &self.entries[parent as usize] else {
+                return Err(FsError::NotDir);
+            };
+            if cur == b"." {
+            } else if cur == b".." {
+                parent = self.parent_pointers[parent as usize];
+            } else if let Some(&child) = dir.get(cur) {
+                parent = child;
+            } else {
+                return Err(FsError::DoesNotExist);
+            }
+        }
+        let FsEntry::Dir(dir) = &mut self.entries[parent as usize] else {
+            return Err(FsError::NotDir);
+        };
+        if name == b"." || name == b".." || dir.contains_key(name) {
+            return Err(FsError::Exist);
+        }
+        Ok(self.add_entry(parent, name, FsEntry::Dir(HashMap::new())))
+    }
+
     pub fn get(&self, parent: Inode, path: &[u8]) -> Result<Inode, FsError> {
         if path.is_empty() {
             return Ok(parent);

@@ -7,6 +7,7 @@ use crate::os::Pipe;
 
 mod cpp;
 mod python;
+mod rust;
 
 pub async fn run(
     language: String,
@@ -20,6 +21,7 @@ pub async fn run(
         "C" => cpp::run(config, files, stdin, stdout).await,
         "C++" => cpp::run(config, files, stdin, stdout).await,
         "Python3" => python::run(config, files, primary_file, stdin, stdout).await,
+        "Rust" => rust::run(config, files, primary_file, stdin, stdout).await,
         _ => bail!("Unsupported language: {}", language),
     }
 }
@@ -29,6 +31,7 @@ pub async fn run_ls(language: String, stdin: Pipe, stdout: Pipe, stderr: Pipe) -
         "C" => cpp::run_ls(false, stdin, stdout, stderr).await,
         "C++" => cpp::run_ls(true, stdin, stdout, stderr).await,
         "Python3" => python::run_ls(stdin, stdout, stderr).await,
+        "Rust" => rust::run_ls(stdin, stdout, stderr).await,
         _ => bail!("Unsupported language: {}", language),
     }
 }
@@ -46,6 +49,10 @@ pub fn list() -> Vec<Language> {
         Language {
             name: "Python3".to_string(),
             extensions: vec!["py".to_string()],
+        },
+        Language {
+            name: "Rust".to_string(),
+            extensions: vec!["rs".to_string()],
         },
     ]
 }

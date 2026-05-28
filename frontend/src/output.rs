@@ -41,26 +41,59 @@ impl Style {
 
 fn ansi(text: &str) -> Vec<(Style, String)> {
     fn parse(style: &mut Style, iter: &mut Chars) -> Result<()> {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum State {
+            N0,
+            N38,
+            N38_5,
+        }
+        use State::*;
+
         ensure!(
             iter.next() == Some('['),
             "expected '[' at start of ANSI sequence"
         );
         let mut num = 0;
+        let mut state = State::N0;
         for c in iter {
             if c.is_ascii_digit() {
                 num = num * 10 + (c as u8 - b'0') as usize;
             } else if c == 'm' || c == ';' {
-                match num {
-                    0 => *style = Style::default(),
-                    1 => style.bold = true,
-                    30 => style.fg = Some("black"),
-                    31 => style.fg = Some("red"),
-                    32 => style.fg = Some("green"),
-                    33 => style.fg = Some("yellow"),
-                    34 => style.fg = Some("blue"),
-                    35 => style.fg = Some("magenta"),
-                    36 => style.fg = Some("cyan"),
-                    37 => style.fg = Some("white"),
+                match (state, num) {
+                    (N0, 0) => *style = Style::default(),
+                    (N0, 1) => style.bold = true,
+                    (N0, 30) => style.fg = Some("black"),
+                    (N0, 31) => style.fg = Some("red"),
+                    (N0, 32) => style.fg = Some("green"),
+                    (N0, 33) => style.fg = Some("yellow"),
+                    (N0, 34) => style.fg = Some("blue"),
+                    (N0, 35) => style.fg = Some("magenta"),
+                    (N0, 36) => style.fg = Some("cyan"),
+                    (N0, 37) => style.fg = Some("white"),
+                    (N0, 38) => state = N38,
+                    (N38, 5) => state = N38_5,
+                    (N38_5, c @ 0..16) => {
+                        style.fg = Some(match c {
+                            0 => "black",
+                            1 => "red",
+                            2 => "green",
+                            3 => "yellow",
+                            4 => "blue",
+                            5 => "magenta",
+                            6 => "cyan",
+                            7 => "white",
+                            8 => "gray",
+                            9 => "lightcoral",
+                            10 => "lightgreen",
+                            11 => "lightyellow",
+                            12 => "lightblue",
+                            13 => "plum",
+                            14 => "lightcyan",
+                            15 => "white",
+                            _ => unreachable!(),
+                        });
+                        state = N0;
+                    }
                     _ => bail!("unsupported ANSI code: {num}"),
                 }
                 num = 0;
