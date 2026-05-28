@@ -996,8 +996,25 @@ fn fd_write(proc: &Process, fd: Fd, iovs_addr: Addr, iovs_len: Size, result: Add
     Errno::Success
 }
 
-fn path_create_directory(_proc: &Process, _fd: Fd, _path: Addr, _path_len: Size) -> Errno {
-    Errno::Perm
+fn path_create_directory(proc: &Process, fd: Fd, path_addr: Addr, path_len: Size) -> Errno {
+    let mut proc_inner = proc.inner.borrow_mut();
+    let Some(Some(file_entry)) = proc_inner.fds.get_mut(fd as usize) else {
+        return Errno::Badf;
+    };
+    let FdEntry::Dir(base_inode) = *file_entry else {
+        return Errno::Badf;
+    };
+    let mut path = vec![0; path_len as usize];
+    if let Err(e) = read_from_mem(proc, path_addr, &mut path[..]) {
+        return e;
+    }
+    match proc_inner.fs.create_dir(base_inode, &path) {
+        Ok(_) => Errno::Success,
+        Err(FsError::DoesNotExist) => Errno::NoEnt,
+        Err(FsError::NotDir) => Errno::NotDir,
+        Err(FsError::IsDir) => Errno::IsDir,
+        Err(FsError::Exist) => Errno::Exist,
+    }
 }
 
 fn path_filestat_get(

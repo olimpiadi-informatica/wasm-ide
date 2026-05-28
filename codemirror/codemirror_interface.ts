@@ -5,6 +5,7 @@ import {StreamLanguage} from "@codemirror/language";
 import {pascal} from "@codemirror/legacy-modes/mode/pascal";
 import {cpp} from "@codemirror/lang-cpp";
 import {python} from "@codemirror/lang-python";
+import {rust} from "@codemirror/lang-rust";
 import {go} from "@codemirror/lang-go";
 import {java} from "@codemirror/lang-java";
 import {javascript} from "@codemirror/lang-javascript";
@@ -124,6 +125,13 @@ export class CM6Editor {
       });
       this.view.dispatch({
         effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.py")]),
+      });
+    } else if (lang === "Rust") {
+      this.view.dispatch({
+        effects: this.language.reconfigure([rust(), languageId.of("rust")]),
+      });
+      this.view.dispatch({
+        effects: this.lspPlugin.reconfigure([this.lspClient.plugin("file:///solution.rs")]),
       });
     } else if (lang === "Pascal") {
       this.view.dispatch({
