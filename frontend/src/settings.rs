@@ -215,6 +215,9 @@ pub fn Settings() -> impl IntoView {
                     <hr />
                     <TimeLimit />
                     <MemLimit />
+                    <p class="has-text-centered has-text-grey is-size-7 mt-5">
+                        {concat!("wasm-ide ", env!("WASM_IDE_VERSION"))}
+                    </p>
                 </div>
             </div>
         </div>
