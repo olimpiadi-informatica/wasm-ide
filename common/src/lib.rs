@@ -96,7 +96,12 @@ pub enum WorkerExecResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum WorkerLSRequest {
     /// Start the language server for the given language.
-    Start(String),
+    Start {
+        /// The language server to start.
+        language: String,
+        /// OPFS directory whose files should be mirrored into `/workdir`.
+        code_dir: String,
+    },
     /// Forward a raw Language Server Protocol message to the worker.
     Message(String),
     /// Stop the currently running language server.

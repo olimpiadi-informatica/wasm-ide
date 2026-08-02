@@ -81,11 +81,12 @@ pub async fn run(
     Ok(())
 }
 
-pub async fn run_ls(_stdin: Pipe, _stdout: Pipe, _stderr: Pipe) -> Result<()> {
+pub async fn run_ls(files: Vec<File>, _stdin: Pipe, _stdout: Pipe, _stderr: Pipe) -> Result<()> {
     crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
-    let _fs = get_fs("rust")
+    let mut fs = get_fs("rust")
         .await
         .context("Failed to get Rust filesystem")?;
+    super::mirror_workdir(&mut fs, files);
 
     crate::send_msg(common::WorkerLSResponse::Started);
     Ok(())

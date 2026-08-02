@@ -19,12 +19,7 @@ pub async fn run(
         .context("Failed to get Python filesystem")?;
 
     send_running();
-    for file in files {
-        fs.add_file_with_path(
-            format!("/workdir/{}", file.name).as_bytes(),
-            Rc::new(file.content),
-        );
-    }
+    super::mirror_workdir(&mut fs, files);
     fs.add_entry_with_path(b"input.txt", FsEntry::Pipe(stdin.clone()));
     fs.add_entry_with_path(b"output.txt", FsEntry::Pipe(stdout.clone()));
     let proc = ProcessHandle::builder()
@@ -48,11 +43,12 @@ pub async fn run(
     Ok(())
 }
 
-pub async fn run_ls(stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
+pub async fn run_ls(files: Vec<File>, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
     crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
     let mut fs = get_fs("python")
         .await
         .context("Failed to get Python filesystem")?;
+    super::mirror_workdir(&mut fs, files);
     fs.add_file_with_path(b"/ruff.toml", Rc::new(b"indent-width = 2".to_vec()));
     let proc = ProcessHandle::builder()
         .name("ty")

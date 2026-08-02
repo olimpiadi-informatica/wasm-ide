@@ -13,12 +13,18 @@ use crate::{
 pub struct EditorDirController {
     dir: Signal<Option<String>>,
     editor_ctrl: EditorController,
+    files_revision: RwSignal<u64>,
 }
 
 impl EditorDirController {
     pub fn new(dir: Signal<Option<String>>) -> Self {
         let editor_ctrl = EditorController::new();
-        Self { dir, editor_ctrl }
+        let files_revision = RwSignal::new(0);
+        Self {
+            dir,
+            editor_ctrl,
+            files_revision,
+        }
     }
 
     pub async fn wait_sync(&self) {
@@ -36,6 +42,14 @@ impl EditorDirController {
     pub fn open_filename(&self) -> Signal<Option<String>> {
         self.editor_ctrl.filename.into()
     }
+
+    pub fn dir(&self) -> Signal<Option<String>> {
+        self.dir
+    }
+
+    pub fn files_revision(&self) -> Signal<u64> {
+        self.files_revision.into()
+    }
 }
 
 #[component]
@@ -47,14 +61,21 @@ pub fn EditorDir(
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
-    let EditorDirController { dir, editor_ctrl } = controller;
+    let EditorDirController {
+        dir,
+        editor_ctrl,
+        files_revision,
+    } = controller;
     let tabs = RwSignal::new(Vec::new());
+    let workspace_files = RwSignal::new(Vec::<(String, String)>::new());
     let rename_target = RwSignal::new(None::<String>);
     let rename_value = RwSignal::new(String::new());
 
     Effect::new(move || {
+        let revision = files_revision.get();
         let dir_path = dir.get();
         spawn_local(async move {
+            editor_ctrl.wait_sync().await;
             let entries = match &dir_path {
                 Some(dir_path) => {
                     let dir = common::opfs::open_dir(dir_path, true).await;
@@ -62,12 +83,32 @@ pub fn EditorDir(
                 }
                 None => Vec::new(),
             };
-            editor_ctrl
-                .filename
-                .set(entries.first().map(|entry| dir_path.unwrap() + "/" + entry));
-            tabs.try_update(|t| {
-                *t = entries;
-            });
+            if dir.get_untracked() != dir_path || files_revision.get_untracked() != revision {
+                return;
+            }
+
+            let mut files = Vec::new();
+            if let Some(dir_path) = &dir_path {
+                let dir = common::opfs::open_dir(dir_path, true).await;
+                for entry in &entries {
+                    let data = dir.open_file(entry, false).await.read().await;
+                    if let Ok(text) = String::from_utf8(data) {
+                        files.push((format!("{dir_path}/{entry}"), text));
+                    }
+                }
+            }
+
+            let current = editor_ctrl.filename.get_untracked();
+            let current_is_present = current
+                .as_ref()
+                .is_some_and(|current| files.iter().any(|(filename, _)| filename == current));
+            if !current_is_present {
+                editor_ctrl
+                    .filename
+                    .set(files.first().map(|(filename, _)| filename.clone()));
+            }
+            tabs.set(entries);
+            workspace_files.set(files);
         });
     });
 
@@ -89,7 +130,9 @@ pub fn EditorDir(
         });
         spawn_local(async move {
             let file_path = file_path;
+            editor_ctrl.wait_sync().await;
             common::opfs::remove_entry(&file_path, false).await;
+            files_revision.update(|revision| *revision += 1);
         });
     };
 
@@ -135,6 +178,7 @@ pub fn EditorDir(
                     *open = Some(new_path);
                 }
             });
+            controller.files_revision.update(|revision| *revision += 1);
         });
     };
 
@@ -267,6 +311,7 @@ pub fn EditorDir(
             if let Some(file_path) = file_to_open {
                 controller.editor_ctrl.filename.set(Some(file_path));
             }
+            controller.files_revision.update(|revision| *revision += 1);
         });
     };
 
@@ -310,6 +355,7 @@ pub fn EditorDir(
                     readonly=readonly
                     ctrl_enter=ctrl_enter
                     keyboard_mode=keyboard_mode
+                    files=workspace_files
                     ls_interface=ls_interface
                 />
             </div>
@@ -340,9 +386,13 @@ fn AddFile(controller: EditorDirController, tabs: RwSignal<Vec<String>>) -> impl
         };
         if valid_filename(&full_name) && !tabs.get_untracked().iter().any(|f| f == &full_name) {
             let file = format!("{dir}/{full_name}");
-            controller.editor_ctrl.filename.set(Some(file.clone()));
-            tabs.update(|t| t.push(full_name));
             open_modal.set(false);
+            spawn_local(async move {
+                common::opfs::open_file(&file, true).await.write(&[]).await;
+                controller.editor_ctrl.filename.set(Some(file));
+                tabs.update(|t| t.push(full_name));
+                controller.files_revision.update(|revision| *revision += 1);
+            });
         }
     };
 

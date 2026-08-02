@@ -1,13 +1,23 @@
 use std::ops::Deref;
+use std::rc::Rc;
 
 use anyhow::{Result, bail};
 use common::{ExecConfig, File, Language};
 
-use crate::os::Pipe;
+use crate::os::{Fs, Pipe};
 
 mod cpp;
 mod python;
 mod rust;
+
+fn mirror_workdir(fs: &mut Fs, files: Vec<File>) {
+    for file in files {
+        fs.add_file_with_path(
+            format!("/workdir/{}", file.name).as_bytes(),
+            Rc::new(file.content),
+        );
+    }
+}
 
 pub async fn run(
     language: String,
@@ -26,12 +36,18 @@ pub async fn run(
     }
 }
 
-pub async fn run_ls(language: String, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
+pub async fn run_ls(
+    language: String,
+    files: Vec<File>,
+    stdin: Pipe,
+    stdout: Pipe,
+    stderr: Pipe,
+) -> Result<()> {
     match language.deref() {
-        "C" => cpp::run_ls(false, stdin, stdout, stderr).await,
-        "C++" => cpp::run_ls(true, stdin, stdout, stderr).await,
-        "Python3" => python::run_ls(stdin, stdout, stderr).await,
-        "Rust" => rust::run_ls(stdin, stdout, stderr).await,
+        "C" => cpp::run_ls(false, files, stdin, stdout, stderr).await,
+        "C++" => cpp::run_ls(true, files, stdin, stdout, stderr).await,
+        "Python3" => python::run_ls(files, stdin, stdout, stderr).await,
+        "Rust" => rust::run_ls(files, stdin, stdout, stderr).await,
         _ => bail!("Unsupported language: {}", language),
     }
 }

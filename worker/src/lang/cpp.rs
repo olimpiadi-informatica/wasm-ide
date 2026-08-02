@@ -183,7 +183,13 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
     Ok(())
 }
 
-pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
+pub async fn run_ls(
+    cpp: bool,
+    files: Vec<File>,
+    stdin: Pipe,
+    stdout: Pipe,
+    stderr: Pipe,
+) -> Result<()> {
     let std = match cpp {
         true => "-std=c++20",
         false => "-std=c17",
@@ -193,6 +199,7 @@ pub async fn run_ls(cpp: bool, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Resul
     let mut fs = get_fs("cpp")
         .await
         .context("Failed to get C/C++ filesystem")?;
+    super::mirror_workdir(&mut fs, files);
     fs.add_file_with_path(
         b"compile_flags.txt",
         Rc::new(

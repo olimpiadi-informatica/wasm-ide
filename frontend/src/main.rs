@@ -341,18 +341,30 @@ fn App() -> impl IntoView {
 
     {
         let ls_sender = ls_sender.clone();
-        Effect::new(move |old: Option<String>| {
+        Effect::new(move |old: Option<(String, Option<String>, u64)>| {
             let lang = language.get();
+            let code_dir = code.dir().get();
+            let revision = code.files_revision().get();
             info!("Requesting language server for {lang:?}");
-            state.update(|s| {
-                s.ls = StateLS::Requested;
-            });
-            if let Some(old) = old {
-                backend::for_lang(&old).send_message(WorkerLSRequest::Stop.into());
+            if let Some((old_lang, _, _)) = &old {
+                backend::for_lang(old_lang).send_message(WorkerLSRequest::Stop.into());
             }
             ls_sender.unbounded_send(WorkerLSResponse::Stopped).unwrap();
-            send_worker_message(WorkerLSRequest::Start(lang.clone()).into());
-            lang
+            if let Some(code_dir) = &code_dir {
+                state.update(|s| {
+                    s.ls = StateLS::Requested;
+                });
+                send_worker_message(
+                    WorkerLSRequest::Start {
+                        language: lang.clone(),
+                        code_dir: code_dir.clone(),
+                    }
+                    .into(),
+                );
+            } else {
+                state.update(|s| s.ls = StateLS::Ready);
+            }
+            (lang, code_dir, revision)
         });
     }
 

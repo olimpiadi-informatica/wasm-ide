@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
-use common::{WorkerLSRequest, WorkerLSResponse};
+use anyhow::{Context, Result};
+use common::{File, WorkerLSRequest, WorkerLSResponse};
 use futures::channel::oneshot::{Sender, channel};
 use futures::{FutureExt, select};
 use tracing::{debug, info, warn};
@@ -19,7 +20,20 @@ fn state() -> &'static WorkerStateLS {
     &crate::state().ls
 }
 
-fn start(lang: String) {
+async fn read_code_dir(code_dir: &str) -> Result<Vec<File>> {
+    let dir = common::opfs::open_dir(code_dir, false).await;
+    let mut names = dir.list_entries().await;
+    names.sort();
+
+    let mut files = Vec::new();
+    for name in names {
+        let content = dir.open_file(&name, false).await.read().await;
+        files.push(File { name, content });
+    }
+    Ok(files)
+}
+
+fn start(lang: String, code_dir: String) {
     stop();
 
     // TODO: wait for previous LS to stop?
@@ -37,7 +51,12 @@ fn start(lang: String) {
         let stdout = stdout.clone();
         let stderr = stderr.clone();
         async move {
-            let running = lang::run_ls(lang, stdin, stdout, stderr);
+            let running = async move {
+                let files = read_code_dir(&code_dir)
+                    .await
+                    .with_context(|| format!("Failed to mirror OPFS directory {code_dir:?}"))?;
+                lang::run_ls(lang, files, stdin, stdout, stderr).await
+            };
             select! {
                 _ = receiver => {
                     info!("Received stop command, stopping LS");
@@ -126,7 +145,7 @@ fn stop() {
 
 pub fn handle_ls_request(req: WorkerLSRequest) {
     match req {
-        WorkerLSRequest::Start(lang) => start(lang),
+        WorkerLSRequest::Start { language, code_dir } => start(language, code_dir),
         WorkerLSRequest::Message(msg) => message(msg),
         WorkerLSRequest::Stop => stop(),
     }

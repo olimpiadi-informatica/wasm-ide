@@ -1,3 +1,7 @@
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+
 use common::WorkerLSResponse;
 use futures_channel::mpsc::UnboundedReceiver;
 use futures_util::StreamExt;
@@ -46,8 +50,20 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "getText")]
     fn get_text(this: &CM6Editor) -> String;
 
+    #[wasm_bindgen(method, js_name = "getFileText")]
+    fn get_file_text(this: &CM6Editor, filename: &str) -> String;
+
     #[wasm_bindgen(method, js_name = "setText")]
     fn set_text(this: &CM6Editor, value: &str);
+
+    #[wasm_bindgen(method, js_name = "setFile")]
+    fn set_file(this: &CM6Editor, filename: &str);
+
+    #[wasm_bindgen(method, js_name = "setFiles")]
+    fn set_files(this: &CM6Editor, files: JsValue);
+
+    #[wasm_bindgen(method, js_name = "setOpenFile")]
+    fn set_open_file(this: &CM6Editor, open_file: Function);
 
     #[wasm_bindgen(method, js_name = "setKeymap")]
     fn set_keymap(this: &CM6Editor, kbh: &str);
@@ -107,6 +123,7 @@ pub fn Editor(
     #[prop(into)] readonly: Signal<bool>,
     ctrl_enter: Callback<()>,
     #[prop(into)] keyboard_mode: Signal<KeyboardMode>,
+    #[prop(into)] files: Signal<Vec<(String, String)>>,
     ls_interface: Option<(LSRecv, LSSend)>,
 ) -> impl IntoView {
     let EditorController {
@@ -126,30 +143,46 @@ pub fn Editor(
     });
 
     let writer_running = RwSignal::new(false);
-    let onchange = move |_: JsValue| {
-        pending_changes.set(true);
-        let already_running = writer_running
-            .try_update(|running| std::mem::replace(running, true))
-            .unwrap();
-        if already_running {
-            return;
-        }
-        spawn_local(async move {
-            loop {
-                TimeoutFuture::new(100).await;
-                pending_changes.set(false);
-                if let Some(name) = open_filename.get_untracked() {
-                    let text = controller.get_text();
-                    debug!("onchange: writing {} bytes", text.len());
-                    let file = common::opfs::open_file(&name, true).await;
-                    file.write(text.as_bytes()).await;
-                }
-                if !pending_changes.get_untracked() {
-                    writer_running.set(false);
-                    break;
-                }
+    let pending_writes = Rc::new(RefCell::new(HashSet::<String>::new()));
+    let onchange = {
+        let pending_writes = pending_writes.clone();
+        move |filename: String| {
+            if filename.is_empty() {
+                return;
             }
-        });
+            pending_writes.borrow_mut().insert(filename);
+            pending_changes.set(true);
+            let already_running = writer_running
+                .try_update(|running| std::mem::replace(running, true))
+                .unwrap();
+            if already_running {
+                return;
+            }
+            let pending_writes = pending_writes.clone();
+            spawn_local(async move {
+                loop {
+                    TimeoutFuture::new(100).await;
+                    let writes = std::mem::take(&mut *pending_writes.borrow_mut());
+                    for name in writes {
+                        let text = {
+                            let cm6 = cm6.read_untracked();
+                            let Some(cm6) = cm6.as_ref() else {
+                                continue;
+                            };
+                            cm6.get_file_text(&name)
+                        };
+                        debug!("onchange: writing {} bytes to {name}", text.len());
+                        let file = common::opfs::open_file(&name, true).await;
+                        file.write(text.as_bytes()).await;
+                    }
+                    if pending_writes.borrow().is_empty() {
+                        pending_changes.set(false);
+                        writer_running.set(false);
+                        break;
+                    }
+                }
+            });
+        }
     };
 
     let node_ref = NodeRef::new();
@@ -161,7 +194,12 @@ pub fn Editor(
                 .unchecked_into(),
         );
         editor.set_onchange(
-            Closure::<dyn Fn(_)>::new(onchange)
+            Closure::<dyn Fn(String)>::new(onchange)
+                .into_js_value()
+                .unchecked_into(),
+        );
+        editor.set_open_file(
+            Closure::<dyn Fn(String)>::new(move |name| filename.set(Some(name)))
                 .into_js_value()
                 .unchecked_into(),
         );
@@ -187,8 +225,21 @@ pub fn Editor(
     });
 
     Effect::new(move |_| {
+        let files = files.get();
+        cm6.with(|cm6| {
+            let Some(cm6) = cm6 else {
+                return;
+            };
+            cm6.set_files(serde_wasm_bindgen::to_value(&files).unwrap());
+        });
+    });
+
+    Effect::new(move |_| {
+        cm6.with(|_| {});
         let name = filename.get();
         spawn_local(async move {
+            controller.wait_sync().await;
+
             let data = match &name {
                 None => Vec::new(),
                 Some(name) => {
@@ -196,8 +247,6 @@ pub fn Editor(
                     file.read().await
                 }
             };
-
-            controller.wait_sync().await;
 
             if filename.get_untracked() != name {
                 return;
@@ -207,6 +256,7 @@ pub fn Editor(
             let Some(cm6) = cm6.as_ref() else {
                 return;
             };
+            cm6.set_file(name.as_deref().unwrap_or_default());
             cm6.set_text(std::str::from_utf8(&data).unwrap());
             open_filename.set(name);
         });
