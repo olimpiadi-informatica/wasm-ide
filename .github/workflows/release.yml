@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Attach Release Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y brotli jq zip
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.11.0
+        with:
+          target: wasm32-unknown-unknown
+
+      - name: Install Trunk
+        uses: jetli/trunk-action@69821d4eec12c308c4b811e459e37556cf920057 # v0.5.0
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
+
+      - name: Download compiler assets
+        run: |
+          mkdir -p compilers
+          gh release download v0.1.0 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern "*.tar.br"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build production bundle with Trunk
+        run: trunk build --release
+
+      - name: Package release archives
+        run: |
+          (cd dist && tar -czvf "../wasm-ide.tar.gz" .)
+          (cd dist && zip -r "../wasm-ide.zip" .)
+
+      - name: Upload GitHub Actions Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.1
+        with:
+          name: release-archives
+          path: |
+            wasm-ide.tar.gz
+            wasm-ide.zip
+
+      - name: Upload Assets to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.0.8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            wasm-ide.tar.gz
+            wasm-ide.zip
