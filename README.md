@@ -11,7 +11,7 @@ Download `wasm-ide.tar.gz` or `wasm-ide.zip` from the
 extract it into a directory served by your web server, and adjust `config.json`
 as needed.
 
-The application must be served over HTTP; opening `index.html` directly is not
+The application must be served over HTTPS; opening `index.html` directly is not
 supported. It also requires cross-origin isolation, so every response must
 include these headers:
 
