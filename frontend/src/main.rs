@@ -6,7 +6,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use common::config::Config;
 use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
@@ -18,6 +17,7 @@ use leptos::task::{spawn_local, spawn_local_scoped};
 use tracing::{info, warn};
 
 mod backend;
+mod config;
 mod contest_api;
 mod editor;
 mod editor_dir;
@@ -30,6 +30,7 @@ mod util;
 mod workspace;
 
 use crate::backend::{JsBackend, RemoteBackend, WorkerBackend};
+use crate::config::Config;
 use crate::contest_api::SubmitStatus;
 use crate::editor_dir::EditorDirController;
 use crate::editor_view::EditorView;
@@ -727,7 +728,7 @@ fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
                 backend::register_backend(backend);
             }
 
-            contest_api::init(&config).await;
+            contest_api::init(config.contest.as_ref()).await;
 
             Ok::<_, anyhow::Error>(config)
         }

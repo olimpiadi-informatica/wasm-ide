@@ -1,9 +1,9 @@
-use common::config::Config;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 
+use crate::config::Config;
 use crate::util::Icon;
 use crate::{backend, contest_api, i18n::*};
 

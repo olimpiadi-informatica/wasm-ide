@@ -1,9 +1,9 @@
 use common::WorkerExecStatus;
-use common::config::Config;
 use leptos::either::{Either, EitherOf3, EitherOf4, EitherOf5};
 use leptos::prelude::*;
 use tracing::warn;
 
+use crate::config::Config;
 use crate::i18n::*;
 use crate::{FetchingCompilerProgress, RunState, StateExec, StateLS, StateSubmit};
 
@@ -200,7 +200,7 @@ fn FetchingCompilerMessageBar(
             let name = name.clone();
             Signal::derive(move || fetching_compiler_progress.read().get(&name).cloned())
         };
-        let max = config.compilers.get(&name).copied();
+        let max = config.worker.compilers.get(&name).copied();
         view! {
             <tr>
                 <td class:is-family-monospace>{name}</td>

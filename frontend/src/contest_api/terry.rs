@@ -2,15 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use common::{
-    ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerResponse, config::Workspace,
-};
+use common::{ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerResponse};
 use futures_util::StreamExt;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 
 use crate::{
     RunState, StateSubmit, backend,
+    config::Workspace,
     contest_api::{ContestAPI, SubmitStatus, Task},
 };
 

@@ -1,11 +1,11 @@
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
-use common::config::Workspace;
 use gloo_timers::future::TimeoutFuture;
 use send_wrapper::SendWrapper;
 
 use crate::{
     backend,
+    config::{Workspace, WorkspaceDir},
     contest_api::{ContestAPI, SubmitStatus, Task},
 };
 
@@ -43,7 +43,7 @@ impl ContestAPI for Cms {
 
         let source_name = format!("{task}.{lang_ext}");
         let source = SendWrapper::new(api::get_attachment(&self.path, task, &source_name)).await?;
-        let mut code = common::config::WorkspaceDir::new();
+        let mut code = WorkspaceDir::new();
         code.insert(source_name, source.into());
         if let Some(grader) =
             SendWrapper::new(api::get_optional_attachment(&self.path, task, "grader.cpp")).await?
@@ -51,7 +51,7 @@ impl ContestAPI for Cms {
             code.insert("grader.cpp".to_string(), grader.into());
         }
 
-        let mut stdin = common::config::WorkspaceDir::new();
+        let mut stdin = WorkspaceDir::new();
         for i in 0.. {
             let input_name = format!("{task}.input{i}.txt");
             let input =

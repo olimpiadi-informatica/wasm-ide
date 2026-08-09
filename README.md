@@ -30,7 +30,7 @@ The main configuration keys are:
 
 - `default_ws`: files created for a new local workspace
 - `remote_eval`: optional remote evaluation endpoint
-- `terry`: optional contest-system endpoint
+- `contest`: optional contest-system configuration
 
 Compiler artifacts must be downloaded from
 [`olimpiadi-informatica/wasm-compilers`](https://github.com/olimpiadi-informatica/wasm-compilers)
