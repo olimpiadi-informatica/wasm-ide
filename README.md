@@ -63,6 +63,9 @@ The main fields are:
   to `null` to use only the in-browser backends.
 - `contest`: an optional contest-system connection. Set it to `null` when no
   contest integration is needed.
+- `default_settings`: default values for user settings. It can contain any
+  subset of the settings stored by wasm-ide; omitted values use the built-in
+  defaults. These values are used only when the browser has no saved settings.
 - `compilers`: the generated map of compiler archive names to their
   uncompressed sizes. Preserve this field in a precompiled release. Source
   builds generate it from the archives in `compilers/`.

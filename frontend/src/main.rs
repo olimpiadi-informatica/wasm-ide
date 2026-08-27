@@ -739,6 +739,7 @@ fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
 
     move || match config.get() {
         Some(Ok(config)) => {
+            SettingsProvider::install(config.default_settings);
             provide_context::<Config>(config);
             children()
         }
@@ -751,7 +752,6 @@ fn main() {
     init_logging();
 
     mount_to_body(move || {
-        SettingsProvider::install();
         view! {
             <I18nContextProvider>
                 <ConfigAndBackendProvider>

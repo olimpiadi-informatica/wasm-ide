@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use common::config::WorkerConfig;
 use serde::Deserialize;
 
-use crate::contest_api::ContestConfig;
+use crate::{contest_api::ContestConfig, settings::StoredSettings};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub default_ws: Workspace,
     pub remote_eval: Option<String>,
     pub contest: Option<ContestConfig>,
+    #[serde(default)]
+    pub(crate) default_settings: StoredSettings,
     #[serde(flatten)]
     pub worker: WorkerConfig,
 }

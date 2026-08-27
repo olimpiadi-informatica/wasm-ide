@@ -4,7 +4,7 @@ use leptos::ev::keydown;
 use leptos::prelude::*;
 use leptos::reactive::wrappers::write::SignalSetter;
 use leptos::server::codee::string::JsonSerdeCodec;
-use leptos_use::storage::use_local_storage;
+use leptos_use::storage::{UseStorageOptions, use_local_storage_with_options};
 use leptos_use::{on_click_outside, use_document, use_event_listener, use_preferred_dark};
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
@@ -15,12 +15,14 @@ use crate::i18n::*;
 use crate::util::Icon;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum Theme {
     Light,
     Dark,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
+#[serde(rename_all = "snake_case")]
 pub enum KeyboardMode {
     Standard,
     Vim,
@@ -39,6 +41,7 @@ impl DisplayLocalized for KeyboardMode {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
+#[serde(rename_all = "snake_case")]
 pub enum InputMode {
     Batch,
     MixedInteractive,
@@ -57,7 +60,8 @@ impl DisplayLocalized for InputMode {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-struct StoredSettings {
+#[serde(default)]
+pub(crate) struct StoredSettings {
     theme: Option<Theme>,
     keyboard_mode: KeyboardMode,
     input_mode: InputMode,
@@ -95,9 +99,11 @@ pub struct SettingsProvider {
 }
 
 impl SettingsProvider {
-    pub fn install() {
-        let (read, write, _) =
-            use_local_storage::<StoredSettings, JsonSerdeCodec>("wasm_ide_settings");
+    pub fn install(default_settings: StoredSettings) {
+        let (read, write, _) = use_local_storage_with_options::<StoredSettings, JsonSerdeCodec>(
+            "wasm_ide_settings",
+            UseStorageOptions::default().initial_value(default_settings),
+        );
         let prefers_dark = use_preferred_dark();
         let theme = Memo::new(move |_| {
             read.get().theme.unwrap_or(if prefers_dark.get() {
