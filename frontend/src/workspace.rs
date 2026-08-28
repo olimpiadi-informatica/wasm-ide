@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 
-use crate::config::Config;
+use crate::config::{Config, Workspace};
 use crate::util::Icon;
 use crate::{backend, contest_api, i18n::*};
 
@@ -11,6 +11,37 @@ use crate::{backend, contest_api, i18n::*};
 pub struct WorkspaceConfig {
     pub task: Option<String>,
     pub language: String,
+}
+
+pub const DEFAULT_WORKSPACE: &str = "default";
+
+async fn initialize_workspace(name: &str, workspace: &Workspace, config: &WorkspaceConfig) {
+    for (filename, content) in &workspace.code {
+        let code =
+            common::opfs::open_file(&format!("workspace/{name}/code/{filename}"), true).await;
+        code.write(content.as_bytes()).await;
+    }
+    for (filename, content) in &workspace.stdin {
+        let stdin =
+            common::opfs::open_file(&format!("workspace/{name}/stdin/{filename}"), true).await;
+        stdin.write(content.as_bytes()).await;
+    }
+    let config = serde_json::to_vec(config).unwrap();
+    let config_file = common::opfs::open_file(&format!("workspace/{name}/config.json"), true).await;
+    config_file.write(&config).await;
+}
+
+pub async fn ensure_default_workspace(default_workspace: &Workspace) {
+    let workspace_dir = common::opfs::open_dir("workspace", true).await;
+    if workspace_dir.contains_dir(DEFAULT_WORKSPACE).await {
+        return;
+    }
+
+    let config = WorkspaceConfig {
+        task: None,
+        language: String::new(),
+    };
+    initialize_workspace(DEFAULT_WORKSPACE, default_workspace, &config).await;
 }
 
 #[derive(Clone, Copy)]
@@ -73,26 +104,11 @@ pub fn WorkspaceSelector(
                     .expect("Failed to initialize workspace")
             };
 
-            for (filename, content) in ws.code {
-                let code =
-                    common::opfs::open_file(&format!("workspace/{name}/code/{filename}"), true)
-                        .await;
-                code.write(content.as_bytes()).await;
-            }
-            for (filename, content) in ws.stdin {
-                let stdin =
-                    common::opfs::open_file(&format!("workspace/{name}/stdin/{filename}"), true)
-                        .await;
-                stdin.write(content.as_bytes()).await;
-            }
-            let ws_config = serde_json::to_vec(&WorkspaceConfig {
+            let config = WorkspaceConfig {
                 task: (!task.is_empty()).then_some(task),
                 language,
-            })
-            .unwrap();
-            let config_file =
-                common::opfs::open_file(&format!("workspace/{name}/config.json"), true).await;
-            config_file.write(&ws_config).await;
+            };
+            initialize_workspace(&name, &ws, &config).await;
 
             workspaces.update(|w| w.push(name.clone()));
             active.set(Some(name));

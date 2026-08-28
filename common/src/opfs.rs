@@ -27,6 +27,14 @@ impl OPFSDir {
         OPFSDir::from_js_value(res)
     }
 
+    /// Check whether a subdirectory exists in this directory.
+    pub async fn contains_dir(&self, name: &str) -> bool {
+        let opts = FileSystemGetDirectoryOptions::new();
+        opts.set_create(false);
+        let promise = self.0.get_directory_handle_with_options(name, &opts);
+        JsFuture::from(promise).await.is_ok()
+    }
+
     /// Open a file in this directory.
     pub async fn open_file(&self, name: &str, create: bool) -> OPFSFile {
         let opts = FileSystemGetFileOptions::new();

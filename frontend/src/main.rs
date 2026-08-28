@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
@@ -40,7 +40,9 @@ use crate::output::OutputView;
 use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use_settings};
 use crate::status_view::StatusView;
 use crate::util::{Icon, check_response, get_input_mode};
-use crate::workspace::{WorkspaceConfig, WorkspaceSelector};
+use crate::workspace::{
+    DEFAULT_WORKSPACE, WorkspaceConfig, WorkspaceSelector, ensure_default_workspace,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Outcome {
@@ -256,6 +258,8 @@ fn StoragePersistView() -> impl IntoView {
 #[component]
 fn App() -> impl IntoView {
     let i18n = use_i18n();
+    let config = expect_context::<Config>();
+    let workspace_enabled = config.workspace_enabled;
 
     let state = RwSignal::new(RunState {
         exec: StateExec::Ready,
@@ -283,6 +287,12 @@ fn App() -> impl IntoView {
     }));
 
     let workspace = RwSignal::new(None);
+    if !workspace_enabled {
+        spawn_local(async move {
+            ensure_default_workspace(&config.default_ws).await;
+            workspace.set(Some(DEFAULT_WORKSPACE.to_owned()));
+        });
+    }
     let workspace_config = LocalResource::new(move || {
         let workspace = workspace.get();
         async move {
@@ -541,7 +551,9 @@ fn App() -> impl IntoView {
             class:mx-3
         >
             <Settings />
-            <WorkspaceSelector active=workspace readonly=is_running />
+            <Show when=move || workspace_enabled>
+                <WorkspaceSelector active=workspace readonly=is_running />
+            </Show>
             <ShowLet some=move || task_score.get().flatten() let:((score, max_score))>
                 <div
                     class:is-flex
@@ -716,6 +728,10 @@ fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
                 .context("Failed to fetch config.json")?;
             check_response(&res, "Failed to load config.json").await?;
             let config: Config = res.json().await.context("Failed to parse config.json")?;
+
+            if !config.workspace_enabled && config.contest.is_some() {
+                bail!("contest integration requires workspaces to be enabled");
+            }
 
             backend::register_backend(WorkerBackend::new().await);
             backend::register_backend(JsBackend::new().await);

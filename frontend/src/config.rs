@@ -8,12 +8,18 @@ use crate::{contest_api::ContestConfig, settings::StoredSettings};
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub default_ws: Workspace,
+    #[serde(default = "workspace_enabled_default")]
+    pub workspace_enabled: bool,
     pub remote_eval: Option<String>,
     pub contest: Option<ContestConfig>,
     #[serde(default)]
     pub(crate) default_settings: StoredSettings,
     #[serde(flatten)]
     pub worker: WorkerConfig,
+}
+
+const fn workspace_enabled_default() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]

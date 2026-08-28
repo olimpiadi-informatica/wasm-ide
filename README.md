@@ -63,6 +63,9 @@ The main fields are:
   to `null` to use only the in-browser backends.
 - `contest`: an optional contest-system connection. Set it to `null` when no
   contest integration is needed.
+- `workspace_enabled`: whether to show workspace management. It defaults to
+  `true`; set it to `false` to use a persistent workspace named `default`
+  automatically. This mode cannot be combined with a contest integration.
 - `default_settings`: default values for user settings. It can contain any
   subset of the settings stored by wasm-ide; omitted values use the built-in
   defaults. These values are used only when the browser has no saved settings.
@@ -127,6 +130,19 @@ trunk build --release
 
 The complete static application is written to `dist/`. Serve that directory
 with the headers and Brotli handling described above.
+
+## Adding a translation
+
+Translations are stored as JSON files in
+[`frontend/locales`](frontend/locales). To add a language:
+
+1. Copy [`frontend/locales/en.json`](frontend/locales/en.json) to a file named
+   after the new locale.
+2. Translate the values while preserving every key and placeholder such as
+   `{{score}}`.
+3. Add the locale to the `locales` list in
+   [`frontend/Cargo.toml`](frontend/Cargo.toml).
+4. Rebuild the frontend and check the new language in the interface.
 
 ## Adding a contest integration
 
