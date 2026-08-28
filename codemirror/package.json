@@ -1,26 +1,26 @@
 {
   "dependencies": {
-    "@babel/runtime": "^7.26.10",
+    "@babel/runtime": "^8.0.0",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-go": "^6.0.1",
     "@codemirror/lang-java": "^6.0.2",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-rust": "^6.0.2",
-    "@codemirror/language": "^6.11.2",
-    "@codemirror/legacy-modes": "^6.5.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.3",
     "@codemirror/lsp-client": "git+https://github.com/veluca93/lsp-client.git",
-    "@replit/codemirror-emacs": "^6.0.1",
+    "@replit/codemirror-emacs": "^6.1.0",
     "@replit/codemirror-lang-csharp": "^6.2.0",
-    "@replit/codemirror-vim": "^6.2.1",
-    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@replit/codemirror-vim": "^6.4.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-terser": "^1.0.0",
-    "@rollup/plugin-typescript": "^11.1.6",
-    "@uiw/codemirror-theme-solarized": "^4.22.1",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@uiw/codemirror-theme-solarized": "^4.25.11",
     "codemirror": "^6.0.2",
-    "rollup": "^4.59.0"
+    "rollup": "^4.63.1"
   },
   "devDependencies": {
-    "tslib": "^2.6.2"
+    "tslib": "^2.8.1"
   }
 }
