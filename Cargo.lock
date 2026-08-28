@@ -3114,6 +3114,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-ide"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "futures",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "wasm-metadata"
 version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

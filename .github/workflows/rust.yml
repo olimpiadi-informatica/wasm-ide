@@ -82,12 +82,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Install rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Install trunk
+        uses: jetli/trunk-action@v0.5.0
+
+      - name: Install Brotli on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y brotli
+
+      - name: Install Brotli on macOS
+        if: runner.os == 'macOS'
+        run: brew install brotli
 
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli --version $(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
@@ -97,6 +110,18 @@ jobs:
         with:
           name: testsuite
           path: ./testsuite
+
+      - name: Download C++ compiler
+        run: |
+          mkdir -p compilers
+          gh release download v0.1.2 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern cpp.tar.br
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build worker end-to-end assets
+        run: |
+          trunk build
+          brotli --decompress --stdout compilers/cpp.tar.br > dist/compilers/cpp.tar
 
       - name: Test on Chrome
         run: CHROMEDRIVER=$(which chromedriver) cargo test --workspace --no-fail-fast
