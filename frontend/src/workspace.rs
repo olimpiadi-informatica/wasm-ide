@@ -337,3 +337,119 @@ pub fn Language(language: RwSignal<String>) -> Option<impl IntoView> {
         </div>
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::{DEFAULT_WORKSPACE, WorkspaceConfig, ensure_default_workspace};
+    use crate::config::Workspace;
+
+    async fn clear_workspaces() {
+        let root = common::opfs::root().await;
+        if root.contains_dir("workspace").await {
+            root.remove_entry("workspace", true).await;
+        }
+    }
+
+    #[wasm_bindgen_test]
+    async fn default_workspace_is_created_without_overwriting_existing_files() {
+        clear_workspaces().await;
+
+        let workspace = Workspace {
+            code: [("main.cpp".to_owned(), "initial source".to_owned().into())]
+                .into_iter()
+                .collect(),
+            stdin: [("input.txt".to_owned(), "initial input".to_owned().into())]
+                .into_iter()
+                .collect(),
+        };
+        ensure_default_workspace(&workspace).await;
+
+        let code_path = format!("workspace/{DEFAULT_WORKSPACE}/code/main.cpp");
+        let input_path = format!("workspace/{DEFAULT_WORKSPACE}/stdin/input.txt");
+        assert_eq!(
+            common::opfs::open_file(&code_path, false)
+                .await
+                .read()
+                .await,
+            b"initial source"
+        );
+        assert_eq!(
+            common::opfs::open_file(&input_path, false)
+                .await
+                .read()
+                .await,
+            b"initial input"
+        );
+
+        let config =
+            common::opfs::open_file(&format!("workspace/{DEFAULT_WORKSPACE}/config.json"), false)
+                .await
+                .read()
+                .await;
+        let config: WorkspaceConfig = serde_json::from_slice(&config).unwrap();
+        assert!(config.task.is_none());
+        assert!(config.language.is_empty());
+
+        common::opfs::open_file(&code_path, false)
+            .await
+            .write(b"user source")
+            .await;
+        common::opfs::open_file(&input_path, false)
+            .await
+            .write(b"user input")
+            .await;
+
+        let replacement = Workspace {
+            code: [(
+                "replacement.cpp".to_owned(),
+                "replacement".to_owned().into(),
+            )]
+            .into_iter()
+            .collect(),
+            stdin: [(
+                "replacement.txt".to_owned(),
+                "replacement".to_owned().into(),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        ensure_default_workspace(&replacement).await;
+
+        assert_eq!(
+            common::opfs::open_file(&code_path, false)
+                .await
+                .read()
+                .await,
+            b"user source"
+        );
+        assert_eq!(
+            common::opfs::open_file(&input_path, false)
+                .await
+                .read()
+                .await,
+            b"user input"
+        );
+        let default =
+            common::opfs::open_dir(&format!("workspace/{DEFAULT_WORKSPACE}"), false).await;
+        assert!(
+            !default
+                .open_dir("code", false)
+                .await
+                .list_entries()
+                .await
+                .contains(&"replacement.cpp".to_owned())
+        );
+        assert!(
+            !default
+                .open_dir("stdin", false)
+                .await
+                .list_entries()
+                .await
+                .contains(&"replacement.txt".to_owned())
+        );
+
+        clear_workspaces().await;
+    }
+}
