@@ -66,6 +66,9 @@ The main fields are:
 - `workspace_enabled`: whether to show workspace management. It defaults to
   `true`; set it to `false` to use a persistent workspace named `default`
   automatically. This mode cannot be combined with a contest integration.
+- `default_locale`: the initial interface language. A locale previously selected
+  by the user takes precedence; set this field to `null` to use the browser
+  language.
 - `default_settings`: default values for user settings. It can contain any
   subset of the settings stored by wasm-ide; omitted values use the built-in
   defaults. These values are used only when the browser has no saved settings.

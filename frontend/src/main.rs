@@ -14,6 +14,7 @@ use futures_channel::mpsc::{UnboundedSender, unbounded};
 use gloo_net::http::Request;
 use leptos::prelude::*;
 use leptos::task::{spawn_local, spawn_local_scoped};
+use leptos_i18n::context::CookieOptions;
 use tracing::{info, warn};
 
 mod backend;
@@ -719,7 +720,8 @@ fn StartupErrorView(#[prop(into)] err: String) -> impl IntoView {
 }
 
 #[component]
-fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
+fn ConfigAndBackendProvider() -> impl IntoView {
+    let i18n = use_i18n();
     let config = LocalResource::new(|| async {
         let config = async {
             let res = Request::get("config.json")
@@ -755,24 +757,36 @@ fn ConfigAndBackendProvider(mut children: ChildrenFnMut) -> impl IntoView {
 
     move || match config.get() {
         Some(Ok(config)) => {
+            let initial_locale = config
+                .default_locale
+                .unwrap_or_else(|| i18n.get_locale_untracked());
             SettingsProvider::install(config.default_settings);
             provide_context::<Config>(config);
-            children()
+            view! {
+                <I18nSubContextProvider
+                    initial_locale=initial_locale
+                    cookie_name=LOCALE_COOKIE
+                >
+                    <App />
+                </I18nSubContextProvider>
+            }
+            .into_any()
         }
         Some(Err(err)) => view! { <StartupErrorView err=err.to_string() /> }.into_any(),
         None => view! { <LoadingView /> }.into_any(),
     }
 }
 
+const LOCALE_COOKIE: &str = "i18n_pref_locale";
+
 fn main() {
     init_logging();
 
     mount_to_body(move || {
+        let cookie_options = CookieOptions::<Locale>::default().readonly(true);
         view! {
-            <I18nContextProvider>
-                <ConfigAndBackendProvider>
-                    <App />
-                </ConfigAndBackendProvider>
+            <I18nContextProvider cookie_name=LOCALE_COOKIE cookie_options=cookie_options>
+                <ConfigAndBackendProvider />
             </I18nContextProvider>
         }
     })
