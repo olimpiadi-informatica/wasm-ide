@@ -30,6 +30,9 @@ async-trait = "0.1.89"
 chrono = { version = "0.4.44", features = ["serde"] }
 http = "1.4.0"
 
+[dev-dependencies]
+wasm-bindgen-test = "0.3.68"
+
 [package.metadata.leptos-i18n]
 default = "en"
 locales = ["en", "it", "es", "ca", "vec"]

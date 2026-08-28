@@ -1,11 +1,14 @@
 #![allow(deprecated)]
 leptos_i18n::load_locales!();
 
+#[cfg(test)]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use common::{
     ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerExecStatus, WorkerLSRequest,
     WorkerLSResponse, WorkerRequest, WorkerResponse, init_logging,
@@ -731,9 +734,7 @@ fn ConfigAndBackendProvider() -> impl IntoView {
             check_response(&res, "Failed to load config.json").await?;
             let config: Config = res.json().await.context("Failed to parse config.json")?;
 
-            if !config.workspace_enabled && config.contest.is_some() {
-                bail!("contest integration requires workspaces to be enabled");
-            }
+            config.validate()?;
 
             backend::register_backend(WorkerBackend::new().await);
             backend::register_backend(JsBackend::new().await);
