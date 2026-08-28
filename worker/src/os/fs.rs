@@ -224,3 +224,64 @@ impl Default for Fs {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::{Fs, FsError};
+
+    #[wasm_bindgen_test]
+    fn test_fs_path_resolution() {
+        let mut fs = Fs::new();
+        let root = fs.root();
+        let a = fs.create_dir(root, b"a").unwrap();
+        let b = fs.create_dir(root, b"a/b").unwrap();
+        let file = fs.open(root, b"a/b/file", true, true).unwrap();
+
+        assert_eq!(fs.get(root, b"a/b/file").unwrap(), file);
+        assert_eq!(fs.get(root, b"/a//./b/file").unwrap(), file);
+        assert_eq!(fs.get(b, b"../b/file").unwrap(), file);
+        assert_eq!(fs.get(root, b"../../a/b/file").unwrap(), file);
+        assert_eq!(fs.get(a, b"../..").unwrap(), root);
+
+        assert_eq!(fs.get_name(root), b"/");
+        let name = fs.get_name(file);
+        assert_eq!(name, b"a/b/file");
+        assert_eq!(fs.get(root, &name).unwrap(), file);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_fs_creation_semantics() {
+        let mut fs = Fs::new();
+        let root = fs.root();
+        let dir = fs.create_dir(root, b"dir").unwrap();
+
+        assert!(matches!(fs.create_dir(root, b"dir"), Err(FsError::Exist)));
+        assert!(matches!(
+            fs.create_dir(root, b"missing/child"),
+            Err(FsError::DoesNotExist)
+        ));
+
+        let file = fs.open(root, b"dir/file", true, true).unwrap();
+        assert_eq!(fs.open(root, b"dir/file", false, false).unwrap(), file);
+        assert!(matches!(
+            fs.open(root, b"dir/file", true, true),
+            Err(FsError::Exist)
+        ));
+        assert!(matches!(
+            fs.open(root, b"dir/missing", false, false),
+            Err(FsError::DoesNotExist)
+        ));
+        assert!(matches!(
+            fs.open(root, b"dir/file/child", true, false),
+            Err(FsError::NotDir)
+        ));
+        assert!(matches!(
+            fs.create_dir(root, b"dir/file/child"),
+            Err(FsError::NotDir)
+        ));
+
+        assert_eq!(fs.get(root, b"dir").unwrap(), dir);
+    }
+}
