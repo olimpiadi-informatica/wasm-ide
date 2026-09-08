@@ -211,7 +211,7 @@ checksum = "2550f75b8cfac212855f6b1885455df8eaee8fe8e246b647d69146142e016084"
 
 [[package]]
 name = "common"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "derive_more",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "frontend"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3008,7 +3008,7 @@ checksum = "f37b4f992cebe528ef34964ae69681ac0fe7080071e7298e46008f9d380302af"
 
 [[package]]
 name = "wasm-ide"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "common",
  "futures",
@@ -3177,7 +3177,7 @@ dependencies = [
 
 [[package]]
 name = "worker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bitflags",

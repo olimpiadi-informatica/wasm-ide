@@ -1,12 +1,15 @@
-[package]
-name = "wasm-ide"
-version = "0.1.0"
-edition = "2024"
-publish = false
-
 [workspace]
 members = ["worker", "frontend", "common"]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.1"
+
+[package]
+name = "wasm-ide"
+version.workspace = true
+edition = "2024"
+publish = false
 
 [dev-dependencies]
 common = { path = "common" }
