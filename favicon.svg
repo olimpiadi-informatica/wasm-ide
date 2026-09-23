@@ -1,143 +1,74 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <!-- Ribbon Gradients -->
-    <!-- Top & Left Ribbon: Italian Emerald -> WebAssembly Purple -> Vibrant Cyan -->
-    <linearGradient id="wasm-ribbon-top" x1="15%" y1="85%" x2="85%" y2="15%">
-      <stop offset="0%" stop-color="#10B981" />
-      <stop offset="28%" stop-color="#06B6D4" />
-      <stop offset="55%" stop-color="#6366F1" />
-      <stop offset="78%" stop-color="#8B5CF6" />
-      <stop offset="100%" stop-color="#A855F7" />
+    <linearGradient id="cube-top" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#67E8F9" />
+      <stop offset="100%" stop-color="#0284C7" />
     </linearGradient>
 
-    <!-- Bottom & Right Ribbon: Electric Cyan -> Italian Red/Coral -> Deep Violet -->
-    <linearGradient id="wasm-ribbon-bottom" x1="15%" y1="15%" x2="85%" y2="85%">
-      <stop offset="0%" stop-color="#0284C7" />
-      <stop offset="30%" stop-color="#4F46E5" />
-      <stop offset="65%" stop-color="#7C3AED" />
-      <stop offset="88%" stop-color="#F43F5E" />
-      <stop offset="100%" stop-color="#EF4444" />
+    <linearGradient id="cube-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#654FF0" />
+      <stop offset="100%" stop-color="#2E1065" />
     </linearGradient>
 
-    <!-- Inner Chevron Gradients -->
-    <linearGradient id="chevron-left" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#A855F7" />
-      <stop offset="100%" stop-color="#06B6D4" />
+    <linearGradient id="cube-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#312E81" />
+      <stop offset="100%" stop-color="#0F172A" />
     </linearGradient>
 
-    <linearGradient id="chevron-mid" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="100%" stop-color="#34D399" />
+    <linearGradient id="iso-play" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34D399" />
+      <stop offset="100%" stop-color="#059669" />
     </linearGradient>
 
-    <linearGradient id="chevron-right" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00F2FE" />
-      <stop offset="100%" stop-color="#6366F1" />
-    </linearGradient>
-
-    <!-- Ambient Glow Filter -->
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="6" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    <filter id="cube-drop" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#020617" flood-opacity="0.5" />
     </filter>
-
-    <!-- Ribbon Intersect Shadows -->
-    <linearGradient id="shadow-left" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#000000" stop-opacity="0.55" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
-    </linearGradient>
-
-    <linearGradient id="shadow-right" x1="100%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#000000" stop-opacity="0.55" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
-    </linearGradient>
   </defs>
 
-  <g id="wasm-ide-logo">
-    <!-- LOWER RIBBON LAYER (Bottom-Right, Red / Violet / Blue) -->
-    <path d="M 393,252
-             L 393,322 Q 393,335 387,345
-             L 268,407 Q 256,414 244,407
-             L 125,345 Q 119,335 119,322
-             L 119,247
-             C 119,232 97,222 70,232
-             L 70,347 Q 70,364 78,377
-             L 240,462 Q 256,471 272,462
-             L 434,377 Q 442,364 442,347
-             L 442,282
-             C 442,267 417,257 393,252 Z"
-          fill="url(#wasm-ribbon-bottom)" />
+  <g filter="url(#cube-drop)">
+    <!-- TOP FACE -->
+    <polygon points="256,40 443.06,148 256,256 68.94,148"
+             fill="url(#cube-top)"
+             stroke="#38BDF8"
+             stroke-width="2"
+             stroke-linejoin="round" />
 
-    <!-- RIGHT JUNCTION SHADOW (Cast onto lower ribbon) -->
-    <path d="M 393,252 C 417,257 442,267 442,282 L 442,305 C 417,290 393,280 393,270 Z"
-          fill="url(#shadow-right)" />
+    <!-- Recessed Dark Wasm Socket on Top Face -->
+    <polygon points="256,84 366,148 256,212 146,148"
+             fill="#0F172A" />
+    <polygon points="256,112 318,148 256,184 194,148"
+             fill="#654FF0" />
 
-    <!-- UPPER RIBBON LAYER (Top-Left, Green / Purple / Cyan) -->
-    <path d="M 119,260
-             L 119,190 Q 119,177 125,167
-             L 244,105 Q 256,98 268,105
-             L 387,167 Q 393,177 393,190
-             L 393,265
-             C 393,280 415,290 442,280
-             L 442,165 Q 442,148 434,135
-             L 272,50 Q 256,41 240,50
-             L 78,135 Q 70,148 70,165
-             L 70,230
-             C 70,245 95,255 119,260 Z"
-          fill="url(#wasm-ribbon-top)" />
+    <!-- LEFT FACE (`>_` Code Prompt) -->
+    <polygon points="68.94,148 256,256 256,472 68.94,364"
+             fill="url(#cube-left)"
+             stroke="#6366F1"
+             stroke-width="2"
+             stroke-linejoin="round" />
 
-    <!-- LEFT JUNCTION SHADOW (Cast onto upper ribbon) -->
-    <path d="M 70,230 C 95,245 119,255 119,260 L 119,285 C 95,275 70,255 70,245 Z"
-          fill="url(#shadow-left)" />
+    <path d="M 116,226 L 176,296 L 116,330"
+          fill="none"
+          stroke="#FFFFFF"
+          stroke-width="24"
+          stroke-linecap="round"
+          stroke-linejoin="round" />
+    <line x1="184" y1="344" x2="224" y2="367"
+          stroke="#38BDF8"
+          stroke-width="22"
+          stroke-linecap="round" />
 
-    <!-- INNER GLYPHS: CODE BRACKET + FAST LOCAL EXECUTION (< >>) -->
-    <g filter="url(#glow)">
-      <!-- Left Bracket: < -->
-      <!-- Soft ambient backdrop stroke -->
-      <path d="M 207 172 L 143 256 L 207 340"
-            fill="none"
-            stroke="#06B6D4"
-            stroke-width="36"
-            stroke-opacity="0.22"
-            stroke-linecap="round"
-            stroke-linejoin="round" />
-      <!-- Sharp core stroke -->
-      <path d="M 207 172 L 143 256 L 207 340"
-            fill="none"
-            stroke="url(#chevron-left)"
-            stroke-width="24"
-            stroke-linecap="round"
-            stroke-linejoin="round" />
+    <!-- RIGHT FACE (Isometric `▶` Play Button) -->
+    <polygon points="256,256 443.06,148 443.06,364 256,472"
+             fill="url(#cube-right)"
+             stroke="#312E81"
+             stroke-width="2"
+             stroke-linejoin="round" />
 
-      <!-- Center Chevron: > -->
-      <path d="M 243 196 L 289 256 L 243 316"
-            fill="none"
-            stroke="#38BDF8"
-            stroke-width="30"
-            stroke-opacity="0.22"
-            stroke-linecap="round"
-            stroke-linejoin="round" />
-      <path d="M 243 196 L 289 256 L 243 316"
-            fill="none"
-            stroke="url(#chevron-mid)"
-            stroke-width="20"
-            stroke-linecap="round"
-            stroke-linejoin="round" />
-
-      <!-- Right Chevron: > -->
-      <path d="M 305 172 L 369 256 L 305 340"
-            fill="none"
-            stroke="#818CF8"
-            stroke-width="36"
-            stroke-opacity="0.22"
-            stroke-linecap="round"
-            stroke-linejoin="round" />
-      <path d="M 305 172 L 369 256 L 305 340"
-            fill="none"
-            stroke="url(#chevron-right)"
-            stroke-width="24"
-            stroke-linecap="round"
-            stroke-linejoin="round" />
-    </g>
+    <!-- True Isometric `▶` Play Triangle on Right Face -->
+    <polygon points="304,264 402,268 304,388"
+             fill="url(#iso-play)"
+             stroke="url(#iso-play)"
+             stroke-width="18"
+             stroke-linejoin="round" />
   </g>
 </svg>
