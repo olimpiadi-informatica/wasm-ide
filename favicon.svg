@@ -1,74 +1,148 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <linearGradient id="cube-top" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#67E8F9" />
-      <stop offset="100%" stop-color="#0284C7" />
+    <linearGradient id="ide-well" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#060911" />
     </linearGradient>
 
-    <linearGradient id="cube-left" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#654FF0" />
-      <stop offset="100%" stop-color="#2E1065" />
+    <linearGradient id="grad-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#2563EB" />
     </linearGradient>
 
-    <linearGradient id="cube-right" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#312E81" />
-      <stop offset="100%" stop-color="#0F172A" />
+    <linearGradient id="grad-bolt" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FEF08A" />
+      <stop offset="50%" stop-color="#FACC15" />
+      <stop offset="100%" stop-color="#F59E0B" />
     </linearGradient>
 
-    <linearGradient id="iso-play" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#34D399" />
-      <stop offset="100%" stop-color="#059669" />
+    <linearGradient id="grad-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FB923C" />
+      <stop offset="50%" stop-color="#F97316" />
+      <stop offset="100%" stop-color="#EF4444" />
     </linearGradient>
 
-    <filter id="cube-drop" x="-15%" y="-15%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#020617" flood-opacity="0.5" />
+    <filter id="glyph-shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#02040A" flood-opacity="0.75" />
+    </filter>
+
+    <filter id="bezel-pop" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.55" />
     </filter>
   </defs>
 
-  <g filter="url(#cube-drop)">
-    <!-- TOP FACE -->
-    <polygon points="256,40 443.06,148 256,256 68.94,148"
-             fill="url(#cube-top)"
-             stroke="#38BDF8"
-             stroke-width="2"
-             stroke-linejoin="round" />
+  <!-- 1. Dark Recessed IDE Well Base -->
+  <path d="M 124,36
+           L 202,36
+           A 54,54 0 0,0 310,36
+           L 388,36
+           A 88,88 0 0,1 476,124
+           L 476,388
+           A 88,88 0 0,1 388,476
+           L 124,476
+           A 88,88 0 0,1 36,388
+           L 36,124
+           A 88,88 0 0,1 124,36 Z"
+        fill="url(#ide-well)" />
 
-    <!-- Recessed Dark Wasm Socket on Top Face -->
-    <polygon points="256,84 366,148 256,212 146,148"
-             fill="#0F172A" />
-    <polygon points="256,112 318,148 256,184 194,148"
-             fill="#654FF0" />
+  <!-- 2. Subtle Background IDE Code Lines & Line-Number Gutter inside the Dark Well -->
+  <g opacity="0.16">
+    <!-- Line numbers gutter on left -->
+    <rect x="96" y="130" width="14" height="10" rx="5" fill="#64748B" />
+    <rect x="96" y="156" width="14" height="10" rx="5" fill="#64748B" />
+    <rect x="96" y="182" width="14" height="10" rx="5" fill="#64748B" />
+    <rect x="96" y="362" width="14" height="10" rx="5" fill="#64748B" />
+    <rect x="96" y="388" width="14" height="10" rx="5" fill="#64748B" />
 
-    <!-- LEFT FACE (`>_` Code Prompt) -->
-    <polygon points="68.94,148 256,256 256,472 68.94,364"
-             fill="url(#cube-left)"
-             stroke="#6366F1"
-             stroke-width="2"
-             stroke-linejoin="round" />
+    <!-- Syntax code bars top -->
+    <rect x="122" y="130" width="56" height="10" rx="5" fill="#38BDF8" />
+    <rect x="188" y="130" width="92" height="10" rx="5" fill="#94A3B8" />
+    <rect x="138" y="156" width="74" height="10" rx="5" fill="#FACC15" />
+    <rect x="222" y="156" width="110" height="10" rx="5" fill="#64748B" />
 
-    <path d="M 116,226 L 176,296 L 116,330"
+    <!-- Syntax code bars bottom -->
+    <rect x="138" y="362" width="84" height="10" rx="5" fill="#FB923C" />
+    <rect x="232" y="362" width="64" height="10" rx="5" fill="#38BDF8" />
+    <rect x="122" y="388" width="48" height="10" rx="5" fill="#38BDF8" />
+  </g>
+
+  <!-- 3. Elevated #3E506B Bezel Ring with Crisp #5C7496–#647F9E Separation Edges -->
+  <path fill-rule="evenodd"
+        d="M 124,36
+           L 202,36
+           A 54,54 0 0,0 310,36
+           L 388,36
+           A 88,88 0 0,1 476,124
+           L 476,388
+           A 88,88 0 0,1 388,476
+           L 124,476
+           A 88,88 0 0,1 36,388
+           L 36,124
+           A 88,88 0 0,1 124,36 Z
+           M 124,74
+           L 172.22,74
+           A 92,92 0 0,0 339.78,74
+           L 388,74
+           A 50,50 0 0,1 438,124
+           L 438,388
+           A 50,50 0 0,1 388,438
+           L 124,438
+           A 50,50 0 0,1 74,388
+           L 74,124
+           A 50,50 0 0,1 124,74 Z"
+        fill="#3E506B"
+        stroke="#5C7496"
+        stroke-width="3.5"
+        filter="url(#bezel-pop)" />
+
+  <!-- Crisp Inner Highlight Lip -->
+  <path d="M 124,74
+           L 172.22,74
+           A 92,92 0 0,0 339.78,74
+           L 388,74
+           A 50,50 0 0,1 438,124
+           L 438,388
+           A 50,50 0 0,1 388,438
+           L 124,438
+           A 50,50 0 0,1 74,388
+           L 74,124
+           A 50,50 0 0,1 124,74 Z"
+        fill="none"
+        stroke="#647F9E"
+        stroke-width="2.5" />
+
+  <!-- 4. Bottom Bezel Status Pill & 3 Indicator LEDs (Cyan, Gold, Orange) -->
+  <rect x="208" y="446" width="96" height="22" rx="11" fill="#1E293B" stroke="#5C7496" stroke-width="2" />
+  <circle cx="230" cy="457" r="5" fill="#38BDF8" />
+  <circle cx="256" cy="457" r="5" fill="#FACC15" />
+  <circle cx="282" cy="457" r="5" fill="#FB923C" />
+
+  <!-- 5. Main Centerpiece: `<` + `⚡` + `▶` -->
+  <g filter="url(#glyph-shadow)">
+    <path d="M 188,182 L 112,272 L 188,362"
           fill="none"
-          stroke="#FFFFFF"
-          stroke-width="24"
+          stroke="url(#grad-left)"
+          stroke-width="40"
           stroke-linecap="round"
           stroke-linejoin="round" />
-    <line x1="184" y1="344" x2="224" y2="367"
-          stroke="#38BDF8"
-          stroke-width="22"
-          stroke-linecap="round" />
 
-    <!-- RIGHT FACE (Isometric `▶` Play Button) -->
-    <polygon points="256,256 443.06,148 443.06,364 256,472"
-             fill="url(#cube-right)"
-             stroke="#312E81"
-             stroke-width="2"
-             stroke-linejoin="round" />
+    <path d="M 280,158
+             L 214,268
+             L 262,268
+             L 232,386
+             L 298,256
+             L 250,256 Z"
+          fill="url(#grad-bolt)"
+          stroke="#FEF08A"
+          stroke-width="8"
+          stroke-linejoin="round" />
 
-    <!-- True Isometric `▶` Play Triangle on Right Face -->
-    <polygon points="304,264 402,268 304,388"
-             fill="url(#iso-play)"
-             stroke="url(#iso-play)"
-             stroke-width="18"
-             stroke-linejoin="round" />
+    <path d="M 326,186
+             L 412,272
+             L 326,358 Z"
+          fill="url(#grad-right)"
+          stroke="url(#grad-right)"
+          stroke-width="24"
+          stroke-linejoin="round" />
   </g>
 </svg>
