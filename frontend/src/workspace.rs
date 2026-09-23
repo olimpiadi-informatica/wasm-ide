@@ -1,16 +1,29 @@
+use gloo_utils::window;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 
 use crate::config::{Config, Workspace};
+use crate::i18n::*;
 use crate::util::Icon;
-use crate::{backend, contest_api, i18n::*};
+use crate::{backend, contest_api};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     pub task: Option<String>,
     pub language: String,
+    #[serde(default)]
+    pub automatic: bool,
+}
+
+impl WorkspaceConfig {
+    pub async fn load(name: &str) -> anyhow::Result<Self> {
+        let config_file =
+            common::opfs::open_file(&format!("workspace/{name}/config.json"), false).await;
+        let config = config_file.read().await;
+        Ok(serde_json::from_slice(&config)?)
+    }
 }
 
 pub const DEFAULT_WORKSPACE: &str = "default";
@@ -40,8 +53,54 @@ pub async fn ensure_default_workspace(default_workspace: &Workspace) {
     let config = WorkspaceConfig {
         task: None,
         language: String::new(),
+        automatic: false,
     };
     initialize_workspace(DEFAULT_WORKSPACE, default_workspace, &config).await;
+}
+
+const ACTIVE_WORKSPACE_KEY: &str = "wasm_ide_active_workspace";
+
+pub fn get_saved_workspace() -> Option<String> {
+    window()
+        .local_storage()
+        .expect("failed to get localStorage")?
+        .get_item(ACTIVE_WORKSPACE_KEY)
+        .expect("failed to read active workspace")
+}
+
+pub fn set_saved_workspace(ws: Option<&str>) {
+    let Some(storage) = window()
+        .local_storage()
+        .expect("failed to get localStorage")
+    else {
+        return;
+    };
+    match ws {
+        Some(ws) => storage.set_item(ACTIVE_WORKSPACE_KEY, ws),
+        None => storage.remove_item(ACTIVE_WORKSPACE_KEY),
+    }
+    .expect("failed to update active workspace");
+}
+
+pub async fn ensure_contest_workspaces(
+    api: &contest_api::DynContestAPI,
+    language: &str,
+) -> anyhow::Result<()> {
+    let workspace_dir = common::opfs::open_dir("workspace", true).await;
+    let tasks = api.list_tasks().await?;
+    for task in &tasks {
+        if workspace_dir.contains_dir(&task.id).await {
+            continue;
+        }
+        let ws = api.init_workspace(&task.id, language).await?;
+        let config = WorkspaceConfig {
+            task: Some(task.id.clone()),
+            language: language.to_string(),
+            automatic: true,
+        };
+        initialize_workspace(&task.id, &ws, &config).await;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -55,23 +114,51 @@ fn valid_workspace_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
 }
 
+#[derive(Clone, PartialEq)]
+struct WorkspaceItem {
+    name: String,
+    automatic: bool,
+}
+
 #[component]
 pub fn WorkspaceSelector(
     active: RwSignal<Option<String>>,
     #[prop(into)] readonly: Signal<bool>,
 ) -> impl IntoView {
     let i18n = use_i18n();
-    let workspaces = RwSignal::new(Vec::new());
-    let open = RwSignal::new(true);
+    let workspaces = RwSignal::new(Vec::<WorkspaceItem>::new());
+    let open = RwSignal::new(active.get_untracked().is_none());
     let new_name = RwSignal::new(String::new());
     let create_error = RwSignal::new(None::<CreateWorkspaceError>);
     let task = RwSignal::new(String::new());
     let language = RwSignal::new(String::new());
 
-    spawn_local(async move {
-        let dir = common::opfs::open_dir("workspace", true).await;
-        let entries = dir.list_entries().await;
-        workspaces.set(entries);
+    let refresh_workspaces = move || {
+        spawn_local(async move {
+            let dir = common::opfs::open_dir("workspace", true).await;
+            let entries = dir.list_entries().await;
+            let mut items = Vec::with_capacity(entries.len());
+            for name in entries {
+                let automatic = WorkspaceConfig::load(&name)
+                    .await
+                    .map(|c| c.automatic)
+                    .unwrap_or(false);
+                items.push(WorkspaceItem { name, automatic });
+            }
+            workspaces.set(items);
+        });
+    };
+
+    Effect::new(move |_| {
+        if active.get().is_none() {
+            open.set(true);
+        }
+    });
+
+    Effect::new(move |_| {
+        if open.get() {
+            refresh_workspaces();
+        }
     });
 
     let new_workspace = move |ev: SubmitEvent| {
@@ -85,7 +172,7 @@ pub fn WorkspaceSelector(
             create_error.set(Some(CreateWorkspaceError::InvalidName));
             return;
         }
-        if workspaces.read_untracked().contains(&name) {
+        if workspaces.read_untracked().iter().any(|w| w.name == name) {
             create_error.set(Some(CreateWorkspaceError::NameTaken));
             return;
         }
@@ -107,10 +194,16 @@ pub fn WorkspaceSelector(
             let config = WorkspaceConfig {
                 task: (!task.is_empty()).then_some(task),
                 language,
+                automatic: false,
             };
             initialize_workspace(&name, &ws, &config).await;
 
-            workspaces.update(|w| w.push(name.clone()));
+            workspaces.update(|w| {
+                w.push(WorkspaceItem {
+                    name: name.clone(),
+                    automatic: false,
+                })
+            });
             active.set(Some(name));
             open.set(false);
             new_name.set(String::new());
@@ -132,8 +225,8 @@ pub fn WorkspaceSelector(
                 <section class="modal-card-body">
                     <div class:is-flex class:is-flex-direction-column class:is-row-gap-5>
                         <div class:is-flex class:is-flex-direction-column class:is-row-gap-2>
-                            <For each=move || workspaces.get() key=|w| w.clone() let:ws>
-                                <WorkspaceEntry ws active open workspaces />
+                            <For each=move || workspaces.get() key=|w| w.name.clone() let:item>
+                                <WorkspaceEntry item active open workspaces />
                             </For>
                         </div>
                         <CreateWorkspaceForm new_name create_error task language new_workspace />
@@ -146,28 +239,29 @@ pub fn WorkspaceSelector(
 
 #[component]
 fn WorkspaceEntry(
-    ws: String,
+    item: WorkspaceItem,
     active: RwSignal<Option<String>>,
     open: RwSignal<bool>,
-    workspaces: RwSignal<Vec<String>>,
+    workspaces: RwSignal<Vec<WorkspaceItem>>,
 ) -> impl IntoView {
-    let ws2 = ws.clone();
-    let ws3 = ws.clone();
+    let name = item.name.clone();
+    let select_name = name.clone();
     let select_workspace = move |_| {
-        active.set(Some(ws2.clone()));
+        active.set(Some(select_name.clone()));
         open.set(false);
     };
+    let remove_name = name.clone();
     let remove_workspace = move |_| {
-        workspaces.update(|w| w.retain(|x| x != &ws3));
+        workspaces.update(|w| w.retain(|x| x.name != remove_name));
         active.update(|a| {
-            if a.as_ref() == Some(&ws3) {
+            if a.as_ref() == Some(&remove_name) {
                 *a = None;
             }
         });
-        let ws3 = ws3.clone();
+        let remove_name = remove_name.clone();
         spawn_local(async move {
             let dir = common::opfs::open_dir("workspace", true).await;
-            dir.remove_entry(&ws3, true).await;
+            dir.remove_entry(&remove_name, true).await;
         });
     };
 
@@ -178,11 +272,15 @@ fn WorkspaceEntry(
                 style:justify-content="flex-start"
                 on:click=select_workspace
             >
-                {ws}
+                {name}
             </button>
-            <button class="button" on:click=remove_workspace>
-                <Icon icon=icondata::BiTrashSolid style:height="1em" style:width="1em" />
-            </button>
+            {(!item.automatic).then(|| {
+                view! {
+                    <button class="button" on:click=remove_workspace>
+                        <Icon icon=icondata::BiTrashSolid style:height="1em" style:width="1em" />
+                    </button>
+                }
+            })}
         </div>
     }
 }

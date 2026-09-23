@@ -45,7 +45,8 @@ use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use
 use crate::status_view::StatusView;
 use crate::util::{Icon, check_response, get_input_mode};
 use crate::workspace::{
-    DEFAULT_WORKSPACE, WorkspaceConfig, WorkspaceSelector, ensure_default_workspace,
+    DEFAULT_WORKSPACE, WorkspaceConfig, WorkspaceSelector, ensure_contest_workspaces,
+    ensure_default_workspace, get_saved_workspace, set_saved_workspace,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -290,21 +291,40 @@ fn App() -> impl IntoView {
         move |msg| handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap()
     }));
 
-    let workspace = RwSignal::new(None);
+    let saved_ws = get_saved_workspace();
+    let workspace = RwSignal::new(saved_ws);
     if !workspace_enabled {
         spawn_local(async move {
             ensure_default_workspace(&config.default_ws).await;
             workspace.set(Some(DEFAULT_WORKSPACE.to_owned()));
         });
+    } else {
+        spawn_local(async move {
+            if let Some(lang) = config.auto_init_contest_tasks.as_deref()
+                && let Some(api) = contest_api::get()
+                && let Err(err) = ensure_contest_workspaces(&api, lang).await
+            {
+                warn!("Failed to auto-init contest workspaces: {err:?}");
+            }
+            let dir = common::opfs::open_dir("workspace", true).await;
+            let entries = dir.list_entries().await;
+            if let Some(saved) = workspace.get_untracked()
+                && !entries.contains(&saved)
+            {
+                workspace.set(None);
+            }
+        });
     }
+
+    Effect::new(move |_| {
+        let current = workspace.get();
+        set_saved_workspace(current.as_deref());
+    });
     let workspace_config = LocalResource::new(move || {
         let workspace = workspace.get();
         async move {
             let ws = workspace?;
-            let config_file =
-                common::opfs::open_file(&format!("workspace/{ws}/config.json"), false).await;
-            let config = config_file.read().await;
-            serde_json::from_slice::<WorkspaceConfig>(&config).ok()
+            WorkspaceConfig::load(&ws).await.ok()
         }
     });
     let task_score = LocalResource::new(move || {
@@ -506,10 +526,12 @@ fn App() -> impl IntoView {
         spawn_local_scoped(async move {
             code.wait_sync().await;
 
-            let config_file =
-                common::opfs::open_file(&format!("workspace/{ws}/config.json"), false).await;
-            let config = config_file.read().await;
-            let config: WorkspaceConfig = serde_json::from_slice(&config).unwrap();
+            let Ok(config) = WorkspaceConfig::load(&ws).await else {
+                state.update(|s| {
+                    s.submit = StateSubmit::Error("Failed to load workspace config".into())
+                });
+                return;
+            };
 
             let mut files = Vec::new();
             let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
@@ -758,6 +780,9 @@ fn ConfigAndBackendProvider() -> impl IntoView {
 
     move || match config.get() {
         Some(Ok(config)) => {
+            if let Some(title) = &config.title {
+                gloo_utils::document().set_title(title);
+            }
             let initial_locale = config
                 .default_locale
                 .unwrap_or_else(|| i18n.get_locale_untracked());
