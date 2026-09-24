@@ -167,7 +167,7 @@ pub async fn run(config: ExecConfig, files: Vec<File>, stdin: Pipe, stdout: Pipe
     fs.add_entry_with_path(b"output.txt", FsEntry::Pipe(stdout.clone()));
     let proc = ProcessHandle::builder()
         .name("solution")
-        .fs(fs_workdir)
+        .fs(fs)
         .stdin(FdEntry::Pipe(stdin))
         .stdout(FdEntry::Pipe(stdout))
         .stderr(FdEntry::WriteFn(Rc::new(move |buf: &[u8]| {
