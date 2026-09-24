@@ -292,20 +292,13 @@ fn App() -> impl IntoView {
     }));
 
     let saved_ws = get_saved_workspace();
-    let workspace = RwSignal::new(saved_ws);
-    if !workspace_enabled {
-        spawn_local(async move {
-            ensure_default_workspace(&config.default_ws).await;
-            workspace.set(Some(DEFAULT_WORKSPACE.to_owned()));
-        });
+    let workspace = RwSignal::new(if workspace_enabled {
+        saved_ws
     } else {
+        Some(DEFAULT_WORKSPACE.to_owned())
+    });
+    if workspace_enabled {
         spawn_local(async move {
-            if let Some(lang) = config.auto_init_contest_tasks.as_deref()
-                && let Some(api) = contest_api::get()
-                && let Err(err) = ensure_contest_workspaces(&api, lang).await
-            {
-                warn!("Failed to auto-init contest workspaces: {err:?}");
-            }
             let dir = common::opfs::open_dir("workspace", true).await;
             let entries = dir.list_entries().await;
             if let Some(saved) = workspace.get_untracked()
@@ -770,6 +763,15 @@ fn ConfigAndBackendProvider() -> impl IntoView {
             }
 
             contest_api::init(config.contest.as_ref()).await;
+
+            if !config.workspace_enabled {
+                ensure_default_workspace(&config.default_ws).await;
+            } else if let Some(lang) = config.auto_init_contest_tasks.as_deref()
+                && let Some(api) = contest_api::get()
+                && let Err(err) = ensure_contest_workspaces(&api, lang).await
+            {
+                warn!("Failed to auto-init contest workspaces: {err:?}");
+            }
 
             Ok::<_, anyhow::Error>(config)
         }

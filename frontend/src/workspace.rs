@@ -1,6 +1,8 @@
+use futures_util::future::join_all;
 use gloo_utils::window;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::SubmitEvent;
 
@@ -88,18 +90,33 @@ pub async fn ensure_contest_workspaces(
 ) -> anyhow::Result<()> {
     let workspace_dir = common::opfs::open_dir("workspace", true).await;
     let tasks = api.list_tasks().await?;
-    for task in &tasks {
-        if workspace_dir.contains_dir(&task.id).await {
-            continue;
+    let futures = tasks.iter().map(|task| async {
+        let task_id = &task.id;
+        if workspace_dir.contains_dir(task_id).await {
+            return Ok(());
         }
-        let ws = api.init_workspace(&task.id, language).await?;
-        let config = WorkspaceConfig {
-            task: Some(task.id.clone()),
-            language: language.to_string(),
-            automatic: true,
-        };
-        initialize_workspace(&task.id, &ws, &config).await;
-    }
+        let res = async {
+            let ws = api.init_workspace(task_id, language).await?;
+            let config = WorkspaceConfig {
+                task: Some(task_id.clone()),
+                language: language.to_string(),
+                automatic: true,
+            };
+            initialize_workspace(task_id, &ws, &config).await;
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+
+        if let Err(err) = &res {
+            if workspace_dir.contains_dir(task_id).await {
+                workspace_dir.remove_entry(task_id, true).await;
+            }
+            warn!("Failed to initialize workspace for task '{task_id}': {err:?}");
+        }
+        res
+    });
+    let results = join_all(futures).await;
+    results.into_iter().collect::<anyhow::Result<Vec<()>>>()?;
     Ok(())
 }
 
