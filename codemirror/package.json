@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@babel/runtime": "^8.0.0",
+    "@babel/runtime": "^8.0.8",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-go": "^6.0.1",
     "@codemirror/lang-java": "^6.0.2",
@@ -8,15 +8,15 @@
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-rust": "^6.0.2",
     "@codemirror/language": "^6.12.4",
-    "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/legacy-modes": "^6.5.5",
     "@codemirror/lsp-client": "git+https://github.com/veluca93/lsp-client.git",
     "@replit/codemirror-emacs": "^6.1.0",
     "@replit/codemirror-lang-csharp": "^6.2.0",
     "@replit/codemirror-vim": "^6.4.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-terser": "^1.0.0",
-    "@rollup/plugin-typescript": "^12.3.0",
-    "@uiw/codemirror-theme-solarized": "^4.25.11",
+    "@rollup/plugin-terser": "^1.0.2",
+    "@rollup/plugin-typescript": "^12.3.1",
+    "@uiw/codemirror-theme-solarized": "^4.25.12",
     "codemirror": "^6.0.2",
     "rollup": "^4.63.1"
   },
