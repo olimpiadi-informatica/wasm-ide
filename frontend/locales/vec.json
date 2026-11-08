@@ -69,5 +69,23 @@
   "create_file": "Crea",
   "other": "Altro",
   "no_workspace_selected": "Nissun spasio de łavoro sełesionà",
-  "no_file_open": "Nissun file verto"
+  "no_file_open": "Nissun file verto",
+
+  "new_file": "Novo file",
+  "rename_file": "Rinomina file",
+  "delete_file": "Scanseła file",
+  "confirm_delete": "Clica de novo par scansełar",
+  "upload_file": "Carga file",
+  "download_file": "Descarga file",
+  "copy_to_clipboard": "Copia inte i apunti",
+  "copied": "Copià!",
+  "reset_workspace": "Ripristina el modèło",
+  "confirm_reset": "Clica de novo par ripristinar",
+  "delete_workspace": "Scanseła spasio de łavoro",
+  "new_workspace": "Novo spasio de łavoro",
+  "cancel": "Anuła",
+  "default_programming_language": "Łenguajo predefinìo",
+  "choose_default_language_title": "Sèłi el to łenguajo predefinìo",
+  "choose_default_language_desc": "El vegnarà doparà par inisiałizar i to spasi de łavoro. Te podarè senpre crear spasi de łavoro in altri łenguaji o canbiarlo inte łe Inpostazion.",
+  "continue_btn": "Continua"
 }

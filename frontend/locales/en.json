@@ -68,5 +68,23 @@
   "create_file": "Create",
   "other": "Other",
   "no_workspace_selected": "No workspace selected",
-  "no_file_open": "No file open"
+  "no_file_open": "No file open",
+
+  "new_file": "New file",
+  "rename_file": "Rename file",
+  "delete_file": "Delete file",
+  "confirm_delete": "Click again to delete",
+  "upload_file": "Upload file",
+  "download_file": "Download file",
+  "copy_to_clipboard": "Copy to clipboard",
+  "copied": "Copied!",
+  "reset_workspace": "Reset to template",
+  "confirm_reset": "Click again to reset",
+  "delete_workspace": "Delete workspace",
+  "new_workspace": "New workspace",
+  "cancel": "Cancel",
+  "default_programming_language": "Default programming language",
+  "choose_default_language_title": "Choose your default language",
+  "choose_default_language_desc": "This will be used to initialize your workspaces. You can always create workspaces in other languages or change this later in Settings.",
+  "continue_btn": "Continue"
 }

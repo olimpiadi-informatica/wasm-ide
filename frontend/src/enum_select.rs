@@ -59,19 +59,18 @@ where
     });
 
     view! {
-        <div class:select>
-            <select
-                on:change:target=move |ev| {
-                    setter_str.set(ev.target().value());
-                }
-                prop:value=move || getter_str.get()
-            >
-                <For each=move || 0..T::VARIANTS.len() key=|i| *i let:i>
-                    <option value=i.to_string() selected=move || getter.get() == T::VARIANTS[i]>
-                        {move || T::VARIANTS[i].to_localized_string(i18n.get_locale())}
-                    </option>
-                </For>
-            </select>
-        </div>
+        <select
+            class="select select-bordered select-sm w-auto"
+            on:change:target=move |ev| {
+                setter_str.set(ev.target().value());
+            }
+            prop:value=move || getter_str.get()
+        >
+            <For each=move || 0..T::VARIANTS.len() key=|i| *i let:i>
+                <option value=i.to_string() selected=move || getter.get() == T::VARIANTS[i]>
+                    {move || T::VARIANTS[i].to_localized_string(i18n.get_locale())}
+                </option>
+            </For>
+        </select>
     }
 }
