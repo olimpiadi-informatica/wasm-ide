@@ -38,3 +38,6 @@ command_arguments = ["-c", """
         <(gen_manifest | sed 's/,}/}/') \
         > $TRUNK_STAGING_DIR/config.json
     """]
+
+[tools]
+tailwindcss = "4.2.2"
