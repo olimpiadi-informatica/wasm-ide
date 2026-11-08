@@ -7,10 +7,12 @@ use leptos_use::{UseMouseReturn, UseWindowSizeReturn, use_mouse, use_window_size
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
 
+use crate::RunState;
 use crate::editor::LSRecv;
-use crate::editor_dir::{EditorDir, EditorDirController};
+use crate::editor_dir::{EditorDir, EditorDirController, EditorDirKind};
 use crate::i18n::use_i18n;
-use crate::settings::{InputMode, SettingsProvider, set_editor_width, use_settings};
+use crate::output::OutputView;
+use crate::settings::{InputMode, SettingsProvider, use_settings};
 use crate::util::{Icon, get_input_mode};
 
 #[component]
@@ -24,13 +26,16 @@ pub fn EditorView(
     #[prop(into)] code_readonly: Signal<bool>,
     #[prop(into)] input_readonly: Signal<bool>,
     #[prop(into)] disable_additional_input: Signal<bool>,
+    state: RwSignal<RunState>,
 ) -> impl IntoView {
+    let settings = use_settings();
     let SettingsProvider {
         editor_width_percent,
+        input_height_percent,
         keyboard_mode,
         input_mode,
         ..
-    } = use_settings();
+    } = settings;
 
     let additional_input = RwSignal::new(String::from(""));
 
@@ -58,39 +63,43 @@ pub fn EditorView(
 
     let additional_input_line = {
         view! {
-            <div class:is-hidden=move || {
-                get_input_mode(input_mode.get(), language.read().deref()) == InputMode::Batch
+            <Show when=move || {
+                get_input_mode(input_mode.get(), language.read().deref()) != InputMode::Batch
             }>
-                <form on:submit=move |ev| {
-                    ev.prevent_default();
-                    add_input()
-                }>
-                    <div class:field class:has-addons>
-                        <div class:control class:mb-2 style:width="100%">
-                            <input
-                                class="input"
-                                type="text"
-                                placeholder=additional_input_string
-                                disabled=disable_additional_input
-                                bind:value=additional_input
-                            />
-
-                        </div>
-                        <div class:control>
-                            <button class:button class:is-success disabled=disable_additional_input>
-                                <Icon class:mr-1 class:my-1 icon=icondata::AiSendOutlined />
-                            </button>
-                        </div>
+                <form
+                    class="p-1.5 bg-base-200 border-b border-base-300 shrink-0"
+                    on:submit=move |ev| {
+                        ev.prevent_default();
+                        add_input()
+                    }
+                >
+                    <div class="join w-full">
+                        <input
+                            class="input input-bordered input-xs join-item flex-1 font-mono"
+                            type="text"
+                            placeholder=additional_input_string
+                            disabled=disable_additional_input
+                            bind:value=additional_input
+                        />
+                        <button
+                            type="submit"
+                            class="btn btn-success btn-xs join-item"
+                            disabled=disable_additional_input
+                        >
+                            <Icon attr:class="w-3.5 h-3.5" icon=icondata::AiSendOutlined />
+                        </button>
                     </div>
                 </form>
-            </div>
+            </Show>
         }
     };
 
-    let is_resizing = RwSignal::new(false);
+    let is_resizing_col = RwSignal::new(false);
+    let is_resizing_row = RwSignal::new(false);
 
     let stop_resize = move || {
-        is_resizing.set(false);
+        is_resizing_col.set(false);
+        is_resizing_row.set(false);
     };
 
     window().set_onmouseup(Some(
@@ -105,22 +114,39 @@ pub fn EditorView(
             .unchecked_into(),
     ));
 
-    let UseMouseReturn { x, .. } = use_mouse();
+    let UseMouseReturn { x, y, .. } = use_mouse();
     let UseWindowSizeReturn { width, .. } = use_window_size();
+    let right_col_ref = NodeRef::<leptos::html::Div>::new();
 
     Effect::new(move || {
-        if is_resizing.get() {
+        if is_resizing_col.get() {
             let perc = x.get() / width.get() * 100.0;
-            set_editor_width(perc as f32);
+            settings.set_editor_width(perc as f32);
+        }
+        if is_resizing_row.get()
+            && let Some(right_col) = right_col_ref.get_untracked()
+        {
+            let rect = right_col.get_bounding_client_rect();
+            if rect.height() > 0.0 {
+                let perc = (y.get() - rect.top()) / rect.height() * 100.0;
+                settings.set_input_height(perc as f32);
+            }
         }
     });
 
     view! {
-        <div class:covers-page=is_resizing />
-        <div class:is-flex class:is-flex-direction-row class:is-flex-grow-1 style:height="0">
-            <div style:width=move || format!("calc({}% - 0.35em)", editor_width_percent.get())>
+        <div
+            class:covers-page-col=is_resizing_col
+            class:covers-page-row=is_resizing_row
+        />
+        <div class="flex flex-row flex-1 min-h-0 w-full overflow-hidden">
+            <div
+                class="h-full min-h-0 shrink-0"
+                style:width=move || format!("calc({}% - 3px)", editor_width_percent.get())
+            >
                 <EditorDir
                     controller=code
+                    kind=EditorDirKind::Code
                     syntax=language
                     readonly=code_readonly
                     ctrl_enter=ctrl_enter
@@ -133,35 +159,51 @@ pub fn EditorView(
                     ))
                 />
             </div>
-            <a
-                style:width="0.7em"
-                style:cursor="col-resize"
+            <div
+                class="w-1.5 cursor-col-resize bg-base-300 hover:bg-primary active:bg-primary transition-colors shrink-0 select-none"
                 on:mousedown=move |e| {
-                    is_resizing.set(true);
+                    is_resizing_col.set(true);
                     e.prevent_default();
                 }
                 on:touchstart=move |e| {
-                    is_resizing.set(true);
+                    is_resizing_col.set(true);
                     e.prevent_default();
                 }
             />
             <div
-                class:is-flex-grow-1
-                style:width="0"
-                class:is-flex
-                class:is-flex-direction-column
-                class:is-height-100
+                node_ref=right_col_ref
+                class="flex-1 min-w-0 h-full flex flex-col overflow-hidden"
             >
-                {additional_input_line}
-                <div class:is-flex-grow-1 class:is-flex-shrink-1 style:min-height="0">
-                    <EditorDir
-                        controller=stdin
-                        syntax=None
-                        readonly=input_readonly
-                        ctrl_enter=ctrl_enter
-                        keyboard_mode=keyboard_mode
-                        ls_interface=None
-                    />
+                <div
+                    class="w-full min-h-0 flex flex-col shrink-0"
+                    style:height=move || format!("calc({}% - 3px)", input_height_percent.get())
+                >
+                    {additional_input_line}
+                    <div class="flex-1 min-h-0">
+                        <EditorDir
+                            controller=stdin
+                            kind=EditorDirKind::Input
+                            syntax=None
+                            readonly=input_readonly
+                            ctrl_enter=ctrl_enter
+                            keyboard_mode=keyboard_mode
+                            ls_interface=None
+                        />
+                    </div>
+                </div>
+                <div
+                    class="h-1.5 cursor-row-resize bg-base-300 hover:bg-primary active:bg-primary transition-colors shrink-0 select-none"
+                    on:mousedown=move |e| {
+                        is_resizing_row.set(true);
+                        e.prevent_default();
+                    }
+                    on:touchstart=move |e| {
+                        is_resizing_row.set(true);
+                        e.prevent_default();
+                    }
+                />
+                <div class="flex-1 min-h-0 w-full">
+                    <OutputView state />
                 </div>
             </div>
         </div>

@@ -2,18 +2,30 @@
     "title": null,
     "remote_eval": null,
     "contest": null,
-    "workspace_enabled": true,
-    "auto_init_contest_tasks": null,
+    "auto_init_contest_tasks": true,
+    "default_language": null,
     "default_locale": null,
     "default_settings": {
     },
 
-    "default_ws": {
-        "code": {
+    "default_templates": {
+        "C++": {
             "main.cpp": "#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello world\" << endl;\n}\n"
         },
-        "stdin": {
-            "input.txt": "input...\n"
+        "C": {
+            "main.c": "#include <stdio.h>\n\nint main(void) {\n  printf(\"Hello world\\n\");\n  return 0;\n}\n"
+        },
+        "Python3": {
+            "main.py": "print(\"Hello world\")\n"
+        },
+        "Rust": {
+            "main.rs": "fn main() {\n    println!(\"Hello world\");\n}\n"
+        },
+        "JavaScript": {
+            "main.js": "console.log(\"Hello world\");\n"
         }
+    },
+    "default_stdin": {
+        "input.txt": "input...\n"
     }
 }
