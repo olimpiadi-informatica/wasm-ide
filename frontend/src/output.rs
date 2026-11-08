@@ -1,14 +1,41 @@
 use std::str::Chars;
 
 use anyhow::{Result, bail, ensure};
+use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
-use leptos_use::{UseMouseInElementReturn, signal_throttled, use_mouse_in_element};
+use leptos::task::spawn_local;
+use leptos_use::signal_throttled;
 use tracing::warn;
 use web_sys::ScrollToOptions;
 
 use crate::i18n::*;
-use crate::util::{Icon, download};
+use crate::util::{Icon, copy_to_clipboard, download};
 use crate::{Outcome, RunState, StateExec};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputTab {
+    Stdout,
+    Stderr,
+    Compilation,
+}
+
+impl OutputTab {
+    fn get_data(self, outcome: &Outcome) -> &Vec<u8> {
+        match self {
+            OutputTab::Stdout => &outcome.stdout,
+            OutputTab::Stderr => &outcome.stderr,
+            OutputTab::Compilation => &outcome.compile_stderr,
+        }
+    }
+
+    fn download_name(self) -> &'static str {
+        match self {
+            OutputTab::Stdout => "stdout.txt",
+            OutputTab::Stderr => "stderr.txt",
+            OutputTab::Compilation => "compilation.txt",
+        }
+    }
+}
 
 fn output_for_display(s: &[u8]) -> String {
     const LEN_LIMIT: usize = 16 * 1024;
@@ -62,34 +89,32 @@ fn ansi(text: &str) -> Vec<(Style, String)> {
                 match (state, num) {
                     (N0, 0) => *style = Style::default(),
                     (N0, 1) => style.bold = true,
-                    (N0, 30) => style.fg = Some("black"),
-                    (N0, 31) => style.fg = Some("red"),
-                    (N0, 32) => style.fg = Some("green"),
-                    (N0, 33) => style.fg = Some("yellow"),
-                    (N0, 34) => style.fg = Some("blue"),
-                    (N0, 35) => style.fg = Some("magenta"),
-                    (N0, 36) => style.fg = Some("cyan"),
-                    (N0, 37) => style.fg = Some("white"),
+                    (N0, 30) => style.fg = Some("var(--color-base-content)"),
+                    (N0, 31) => style.fg = Some("oklch(0.60 0.22 25)"),
+                    (N0, 32) => style.fg = Some("oklch(0.55 0.18 145)"),
+                    (N0, 33) => style.fg = Some("oklch(0.62 0.17 75)"),
+                    (N0, 34) => style.fg = Some("oklch(0.58 0.20 255)"),
+                    (N0, 35) => style.fg = Some("oklch(0.58 0.22 320)"),
+                    (N0, 36) => style.fg = Some("oklch(0.58 0.15 210)"),
+                    (N0, 37) => style.fg = Some("var(--color-base-content)"),
                     (N0, 38) => state = N38,
                     (N38, 5) => state = N38_5,
                     (N38_5, c @ 0..16) => {
                         style.fg = Some(match c {
-                            0 => "black",
-                            1 => "red",
-                            2 => "green",
-                            3 => "yellow",
-                            4 => "blue",
-                            5 => "magenta",
-                            6 => "cyan",
-                            7 => "white",
-                            8 => "gray",
-                            9 => "lightcoral",
-                            10 => "lightgreen",
-                            11 => "lightyellow",
-                            12 => "lightblue",
-                            13 => "plum",
-                            14 => "lightcyan",
-                            15 => "white",
+                            0 | 7 | 15 => "var(--color-base-content)",
+                            1 => "oklch(0.60 0.22 25)",
+                            2 => "oklch(0.55 0.18 145)",
+                            3 => "oklch(0.62 0.17 75)",
+                            4 => "oklch(0.58 0.20 255)",
+                            5 => "oklch(0.58 0.22 320)",
+                            6 => "oklch(0.58 0.15 210)",
+                            8 => "oklch(0.55 0.02 250)",
+                            9 => "oklch(0.66 0.20 25)",
+                            10 => "oklch(0.64 0.18 145)",
+                            11 => "oklch(0.68 0.16 80)",
+                            12 => "oklch(0.66 0.18 250)",
+                            13 => "oklch(0.66 0.20 320)",
+                            14 => "oklch(0.66 0.14 210)",
                             _ => unreachable!(),
                         });
                         state = N0;
@@ -137,52 +162,131 @@ fn ansi(text: &str) -> Vec<(Style, String)> {
 }
 
 #[component]
-fn OutDivInner(
-    #[prop(into)] state: Signal<RunState>,
-    get_data: fn(&Outcome) -> &Vec<u8>,
-    name: &'static str,
-    #[prop(into)] visible: Signal<bool>,
-) -> impl IntoView {
+pub fn OutputView(state: RwSignal<RunState>) -> impl IntoView {
     let i18n = use_i18n();
+    let throttled_state: Signal<RunState> = signal_throttled(state, 80.0);
+
+    let active_tab = RwSignal::new(OutputTab::Stdout);
+    let user_selected_tab = RwSignal::new(false);
+    let copied = RwSignal::new(false);
+
+    let has_stdout = Memo::new(move |_| match &throttled_state.read().exec {
+        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
+            !outcome.stdout.is_empty()
+        }
+        _ => false,
+    });
+    let has_stderr = Memo::new(move |_| match &throttled_state.read().exec {
+        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
+            !outcome.stderr.is_empty()
+        }
+        _ => false,
+    });
+    let has_compile = Memo::new(move |_| match &throttled_state.read().exec {
+        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
+            !outcome.compile_stderr.is_empty()
+        }
+        _ => false,
+    });
+
+    // Reset manual tab override when a new execution starts, and auto-select the most relevant tab
+    // as output streams in.
+    Effect::new(move |was_running: Option<bool>| {
+        let is_running = state.with(|s| matches!(s.exec, StateExec::Processing { .. }));
+        if is_running && !was_running.unwrap_or(false) {
+            user_selected_tab.set(false);
+        }
+        let s_out = has_stdout.get();
+        let s_err = has_stderr.get();
+        let s_cmp = has_compile.get();
+        if !user_selected_tab.get_untracked() {
+            if s_out {
+                active_tab.set(OutputTab::Stdout);
+            } else if s_err {
+                active_tab.set(OutputTab::Stderr);
+            } else if s_cmp {
+                active_tab.set(OutputTab::Compilation);
+            }
+        }
+        is_running
+    });
 
     let did_execute = Signal::derive(move || {
         matches!(
-            state.read().exec,
+            throttled_state.read().exec,
             StateExec::Processing { .. } | StateExec::Complete { .. },
         )
     });
 
-    let text = Signal::derive(move || match &state.read().exec {
-        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
-            output_for_display(get_data(outcome))
+    let exec_error = Signal::derive(move || match &state.read().exec {
+        StateExec::Complete {
+            error: Some(err), ..
+        } => Some(err.clone()),
+        _ => None,
+    });
+
+    let clear_exec_error = move |_| {
+        if let StateExec::Complete { error, .. } = &mut state.write().exec {
+            *error = None;
         }
-        _ => t_display!(i18n, not_yet_executed).to_string(),
+    };
+
+    let text = Signal::derive(move || {
+        let tab = active_tab.get();
+        match &throttled_state.read().exec {
+            StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
+                output_for_display(tab.get_data(outcome))
+            }
+            _ => t_display!(i18n, not_yet_executed).to_string(),
+        }
+    });
+
+    let active_has_data = Signal::derive(move || match active_tab.get() {
+        OutputTab::Stdout => has_stdout.get(),
+        OutputTab::Stderr => has_stderr.get(),
+        OutputTab::Compilation => has_compile.get(),
     });
 
     let fragments = Signal::derive(move || ansi(&text.get()));
 
-    let disable_download =
-        Signal::derive(move || !matches!(state.read().exec, StateExec::Complete { .. }));
+    let do_copy = move |_| {
+        let tab = active_tab.get_untracked();
+        let state = state.read_untracked();
+        let (StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. }) =
+            &state.exec
+        else {
+            return;
+        };
+        let raw = String::from_utf8_lossy(tab.get_data(outcome));
+        copy_to_clipboard(&raw);
+        copied.set(true);
+        spawn_local(async move {
+            TimeoutFuture::new(1500).await;
+            copied.set(false);
+        });
+    };
 
     let do_download = move |_| {
+        let tab = active_tab.get_untracked();
         let state = state.read_untracked();
-        let StateExec::Complete { outcome, .. } = &state.exec else {
+        let (StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. }) =
+            &state.exec
+        else {
             warn!("requested download in invalid state");
             return;
         };
-        let data = get_data(outcome);
-        download(&format!("{name}.txt"), data);
+        let data = tab.get_data(outcome);
+        download(tab.download_name(), data);
     };
 
-    let content = NodeRef::<leptos::html::Pre>::new();
+    let content_ref = NodeRef::<leptos::html::Pre>::new();
 
     Effect::new(move |_| {
         fragments.track();
-        // We want this to run *after* the DOM updates.
         queue_microtask(move || {
             let scroll_options = ScrollToOptions::new();
             scroll_options.set_behavior(web_sys::ScrollBehavior::Smooth);
-            if let Some(content) = content.get_untracked() {
+            if let Some(content) = content_ref.get_untracked() {
                 let height = content.scroll_height();
                 scroll_options.set_top(height as f64);
                 content.scroll_to_with_scroll_to_options(&scroll_options);
@@ -190,142 +294,138 @@ fn OutDivInner(
         });
     });
 
+    let select_tab = move |tab: OutputTab| {
+        move |_| {
+            active_tab.set(tab);
+            user_selected_tab.set(true);
+        }
+    };
+
     view! {
-        <div style:height="18vh" class:is-relative class:is-hidden=move || !visible.get()>
-            <Show when=move || !disable_download.get()>
-                <div
-                    class:is-size-4
-                    class:is-opacity-50
-                    style:position="absolute"
-                    style:top="0"
-                    style:right="0.5em"
-                    style:z-index="20"
-                >
-                    <Icon
-                        icon=icondata::ChDownload
-                        on:click=do_download
-                        class:is-clickable
-                        class:m-1
-                    />
+        <div class="flex flex-col h-full w-full min-h-0 bg-base-100">
+            <div class="flex items-center justify-between bg-base-200 border-b border-base-300 min-h-9 px-1 gap-1 shrink-0">
+                <div class="flex items-center overflow-x-auto no-scrollbar min-w-0 flex-1">
+                    <button
+                        type="button"
+                        class=move || {
+                            if active_tab.get() == OutputTab::Stdout {
+                                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-base-100 text-base-content border-t-2 border-t-primary border-r border-base-300 cursor-pointer shrink-0"
+                            } else {
+                                "flex items-center gap-1.5 px-3 py-1.5 text-xs text-base-content/70 hover:text-base-content hover:bg-base-100/50 border-t-2 border-t-transparent border-r border-base-300 cursor-pointer shrink-0 transition-colors"
+                            }
+                        }
+                        on:click=select_tab(OutputTab::Stdout)
+                    >
+                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::VsOutput />
+                        <span>{t!(i18n, output)}</span>
+                        <Show when=move || has_stdout.get()>
+                            <span class="w-2 h-2 rounded-full bg-info" />
+                        </Show>
+                    </button>
+
+                    <button
+                        type="button"
+                        class=move || {
+                            if active_tab.get() == OutputTab::Stderr {
+                                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-base-100 text-base-content border-t-2 border-t-primary border-r border-base-300 cursor-pointer shrink-0"
+                            } else {
+                                "flex items-center gap-1.5 px-3 py-1.5 text-xs text-base-content/70 hover:text-base-content hover:bg-base-100/50 border-t-2 border-t-transparent border-r border-base-300 cursor-pointer shrink-0 transition-colors"
+                            }
+                        }
+                        on:click=select_tab(OutputTab::Stderr)
+                    >
+                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::BiErrorSolid />
+                        <span>{t!(i18n, stderr)}</span>
+                        <Show when=move || has_stderr.get()>
+                            <span class="w-2 h-2 rounded-full bg-error" />
+                        </Show>
+                    </button>
+
+                    <button
+                        type="button"
+                        class=move || {
+                            if active_tab.get() == OutputTab::Compilation {
+                                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-base-100 text-base-content border-t-2 border-t-primary border-r border-base-300 cursor-pointer shrink-0"
+                            } else {
+                                "flex items-center gap-1.5 px-3 py-1.5 text-xs text-base-content/70 hover:text-base-content hover:bg-base-100/50 border-t-2 border-t-transparent border-r border-base-300 cursor-pointer shrink-0 transition-colors"
+                            }
+                        }
+                        on:click=select_tab(OutputTab::Compilation)
+                    >
+                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::BiCommentErrorSolid />
+                        <span>{t!(i18n, compileerr)}</span>
+                        <Show when=move || has_compile.get()>
+                            <span class="w-2 h-2 rounded-full bg-warning" />
+                        </Show>
+                    </button>
                 </div>
-            </Show>
+
+                <div class="flex items-center gap-0.5 shrink-0 pr-1">
+                    <button
+                        type="button"
+                        class="btn btn-ghost btn-xs btn-square"
+                        title=move || {
+                            if copied.get() {
+                                t_string!(i18n, copied).to_string()
+                            } else {
+                                t_string!(i18n, copy_to_clipboard).to_string()
+                            }
+                        }
+                        disabled=move || !active_has_data.get()
+                        on:click=do_copy
+                    >
+                        <Icon
+                            attr:class=move || {
+                                if copied.get() { "w-3.5 h-3.5 text-success" } else { "w-3.5 h-3.5" }
+                            }
+                            icon=Signal::derive(move || {
+                                if copied.get() { icondata::BiCheckRegular } else { icondata::LuCopy }
+                            })
+                        />
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-ghost btn-xs btn-square"
+                        title=move || t_string!(i18n, download_file)
+                        disabled=move || !active_has_data.get()
+                        on:click=do_download
+                    >
+                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::ChDownload />
+                    </button>
+                </div>
+            </div>
+
+            <ShowLet some=exec_error let:err>
+                <div class="alert alert-error rounded-none py-1.5 px-3 text-xs flex items-center justify-between gap-2 shrink-0 border-b border-error/30">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <Icon attr:class="w-4 h-4 shrink-0" icon=icondata::BiErrorCircleSolid />
+                        <span class="font-mono whitespace-pre-wrap break-all">{err}</span>
+                    </div>
+                    <button
+                        type="button"
+                        class="btn btn-ghost btn-xs btn-circle shrink-0"
+                        title=move || t_string!(i18n, hide_error)
+                        on:click=clear_exec_error
+                    >
+                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::IoClose />
+                    </button>
+                </div>
+            </ShowLet>
+
             <pre
-                style:width="100%"
-                style:max-height="100%"
-                class:has-text-left
-                class:faint-text=move || !did_execute.get()
-                node_ref=content
+                class=move || {
+                    if did_execute.get() {
+                        "flex-1 min-h-0 w-full overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words m-0"
+                    } else {
+                        "flex-1 min-h-0 w-full overflow-auto p-3 font-mono text-xs leading-relaxed text-base-content/40 italic m-0"
+                    }
+                }
+                node_ref=content_ref
             >
                 <For each=move || fragments.get() key=|x| x.clone() let((style, text))>
                     <span style=style.style_str()>{text}</span>
                 </For>
             </pre>
-        </div>
-    }
-}
-
-#[component]
-fn OutDiv(
-    #[prop(into)] state: Signal<RunState>,
-    get_data: fn(&Outcome) -> &Vec<u8>,
-    icon: icondata::Icon,
-    name: &'static str,
-    tooltip: Signal<String>,
-) -> impl IntoView {
-    let open = RwSignal::new(false);
-
-    let has_data = Signal::derive(move || match &state.read().exec {
-        StateExec::Processing { outcome, .. } | StateExec::Complete { outcome, .. } => {
-            !get_data(outcome).is_empty()
-        }
-        _ => false,
-    });
-
-    Effect::new(move |old: Option<bool>| {
-        // TODO(veluca): open the output early for non-batch input.
-        let complete = matches!(state.read().exec, StateExec::Complete { .. });
-        if complete && !old.unwrap_or(false) {
-            open.set(has_data.get_untracked());
-        }
-        complete
-    });
-
-    let warn = Memo::new(move |_| has_data.get() && !open.get());
-    let icon_ref = NodeRef::new();
-    let UseMouseInElementReturn { is_outside, .. } = use_mouse_in_element(icon_ref);
-
-    view! {
-        <div
-            style:transition="flex 0.3s 0ms"
-            style:flex=move || if open.get() { "1" } else { "" }
-            style:min-width=move || if open.get() { "15rem" } else { "" }
-        >
-            <div
-                class:is-flex
-                class:is-align-items-center
-                class:is-justify-content-center
-                class:m-1
-                class:mt-2
-            >
-                <div class:is-relative node_ref=icon_ref class:is-clickable>
-                    <div class:is-hidden=move || is_outside.get() class:box class:output-tooltip>
-                        {tooltip}
-                    </div>
-                    <div
-                        style:position="absolute"
-                        style:top="0"
-                        style:right="0"
-                        style:width="0.5em"
-                        style:height="0.5em"
-                        style:border-radius="50%"
-                        style:background-color="var(--bulma-danger)"
-                        hidden=move || !warn.get()
-                    />
-                    <Icon class:icon on:click=move |_| open.update(|v| *v = !*v) icon=icon />
-                </div>
-            </div>
-            <OutDivInner state get_data name visible=open />
-        </div>
-    }
-}
-
-#[component]
-pub fn OutputView(state: RwSignal<RunState>) -> impl IntoView {
-    let i18n = use_i18n();
-    let state = signal_throttled(state, 100.0);
-
-    let show_output_tooltip = Signal::derive(move || t_display!(i18n, output).to_string());
-    let show_stderr_tooltip = Signal::derive(move || t_display!(i18n, stderr).to_string());
-    let show_compileerr_tooltip = Signal::derive(move || t_display!(i18n, compileerr).to_string());
-
-    view! {
-        <div
-            class:is-flex
-            class:is-justify-content-space-around
-            style:gap="1em"
-            style:padding="0 1em 0 1em"
-        >
-            <OutDiv
-                state
-                get_data=|outcome| &outcome.stdout
-                icon=icondata::VsOutput
-                name="stdout"
-                tooltip=show_output_tooltip
-            />
-            <OutDiv
-                state
-                get_data=|outcome| &outcome.stderr
-                icon=icondata::BiErrorSolid
-                name="stderr"
-                tooltip=show_stderr_tooltip
-            />
-            <OutDiv
-                state
-                get_data=|outcome| &outcome.compile_stderr
-                icon=icondata::BiCommentErrorSolid
-                name="compilation"
-                tooltip=show_compileerr_tooltip
-            />
         </div>
     }
 }
