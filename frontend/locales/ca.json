@@ -69,5 +69,23 @@
   "create_file": "Crea",
   "other": "Altre",
   "no_workspace_selected": "Cap espai de treball seleccionat",
-  "no_file_open": "Cap fitxer obert"
+  "no_file_open": "Cap fitxer obert",
+
+  "new_file": "Nou fitxer",
+  "rename_file": "Canvia el nom del fitxer",
+  "delete_file": "Suprimeix el fitxer",
+  "confirm_delete": "Fes clic de nou per suprimir",
+  "upload_file": "Puja un fitxer",
+  "download_file": "Baixa el fitxer",
+  "copy_to_clipboard": "Copia al porta-retalls",
+  "copied": "Copiat!",
+  "reset_workspace": "Restableix la plantilla",
+  "confirm_reset": "Fes clic de nou per restablir",
+  "delete_workspace": "Suprimeix l'espai de treball",
+  "new_workspace": "Nou espai de treball",
+  "cancel": "Cancel·la",
+  "default_programming_language": "Llenguatge predeterminat",
+  "choose_default_language_title": "Tria el teu llenguatge predeterminat",
+  "choose_default_language_desc": "S'utilitzarà per inicialitzar els teus espais de treball. Sempre podràs crear espais de treball en altres llenguatges o canviar-ho a la Configuració.",
+  "continue_btn": "Continua"
 }

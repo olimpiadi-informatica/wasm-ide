@@ -69,5 +69,23 @@
   "create_file": "Crea",
   "other": "Altro",
   "no_workspace_selected": "Nessuno spazio di lavoro selezionato",
-  "no_file_open": "Nessun file aperto"
+  "no_file_open": "Nessun file aperto",
+
+  "new_file": "Nuovo file",
+  "rename_file": "Rinomina file",
+  "delete_file": "Elimina file",
+  "confirm_delete": "Clicca di nuovo per eliminare",
+  "upload_file": "Carica file",
+  "download_file": "Scarica file",
+  "copy_to_clipboard": "Copia negli appunti",
+  "copied": "Copiato!",
+  "reset_workspace": "Ripristina template",
+  "confirm_reset": "Clicca di nuovo per ripristinare",
+  "delete_workspace": "Elimina spazio di lavoro",
+  "new_workspace": "Nuovo spazio di lavoro",
+  "cancel": "Annulla",
+  "default_programming_language": "Linguaggio predefinito",
+  "choose_default_language_title": "Scegli il linguaggio predefinito",
+  "choose_default_language_desc": "Verrà usato per inizializzare gli spazi di lavoro. Potrai sempre creare spazi di lavoro in altri linguaggi o cambiarlo nelle Impostazioni.",
+  "continue_btn": "Continua"
 }
