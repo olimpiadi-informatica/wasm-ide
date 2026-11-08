@@ -159,14 +159,14 @@ fn FetchingCompilerMessageBar(
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
 ) -> impl IntoView {
     let i18n = use_i18n();
+    let app_config = StoredValue::new(expect_context::<Config>());
 
     let render_progress = move |name: String| {
-        let config = expect_context::<Config>();
         let progress = {
             let name = name.clone();
             Signal::derive(move || fetching_compiler_progress.read().get(&name).cloned())
         };
-        let max = config.worker.compilers.get(&name).copied();
+        let max = app_config.with_value(|cfg| cfg.worker.compilers.get(&name).copied());
         view! {
             <div class="flex items-center gap-3 text-xs">
                 <span class="font-mono font-medium w-16 truncate">{name}</span>

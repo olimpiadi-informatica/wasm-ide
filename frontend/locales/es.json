@@ -79,8 +79,6 @@
   "download_file": "Descargar archivo",
   "copy_to_clipboard": "Copiar al portapapeles",
   "copied": "¡Copiado!",
-  "reset_workspace": "Restablecer plantilla",
-  "confirm_reset": "Haz clic de nuevo para restablecer",
   "delete_workspace": "Eliminar espacio de trabajo",
   "new_workspace": "Nuevo espacio de trabajo",
   "cancel": "Cancelar",

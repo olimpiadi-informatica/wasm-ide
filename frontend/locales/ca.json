@@ -79,8 +79,6 @@
   "download_file": "Baixa el fitxer",
   "copy_to_clipboard": "Copia al porta-retalls",
   "copied": "Copiat!",
-  "reset_workspace": "Restableix la plantilla",
-  "confirm_reset": "Fes clic de nou per restablir",
   "delete_workspace": "Suprimeix l'espai de treball",
   "new_workspace": "Nou espai de treball",
   "cancel": "Cancel·la",

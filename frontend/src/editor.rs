@@ -7,14 +7,13 @@ use futures_channel::mpsc::UnboundedReceiver;
 use futures_util::StreamExt;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
-use tracing::{debug, info, warn};
+use tracing::debug;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{JsFuture, spawn_local};
+use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys::Function;
-use web_sys::{HtmlDivElement, HtmlElement, HtmlInputElement};
+use web_sys::{HtmlDivElement, HtmlElement};
 
 use crate::settings::{KeyboardMode, Theme, use_settings};
-use crate::util::{Icon, download};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
@@ -304,64 +303,7 @@ pub fn Editor(
         });
     });
 
-    let do_download = move |_| {
-        let name = open_filename.read();
-        let Some(name) = name.as_ref() else {
-            info!("no file open, download cancelled");
-            return;
-        };
-        let text = controller.get_text();
-        let name = name.split('/').next_back().unwrap_or(name);
-        download(name, text.as_bytes());
-    };
-
-    let upload_el = NodeRef::new();
-
-    let do_upload = move |_| {
-        let input: HtmlInputElement = upload_el.get().unwrap();
-        let files = input.files().unwrap();
-        let Some(file) = files.get(0) else {
-            info!("file selection cancelled");
-            return;
-        };
-        spawn_local(async move {
-            let promise = file.text();
-            let text = JsFuture::from(promise).await;
-            match text {
-                Ok(text) => {
-                    controller.set_text(&text.as_string().expect("did not read a string"));
-                }
-                Err(err) => warn!("could not read file: {err:?}"),
-            }
-        });
-    };
-
     view! {
-        <div node_ref=node_ref class:is-height-100 class:is-size-6 class:is-relative>
-            <div
-                class:is-size-4
-                class:is-opacity-50
-                style:position="absolute"
-                style:top="0"
-                style:right="1.0rem"
-                style:z-index="20"
-                class:is-flex
-                class:is-flex-direction-row
-            >
-                <Icon icon=icondata::ChDownload on:click=do_download class:is-clickable class:m-1 />
-                <input type="file" class:is-hidden node_ref=upload_el on:change=do_upload />
-                <Icon
-                    icon=icondata::ChUpload
-                    on:click=move |_| {
-                        if !readonly.get() {
-                            upload_el.get().unwrap().click()
-                        }
-                    }
-                    class:is-clickable=move || !readonly.get()
-                    class:is-opacity-50=move || readonly.get()
-                    class:m-1
-                />
-            </div>
-        </div>
+        <div node_ref=node_ref class="h-full w-full text-base relative overflow-hidden" />
     }
 }

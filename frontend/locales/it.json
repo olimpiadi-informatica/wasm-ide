@@ -79,8 +79,6 @@
   "download_file": "Scarica file",
   "copy_to_clipboard": "Copia negli appunti",
   "copied": "Copiato!",
-  "reset_workspace": "Ripristina template",
-  "confirm_reset": "Clicca di nuovo per ripristinare",
   "delete_workspace": "Elimina spazio di lavoro",
   "new_workspace": "Nuovo spazio di lavoro",
   "cancel": "Annulla",

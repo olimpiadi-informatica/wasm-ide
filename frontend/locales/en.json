@@ -78,8 +78,6 @@
   "download_file": "Download file",
   "copy_to_clipboard": "Copy to clipboard",
   "copied": "Copied!",
-  "reset_workspace": "Reset to template",
-  "confirm_reset": "Click again to reset",
   "delete_workspace": "Delete workspace",
   "new_workspace": "New workspace",
   "cancel": "Cancel",

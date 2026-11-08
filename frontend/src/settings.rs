@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 use tracing::info;
 
+use crate::backend;
 use crate::enum_select::{DisplayLocalized, EnumSelect};
 use crate::i18n::*;
 use crate::util::Icon;
@@ -63,7 +64,7 @@ const fn default_input_height_percent() -> f32 {
     50.0
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub(crate) struct StoredSettings {
     theme: Option<Theme>,
@@ -75,6 +76,7 @@ pub(crate) struct StoredSettings {
     input_height_percent: f32,
     mem_limit: Option<u32>,
     time_limit: Option<f64>,
+    pub(crate) default_language: Option<String>,
 }
 
 impl Default for StoredSettings {
@@ -88,6 +90,7 @@ impl Default for StoredSettings {
             input_height_percent: default_input_height_percent(),
             mem_limit: None,
             time_limit: None,
+            default_language: None,
         }
     }
 }
@@ -104,14 +107,29 @@ pub struct SettingsProvider {
     pub persist_storage: Signal<bool>,
     pub mem_limit: Signal<Option<u32>>,
     pub time_limit: Signal<Option<f64>>,
+    pub default_language: Signal<Option<String>>,
 }
 
 impl SettingsProvider {
-    pub fn install(default_settings: StoredSettings) {
+    pub fn install(mut default_settings: StoredSettings, config_default_language: Option<String>) {
+        if default_settings.default_language.is_none() {
+            default_settings.default_language = config_default_language.clone();
+        }
         let (read, write, _) = use_local_storage_with_options::<StoredSettings, JsonSerdeCodec>(
             "wasm_ide_settings",
             UseStorageOptions::default().initial_value(default_settings),
         );
+        if let Some(cfg_lang) = &config_default_language
+            && read.get_untracked().default_language.is_none()
+        {
+            write.update(|s| s.default_language = Some(cfg_lang.clone()));
+        }
+        let default_language = Memo::new(move |_| {
+            read.get()
+                .default_language
+                .or_else(|| config_default_language.clone())
+                .filter(|lang| backend::languages().iter().any(|l| &l.name == lang))
+        });
         let prefers_dark = use_preferred_dark();
         let theme = Memo::new(move |_| {
             read.get().theme.unwrap_or(if prefers_dark.get() {
@@ -142,7 +160,36 @@ impl SettingsProvider {
             persist_storage: Memo::new(move |_| read.get().persist_storage).into(),
             mem_limit: Memo::new(move |_| read.get().mem_limit).into(),
             time_limit: Memo::new(move |_| read.get().time_limit).into(),
+            default_language: default_language.into(),
         });
+    }
+
+    pub fn set_editor_width(self, val: f32) {
+        self.write.update(|v| {
+            v.editor_width_percent = val.clamp(MIN_EDITOR_WIDTH, MAX_EDITOR_WIDTH);
+        });
+    }
+
+    pub fn set_input_height(self, val: f32) {
+        self.write.update(|v| {
+            v.input_height_percent = val.clamp(MIN_INPUT_HEIGHT, MAX_INPUT_HEIGHT);
+        });
+    }
+
+    pub fn set_input_mode(self, input_mode: InputMode) {
+        self.write.update(|v| v.input_mode = input_mode);
+    }
+
+    pub fn set_default_language(self, language: String) {
+        self.write.update(|v| v.default_language = Some(language));
+    }
+
+    pub fn set_keyboard_mode(self, keyboard_mode: KeyboardMode) {
+        self.write.update(|v| v.keyboard_mode = keyboard_mode);
+    }
+
+    pub fn set_theme(self, theme: Option<Theme>) {
+        self.write.update(|v| v.theme = theme);
     }
 }
 
@@ -152,38 +199,17 @@ pub fn use_settings() -> SettingsProvider {
 
 pub const MIN_EDITOR_WIDTH: f32 = 30.0;
 pub const MAX_EDITOR_WIDTH: f32 = 80.0;
-
-pub fn set_editor_width(val: f32) {
-    use_settings().write.update(|v| {
-        v.editor_width_percent = val.clamp(MIN_EDITOR_WIDTH, MAX_EDITOR_WIDTH);
-    });
-}
-
 pub const MIN_INPUT_HEIGHT: f32 = 20.0;
 pub const MAX_INPUT_HEIGHT: f32 = 80.0;
-
-pub fn set_input_height(val: f32) {
-    use_settings().write.update(|v| {
-        v.input_height_percent = val.clamp(MIN_INPUT_HEIGHT, MAX_INPUT_HEIGHT);
-    });
-}
-
-pub fn set_input_mode(input_mode: InputMode) {
-    use_settings().write.update(|v| v.input_mode = input_mode);
-}
 
 #[component]
 pub fn Settings() -> impl IntoView {
     let i18n = use_i18n();
     let open = RwSignal::new(false);
 
-    let SettingsProvider { keyboard_mode, .. } = use_settings();
-
-    let set_kb_mode = move |kb_mode| {
-        expect_context::<SettingsProvider>()
-            .write
-            .update(|v| v.keyboard_mode = kb_mode);
-    };
+    let settings = use_settings();
+    let keyboard_mode = settings.keyboard_mode;
+    let set_kb_mode = move |kb_mode| settings.set_keyboard_mode(kb_mode);
 
     let locale_value = (
         Signal::derive(move || i18n.get_locale()),
@@ -236,6 +262,8 @@ pub fn Settings() -> impl IntoView {
                             </div>
                         </div>
 
+                        <DefaultLanguageControl />
+
                         <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
                             <label class="text-sm font-medium">{t!(i18n, keyboard_mode)}</label>
                             <div class="sm:col-span-2">
@@ -263,15 +291,42 @@ pub fn Settings() -> impl IntoView {
 }
 
 #[component]
+fn DefaultLanguageControl() -> impl IntoView {
+    let i18n = use_i18n();
+    let settings = use_settings();
+
+    view! {
+        <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
+            <label class="text-sm font-medium">{t!(i18n, default_programming_language)}</label>
+            <div class="sm:col-span-2">
+                <select
+                    class="select select-bordered select-sm w-auto min-w-40"
+                    prop:value=move || settings.default_language.get().unwrap_or_default()
+                    on:change:target=move |ev| {
+                        let val = ev.target().value();
+                        if !val.is_empty() {
+                            settings.set_default_language(val);
+                        }
+                    }
+                >
+                    <For each=move || backend::languages() key=|l| l.name.clone() let:lang>
+                        <option selected=move || {
+                            settings.default_language.get().as_deref() == Some(&lang.name)
+                        }>{lang.name.clone()}</option>
+                    </For>
+                </select>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 fn ThemeControl() -> impl IntoView {
-    let SettingsProvider { read, .. } = use_settings();
+    let settings = use_settings();
+    let read = settings.read;
     let i18n = use_i18n();
     let theme = Signal::derive(move || read.get().theme);
-    let set_theme = move |theme| {
-        expect_context::<SettingsProvider>()
-            .write
-            .update(|v| v.theme = theme);
-    };
+    let set_theme = move |theme| settings.set_theme(theme);
 
     let preferred_dark = leptos_use::use_preferred_dark();
     let system_theme = Signal::derive(move || {

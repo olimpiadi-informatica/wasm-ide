@@ -36,17 +36,16 @@ mod workspace;
 use crate::backend::{JsBackend, RemoteBackend, WorkerBackend};
 use crate::config::Config;
 use crate::contest_api::SubmitStatus;
-use crate::editor_dir::EditorDirController;
+use crate::editor_dir::{EditorDirController, select_best_code_file};
 use crate::editor_view::EditorView;
 use crate::enum_select::EnumSelect;
 use crate::i18n::*;
-use crate::output::OutputView;
-use crate::settings::{InputMode, Settings, SettingsProvider, set_input_mode, use_settings};
+use crate::settings::{InputMode, Settings, SettingsProvider, use_settings};
 use crate::status_view::StatusView;
 use crate::util::{Icon, check_response, get_input_mode};
 use crate::workspace::{
-    DEFAULT_WORKSPACE, WorkspaceConfig, WorkspaceSelector, ensure_contest_workspaces,
-    ensure_default_workspace, get_saved_workspace, set_saved_workspace,
+    WorkspaceConfig, WorkspaceSelector, ensure_contest_workspaces, ensure_default_workspace,
+    get_saved_workspace, primary_extension_for_lang, set_saved_workspace,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -236,8 +235,10 @@ fn handle_ls_message(
 fn StoragePersistView() -> impl IntoView {
     let i18n = use_i18n();
     let settings = use_settings();
+    let dismissed = RwSignal::new(false);
     let ok = LocalResource::new(move || async move {
         if settings.persist_storage.get() {
+            dismissed.set(false);
             common::opfs::persist().await
         } else {
             true
@@ -245,26 +246,81 @@ fn StoragePersistView() -> impl IntoView {
     });
 
     view! {
-        <Show when=move || ok.get() == Some(false)>
-            <div
-                class:message
-                class:is-warning
-                style:position="absolute"
-                style:bottom="1px"
-                style:right="1px"
-                style:z-index="100"
-            >
-                <div class:message-body>{t!(i18n, storage_denied)}</div>
+        <Show when=move || ok.get() == Some(false) && !dismissed.get()>
+            <div class="alert alert-warning shadow-lg py-2 px-3 text-xs fixed bottom-3 left-3 z-[900] w-auto max-w-sm flex items-center gap-2">
+                <Icon attr:class="w-4 h-4 shrink-0" icon=icondata::BiErrorSolid />
+                <span>{t!(i18n, storage_denied)}</span>
+                <button
+                    type="button"
+                    class="btn btn-ghost btn-xs btn-circle shrink-0"
+                    on:click=move |_| dismissed.set(true)
+                >
+                    <Icon attr:class="w-3.5 h-3.5" icon=icondata::IoClose />
+                </button>
             </div>
         </Show>
     }
 }
 
+fn resolve_execution_files(
+    lang_name: &str,
+    task_name: Option<&str>,
+    open_file: Option<&str>,
+    all_files: Vec<(String, Vec<u8>)>,
+) -> (Option<String>, Vec<(String, Vec<u8>)>) {
+    let all_langs = backend::languages();
+    let lang_exts = all_langs
+        .iter()
+        .find(|l| l.name == lang_name)
+        .map(|l| l.extensions.as_slice())
+        .unwrap_or(&[]);
+    let other_lang_exts: Vec<&str> = all_langs
+        .iter()
+        .filter(|l| l.name != lang_name)
+        .flat_map(|l| l.extensions.iter().map(String::as_str))
+        .filter(|ext| !lang_exts.iter().any(|e| e == ext))
+        .collect();
+
+    let matches_lang = |name: &str| {
+        let ext = name.rsplit('.').next().unwrap_or("");
+        lang_exts.iter().any(|e| e == ext)
+    };
+    let is_grader = |name: &str| {
+        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
+        stem == "grader"
+    };
+
+    let filtered_files: Vec<(String, Vec<u8>)> = all_files
+        .into_iter()
+        .filter(|(name, _)| {
+            let ext = name.rsplit('.').next().unwrap_or("");
+            !other_lang_exts.contains(&ext)
+        })
+        .collect();
+
+    let names: Vec<String> = filtered_files.iter().map(|(n, _)| n.clone()).collect();
+    let has_non_grader_lang_file = names.iter().any(|n| matches_lang(n) && !is_grader(n));
+
+    let primary_file = open_file
+        .filter(|open| {
+            names.iter().any(|n| n == open)
+                && matches_lang(open)
+                && (!is_grader(open) || !has_non_grader_lang_file)
+        })
+        .map(ToOwned::to_owned)
+        .or_else(|| select_best_code_file(&names, lang_name, task_name))
+        .or_else(|| {
+            open_file
+                .filter(|open| names.iter().any(|n| n == open))
+                .map(ToOwned::to_owned)
+        });
+
+    (primary_file, filtered_files)
+}
+
 #[component]
-fn App() -> impl IntoView {
+fn App(initial_workspace: Option<String>) -> impl IntoView {
     let i18n = use_i18n();
-    let config = expect_context::<Config>();
-    let workspace_enabled = config.workspace_enabled;
 
     let state = RwSignal::new(RunState {
         exec: StateExec::Ready,
@@ -279,35 +335,21 @@ fn App() -> impl IntoView {
 
     let fetching_compiler_progress = RwSignal::new(FetchingCompilerProgress::default());
 
+    let settings = use_settings();
     let SettingsProvider {
         input_mode,
         mem_limit,
         time_limit,
+        default_language,
         ..
-    } = use_settings();
+    } = settings;
 
     backend::set_callback(Arc::new({
         let ls_sender = ls_sender.clone();
         move |msg| handle_message(msg, state, fetching_compiler_progress, &ls_sender).unwrap()
     }));
 
-    let saved_ws = get_saved_workspace();
-    let workspace = RwSignal::new(if workspace_enabled {
-        saved_ws
-    } else {
-        Some(DEFAULT_WORKSPACE.to_owned())
-    });
-    if workspace_enabled {
-        spawn_local(async move {
-            let dir = common::opfs::open_dir("workspace", true).await;
-            let entries = dir.list_entries().await;
-            if let Some(saved) = workspace.get_untracked()
-                && !entries.contains(&saved)
-            {
-                workspace.set(None);
-            }
-        });
-    }
+    let workspace = RwSignal::new(initial_workspace);
 
     Effect::new(move |_| {
         let current = workspace.get();
@@ -345,17 +387,23 @@ fn App() -> impl IntoView {
     }));
 
     let language = Memo::new(move |old| {
-        code.open_filename()
+        workspace_config
             .get()
-            .and_then(|f| {
-                let ext = f.split('.').next_back().unwrap_or("");
-                backend::languages()
-                    .iter()
-                    .find(|lang| lang.extensions.iter().any(|e| e == ext))
-                    .map(|lang| lang.name.clone())
+            .flatten()
+            .map(|cfg| cfg.language)
+            .filter(|l| !l.is_empty())
+            .or_else(|| {
+                code.open_filename().get().and_then(|f| {
+                    let ext = f.split('.').next_back().unwrap_or("");
+                    backend::languages()
+                        .iter()
+                        .find(|lang| lang.extensions.iter().any(|e| e == ext))
+                        .map(|lang| lang.name.clone())
+                })
             })
+            .or_else(|| default_language.get())
             .or(old.cloned())
-            .unwrap_or("C++".to_owned())
+            .unwrap_or_else(|| "C++".to_owned())
     });
 
     // TODO(virv): remove this
@@ -404,14 +452,10 @@ fn App() -> impl IntoView {
         let Some(ws) = workspace.get_untracked() else {
             return;
         };
-        let Some(primary_file) = code.open_filename().get_untracked() else {
-            return;
-        };
-        let primary_file = primary_file
-            .split('/')
-            .next_back()
-            .expect("invalid primary file")
-            .to_string();
+        let open_file = code
+            .open_filename()
+            .get_untracked()
+            .and_then(|p| p.split('/').next_back().map(ToOwned::to_owned));
 
         match &mut state.write().exec {
             exec @ (StateExec::Ready | StateExec::Complete { .. }) => {
@@ -446,16 +490,40 @@ fn App() -> impl IntoView {
                 InputMode::Batch => (Some(input.into_bytes()), None),
             };
 
-            let mut files = Vec::new();
+            let task_name = WorkspaceConfig::load(&ws)
+                .await
+                .ok()
+                .and_then(|cfg| cfg.task);
+            let mut raw_files = Vec::new();
             let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
             for name in dir.list_entries().await {
                 let file = dir.open_file(&name, false).await;
                 let content = file.read().await;
-                files.push(File { name, content });
+                raw_files.push((name, content));
             }
 
-            info!("Requesting execution");
             let lng = language.get_untracked();
+            let (primary_file, filtered_files) = resolve_execution_files(
+                &lng,
+                task_name.as_deref(),
+                open_file.as_deref(),
+                raw_files,
+            );
+            let Some(primary_file) = primary_file else {
+                state.update(|s| {
+                    s.exec = StateExec::Complete {
+                        outcome: Outcome::default(),
+                        error: Some(format!("No source file found for {lng}")),
+                    };
+                });
+                return;
+            };
+            let files = filtered_files
+                .into_iter()
+                .map(|(name, content)| File { name, content })
+                .collect();
+
+            info!("Requesting execution");
             send_worker_message(
                 WorkerExecRequest::Run {
                     files,
@@ -499,29 +567,25 @@ fn App() -> impl IntoView {
                 .unwrap_or(false)
     });
 
+    let app_owner = Owner::current();
     let do_submit = Callback::new(move |_| {
         let Some(ws) = workspace.get_untracked() else {
             warn!("asked to submit without a workspace");
             return;
         };
-        let Some(primary_file) = code.open_filename().get_untracked() else {
-            warn!("asked to submit without a primary file");
-            return;
-        };
+        let open_file = code
+            .open_filename()
+            .get_untracked()
+            .and_then(|p| p.split('/').next_back().map(ToOwned::to_owned));
         let Some(api) = contest_api::get() else {
             warn!("asked to submit without contest api");
             return;
         };
-        let primary_file = primary_file
-            .split('/')
-            .next_back()
-            .unwrap_or(&primary_file)
-            .to_string();
         state.update(|s| {
             s.submit = StateSubmit::Submitting(None);
         });
 
-        spawn_local_scoped(async move {
+        let fut = async move {
             code.wait_sync().await;
 
             let Ok(config) = WorkspaceConfig::load(&ws).await else {
@@ -531,13 +595,27 @@ fn App() -> impl IntoView {
                 return;
             };
 
-            let mut files = Vec::new();
+            let mut raw_files = Vec::new();
             let dir = common::opfs::open_dir(&format!("workspace/{ws}/code"), false).await;
             for name in dir.list_entries().await {
                 let file = dir.open_file(&name, false).await;
                 let content = file.read().await;
-                files.push((name, content));
+                raw_files.push((name, content));
             }
+
+            let lng = language.get_untracked();
+            let (primary_file, files) = resolve_execution_files(
+                &lng,
+                config.task.as_deref(),
+                open_file.as_deref(),
+                raw_files,
+            );
+            let Some(primary_file) = primary_file else {
+                state.update(|s| {
+                    s.submit = StateSubmit::Error(format!("No source file found for {lng}"))
+                });
+                return;
+            };
 
             let res = api
                 .submit(
@@ -545,7 +623,7 @@ fn App() -> impl IntoView {
                         .task
                         .as_deref()
                         .expect("submit without connected task"),
-                    &language.get_untracked(),
+                    &lng,
                     &primary_file,
                     files,
                 )
@@ -562,88 +640,90 @@ fn App() -> impl IntoView {
             if let Err(err) = res {
                 warn!("submit failed: {err:?}");
             }
-        });
+        };
+        if let Some(owner) = &app_owner {
+            owner.with(|| spawn_local_scoped(fut));
+        } else {
+            spawn_local_scoped(fut);
+        }
+    });
+
+    let exec_stage_label = Signal::derive(move || match &state.read().exec {
+        StateExec::Processing { stopping: true, .. } => {
+            Some(t_string!(i18n, stopping_execution).to_string())
+        }
+        StateExec::Processing {
+            status: Some(WorkerExecStatus::FetchingCompiler),
+            ..
+        } => Some(t_string!(i18n, downloading_runtime).to_string()),
+        StateExec::Processing {
+            status: Some(WorkerExecStatus::Compiling),
+            ..
+        } => Some(t_string!(i18n, compiling).to_string()),
+        StateExec::Processing {
+            status: None | Some(WorkerExecStatus::Running),
+            ..
+        } => Some(t_string!(i18n, executing).to_string()),
+        _ => None,
     });
 
     let navbar = view! {
-        <div
-            class:is-flex
-            class:is-flex-direction-row
-            class:is-align-items-center
-            class:is-column-gap-2
-            class:my-2
-            class:mx-3
-        >
+        <div class="flex flex-row items-center gap-2 px-3 py-1.5 bg-base-100 border-b border-base-300 min-h-12 shrink-0">
             <Settings />
-            <Show when=move || workspace_enabled>
-                <WorkspaceSelector active=workspace readonly=is_running />
-            </Show>
+            <WorkspaceSelector
+                active=workspace
+                active_language=language
+                readonly=is_running
+            />
             <ShowLet some=move || task_score.get().flatten() let:((score, max_score))>
-                <div
-                    class:is-flex
-                    class:is-align-items-center
-                    class:px-3
-                    class:py-2
-                    class:is-size-7
-                    style:background-color="var(--bulma-scheme-main-bis)"
-                    style:border="1px solid var(--bulma-border)"
-                    style:border-radius="0.9rem"
-                    style:gap="0.75rem"
-                    style:min-width="11rem"
-                >
-                    <div>
-                        <div
-                            class:is-uppercase
-                            class:has-text-weight-semibold
-                            style:font-size="0.65rem"
-                            style:letter-spacing="0.08em"
-                            style:line-height="1"
-                        >
+                <div class="hidden sm:flex items-center gap-2.5 px-3 py-1 bg-base-200/80 border border-base-300 rounded-lg">
+                    <div class="flex flex-col leading-none">
+                        <span class="uppercase font-semibold text-[10px] tracking-wider text-base-content/60">
                             {t!(i18n, task_score)}
-                        </div>
-                        <div
-                            class:has-text-weight-semibold
-                            class:is-family-monospace
-                            style:font-size="0.95rem"
-                            style:line-height="1.1"
-                        >
+                        </span>
+                        <span class="font-semibold font-mono text-xs mt-0.5">
                             {format!("{score:.0} / {max_score:.0}")}
-                        </div>
+                        </span>
                     </div>
                     <progress
-                        class="progress is-info"
-                        style:width="4.5rem"
-                        style:margin="0"
+                        class=move || {
+                            if max_score > 0.0 && score >= max_score {
+                                "progress progress-success w-16 h-2"
+                            } else {
+                                "progress progress-info w-16 h-2"
+                            }
+                        }
                         value=score
                         max=max_score
                     />
                 </div>
             </ShowLet>
-            <div class="is-flex-grow-1" />
+            <div class="flex-1" />
+            <ShowLet some=exec_stage_label let:label>
+                <div class="hidden md:flex items-center gap-1.5 text-xs font-medium text-base-content/70 px-2">
+                    <span class="loading loading-spinner loading-xs text-primary" />
+                    <span>{label}</span>
+                </div>
+            </ShowLet>
             <Show when=move || backend::for_lang(language.read().deref()).has_dynamic_io()>
-                <EnumSelect value=(input_mode, SignalSetter::map(set_input_mode)) />
+                <EnumSelect value=(input_mode, SignalSetter::map(move |m| settings.set_input_mode(m))) />
             </Show>
             <Show when=move || is_running.get()>
                 <button
-                    class:has-icons-left
-                    class:button
-                    class:is-danger
-                    class:mr-1
-                    style:width="8em"
+                    type="button"
+                    class="btn btn-error btn-sm gap-1.5 min-w-24"
                     disabled=disable_stop
                     on:click=do_stop
                 >
-                    <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCloseOutlined />
+                    <Icon attr:class="w-4 h-4" icon=icondata::AiCloseOutlined />
                     {t!(i18n, stop)}
                 </button>
             </Show>
             <Show when=move || !is_running.get()>
                 <button
-                    class:has-icons-left
-                    class:button
-                    class:is-success
-                    class:mr-1
-                    style:width="8em"
+                    type="button"
+                    class="btn btn-success btn-sm gap-1.5 min-w-24"
+                    title=move || format!("{} (Ctrl+Enter)", t_string!(i18n, run))
                     disabled=disable_start
                     on:click=move |_| {
                         if !disable_start.get() {
@@ -651,17 +731,14 @@ fn App() -> impl IntoView {
                         }
                     }
                 >
-                    <Icon class:icon class:is-left class:mr-1 icon=icondata::AiCaretRightFilled />
+                    <Icon attr:class="w-4 h-4" icon=icondata::AiCaretRightFilled />
                     {t!(i18n, run)}
                 </button>
             </Show>
             <Show when=move || contest_api::get().is_some()>
                 <button
-                    class:has-icons-left
-                    class:button
-                    class:is-info
-                    class:mr-1
-                    style:width="8em"
+                    type="button"
+                    class="btn btn-info btn-sm gap-1.5 min-w-24"
                     disabled=disable_submit
                     on:click=move |_| {
                         if !disable_submit.get() {
@@ -669,7 +746,7 @@ fn App() -> impl IntoView {
                         }
                     }
                 >
-                    <Icon class:icon class:is-left class:mr-1 icon=icondata::AiSendOutlined />
+                    <Icon attr:class="w-4 h-4" icon=icondata::AiSendOutlined />
                     {t!(i18n, submit)}
                 </button>
             </Show>
@@ -685,7 +762,7 @@ fn App() -> impl IntoView {
     view! {
         <StatusView state fetching_compiler_progress />
         <StoragePersistView />
-        <div class:is-flex class:is-flex-direction-column style:height="100dvh">
+        <div class="flex flex-col h-dvh w-screen overflow-hidden bg-base-200">
             {navbar}
             <EditorView
                 ls_receiver=ls_receiver
@@ -697,8 +774,8 @@ fn App() -> impl IntoView {
                 code_readonly=is_running
                 input_readonly=disable_input_editor
                 disable_additional_input=disable_stop
+                state=state
             />
-            <OutputView state />
         </div>
     }
 }
@@ -707,15 +784,9 @@ fn App() -> impl IntoView {
 fn LoadingView() -> impl IntoView {
     let i18n = use_i18n();
     view! {
-        <div
-            class:is-flex
-            class:is-flex-direction-row
-            class:is-align-items-center
-            class:is-justify-content-center
-            style:height="100dvh"
-        >
-            <span class="loader" />
-            <p class="is-size-4 ml-2">{t!(i18n, loading)}</p>
+        <div class="flex flex-row items-center justify-center h-dvh gap-3 bg-base-200">
+            <span class="loading loading-spinner loading-lg text-primary" />
+            <p class="text-lg font-medium">{t!(i18n, loading)}</p>
         </div>
     }
 }
@@ -723,22 +794,167 @@ fn LoadingView() -> impl IntoView {
 #[component]
 fn StartupErrorView(#[prop(into)] err: String) -> impl IntoView {
     view! {
-        <div
-            class:is-flex
-            class:is-align-items-center
-            class:is-justify-content-center
-            style:height="100dvh"
-            class:px-4
-        >
-            <div class="message is-danger" style:max-width="48rem" style:width="100%">
-                <div class="message-header">
-                    <p>"Startup Error"</p>
+        <div class="flex items-center justify-center h-dvh px-4 bg-base-200">
+            <div class="alert alert-error shadow-lg max-w-3xl w-full flex flex-col items-start gap-2">
+                <div class="flex items-center gap-2 font-bold text-base">
+                    <Icon attr:class="w-5 h-5" icon=icondata::BiErrorCircleSolid />
+                    <span>"Startup Error"</span>
                 </div>
-                <div class="message-body">
-                    <pre>{err}</pre>
+                <pre class="text-xs font-mono whitespace-pre-wrap break-all w-full bg-base-100/20 p-3 rounded">
+                    {err}
+                </pre>
+            </div>
+        </div>
+    }
+}
+
+async fn initialize_initial_workspaces(config: &Config, default_lang: &str) -> Option<String> {
+    if let Some(api) = contest_api::get() {
+        if config.auto_init_contest_tasks
+            && let Err(err) = ensure_contest_workspaces(&api, default_lang).await
+        {
+            warn!("Failed to auto-init contest workspaces: {err:?}");
+        }
+    } else {
+        let ws_dir = common::opfs::open_dir("workspace", true).await;
+        if ws_dir.list_entries().await.is_empty() {
+            let ext = primary_extension_for_lang(default_lang);
+            let default_ws = config.local_workspace(default_lang, &ext);
+            ensure_default_workspace(&default_ws, default_lang).await;
+        }
+    }
+
+    let ws_dir = common::opfs::open_dir("workspace", true).await;
+    let mut entries = ws_dir.list_entries().await;
+    entries.sort();
+    let saved = get_saved_workspace();
+    saved
+        .filter(|s| entries.contains(s))
+        .or_else(|| entries.into_iter().next())
+}
+
+#[component]
+fn ChooseDefaultLanguageView(on_complete: Callback<Option<String>>) -> impl IntoView {
+    let i18n = use_i18n();
+    let config = expect_context::<Config>();
+    let settings = use_settings();
+    let langs = backend::languages();
+    let initial_choice = langs
+        .first()
+        .map(|l| l.name.clone())
+        .unwrap_or_else(|| "C++".to_owned());
+    let selected = RwSignal::new(initial_choice);
+    let initializing = RwSignal::new(false);
+
+    let confirm = Callback::new(move |()| {
+        if initializing.get_untracked() {
+            return;
+        }
+        let chosen = selected.get_untracked();
+        if chosen.is_empty() {
+            return;
+        }
+        initializing.set(true);
+        let config = config.clone();
+        spawn_local(async move {
+            let initial_ws = initialize_initial_workspaces(&config, &chosen).await;
+            settings.set_default_language(chosen);
+            on_complete.run(initial_ws);
+        });
+    });
+
+    view! {
+        <div class="flex items-center justify-center min-h-dvh p-4 bg-base-200">
+            <div class="card bg-base-100 border border-base-300 shadow-xl w-full max-w-md">
+                <div class="card-body gap-4">
+                    <div class="flex flex-col gap-1">
+                        <h2 class="card-title text-lg font-bold">
+                            {t!(i18n, choose_default_language_title)}
+                        </h2>
+                        <p class="text-sm text-base-content/70">
+                            {t!(i18n, choose_default_language_desc)}
+                        </p>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <For each=move || backend::languages() key=|l| l.name.clone() let:lang>
+                            {
+                                let lang_name = lang.name.clone();
+                                let select_name = lang.name.clone();
+                                let dbl_name = lang.name.clone();
+                                let exts = lang
+                                    .extensions
+                                    .iter()
+                                    .map(|e| format!(".{e}"))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                view! {
+                                    <button
+                                        type="button"
+                                        disabled=move || initializing.get()
+                                        class=move || {
+                                            if selected.get() == lang_name {
+                                                "flex items-center justify-between px-4 py-3 rounded-lg border-2 border-primary bg-primary/10 text-left transition-colors cursor-pointer"
+                                            } else {
+                                                "flex items-center justify-between px-4 py-3 rounded-lg border border-base-300 hover:bg-base-200 text-left transition-colors cursor-pointer"
+                                            }
+                                        }
+                                        on:click=move |_| selected.set(select_name.clone())
+                                        on:dblclick=move |_| {
+                                            selected.set(dbl_name.clone());
+                                            confirm.run(());
+                                        }
+                                    >
+                                        <span class="font-medium text-sm">{lang.name}</span>
+                                        <span class="badge badge-ghost badge-sm font-mono">{exts}</span>
+                                    </button>
+                                }
+                            }
+                        </For>
+                    </div>
+
+                    <div class="card-actions justify-end pt-2">
+                        <button
+                            type="button"
+                            class="btn btn-primary w-full sm:w-auto min-w-32"
+                            disabled=move || initializing.get()
+                            on:click=move |_| confirm.run(())
+                        >
+                            <Show when=move || initializing.get()>
+                                <span class="loading loading-spinner loading-xs" />
+                            </Show>
+                            {t!(i18n, continue_btn)}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
+    }
+}
+
+#[component]
+fn WorkspaceBootstrap() -> impl IntoView {
+    let config = expect_context::<Config>();
+    let settings = use_settings();
+    let ready_workspace = RwSignal::new(None::<Option<String>>);
+
+    if let Some(lang) = settings.default_language.get_untracked() {
+        let config = config.clone();
+        spawn_local(async move {
+            let initial_ws = initialize_initial_workspaces(&config, &lang).await;
+            ready_workspace.set(Some(initial_ws));
+        });
+    }
+
+    move || match ready_workspace.get() {
+        Some(initial_ws) => view! { <App initial_workspace=initial_ws /> }.into_any(),
+        None if settings.default_language.get().is_some() => view! { <LoadingView /> }.into_any(),
+        None => view! {
+            <ChooseDefaultLanguageView on_complete=Callback::new(move |initial_ws| {
+                ready_workspace.set(Some(initial_ws));
+            }) />
+        }
+        .into_any(),
     }
 }
 
@@ -767,16 +983,14 @@ fn ConfigAndBackendProvider() -> impl IntoView {
                 backend::register_backend(backend);
             }
 
-            contest_api::init(config.contest.as_ref()).await;
-
-            if !config.workspace_enabled {
-                ensure_default_workspace(&config.default_ws).await;
-            } else if let Some(lang) = config.auto_init_contest_tasks.as_deref()
-                && let Some(api) = contest_api::get()
-                && let Err(err) = ensure_contest_workspaces(&api, lang).await
-            {
-                warn!("Failed to auto-init contest workspaces: {err:?}");
+            if let Some(lang) = &config.default_language {
+                anyhow::ensure!(
+                    backend::languages().iter().any(|l| &l.name == lang),
+                    "Unsupported default_language in config.json: {lang}"
+                );
             }
+
+            contest_api::init(config.contest.as_ref()).await;
 
             Ok::<_, anyhow::Error>(config)
         }
@@ -793,14 +1007,17 @@ fn ConfigAndBackendProvider() -> impl IntoView {
             let initial_locale = config
                 .default_locale
                 .unwrap_or_else(|| i18n.get_locale_untracked());
-            SettingsProvider::install(config.default_settings);
+            SettingsProvider::install(
+                config.default_settings.clone(),
+                config.default_language.clone(),
+            );
             provide_context::<Config>(config);
             view! {
                 <I18nSubContextProvider
                     initial_locale=initial_locale
                     cookie_name=LOCALE_COOKIE
                 >
-                    <App />
+                    <WorkspaceBootstrap />
                 </I18nSubContextProvider>
             }
             .into_any()
