@@ -173,6 +173,8 @@ pub fn WorkspaceSelector(
     active: RwSignal<Option<String>>,
     #[prop(into)] active_language: Signal<String>,
     #[prop(into)] readonly: Signal<bool>,
+    #[prop(into)] workspaces_revision: Signal<u64>,
+    #[prop(into)] contest_ready: Signal<bool>,
 ) -> impl IntoView {
     let i18n = use_i18n();
     let settings = use_settings();
@@ -271,13 +273,14 @@ pub fn WorkspaceSelector(
     };
 
     Effect::new(move |_| {
-        if active.get().is_none() {
+        if active.get().is_none() && contest_ready.get() {
             open.set(true);
             show_create_form.set(true);
         }
     });
 
     Effect::new(move |_| {
+        workspaces_revision.get();
         refresh_workspaces();
     });
 

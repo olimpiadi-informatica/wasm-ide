@@ -10,7 +10,7 @@ use send_wrapper::SendWrapper;
 use crate::{
     RunState, StateSubmit, backend,
     config::Workspace,
-    contest_api::{ContestAPI, SubmitStatus, Task},
+    contest_api::{ContestAPI, ContestStatus, SubmitStatus, Task},
 };
 
 pub struct Terry {
@@ -25,6 +25,10 @@ impl Terry {
 
 #[async_trait]
 impl ContestAPI for Terry {
+    async fn contest_status(&self) -> Result<ContestStatus> {
+        SendWrapper::new(api::contest_status(&self.path)).await
+    }
+
     async fn list_tasks(&self) -> Result<Vec<Task>> {
         Ok(SendWrapper::new(api::status(&self.path)).await.map(|res| {
             res.contest
@@ -199,7 +203,13 @@ mod api {
     use serde::{Deserialize, Serialize};
     use web_sys::{Blob, FormData};
 
-    use crate::util::check_response;
+    use crate::{
+        contest_api::{
+            ContestPhase, ContestStatus as PublicContestStatus, endpoint_login_url,
+            response_clock_offset_ms,
+        },
+        util::check_response,
+    };
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "lowercase")]
@@ -353,6 +363,42 @@ mod api {
         check_response(&res, "Failed to get contest status").await?;
         let res = res.json().await?;
         Ok(res)
+    }
+
+    pub async fn contest_status(path: &str) -> Result<PublicContestStatus> {
+        let login_url = endpoint_login_url(path);
+        let res = Request::get(&format!("{path}/api/status")).send().await?;
+        let clock_offset_ms = response_clock_offset_ms(&res);
+        if res.status() == 401 || res.status() == 403 {
+            return Ok(PublicContestStatus {
+                logged_in: false,
+                login_url,
+                phase: ContestPhase::NotOpen,
+                time: None,
+                clock_offset_ms,
+            });
+        }
+        check_response(&res, "Failed to get contest status").await?;
+        let status: StatusResponse = res.json().await?;
+        let logged_in = status.user.is_some();
+        let now_ms = (js_sys::Date::now() as i64).saturating_add(clock_offset_ms);
+        let now = DateTime::from_timestamp_millis(now_ms).unwrap_or_default();
+        let phase = if now < status.contest.time.start {
+            ContestPhase::NotStarted
+        } else if now >= status.contest.time.end {
+            ContestPhase::Ended
+        } else if logged_in && !status.contest.has_started {
+            ContestPhase::NotStarted
+        } else {
+            ContestPhase::Running
+        };
+        Ok(PublicContestStatus {
+            logged_in,
+            login_url,
+            phase,
+            time: Some(status.contest.time),
+            clock_offset_ms,
+        })
     }
 
     pub async fn get_statement_file(path: &str, task: &str, file: &str) -> Result<Vec<u8>> {
