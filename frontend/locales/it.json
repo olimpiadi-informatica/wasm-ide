@@ -68,8 +68,6 @@
   "create_file_title": "Crea file",
   "create_file": "Crea",
   "other": "Altro",
-  "no_workspace_selected": "Nessuno spazio di lavoro selezionato",
-  "no_file_open": "Nessun file aperto",
 
   "new_file": "Nuovo file",
   "rename_file": "Rinomina file",
@@ -85,5 +83,9 @@
   "default_programming_language": "Linguaggio predefinito",
   "choose_default_language_title": "Scegli il linguaggio predefinito",
   "choose_default_language_desc": "Verrà usato per inizializzare gli spazi di lavoro. Potrai sempre creare spazi di lavoro in altri linguaggi o cambiarlo nelle Impostazioni.",
-  "continue_btn": "Continua"
+  "continue_btn": "Continua",
+  "no_workspace_selected": "Nessuno spazio di lavoro selezionato",
+  "no_workspace_selected_desc": "Seleziona o crea uno spazio di lavoro dalla barra in alto per iniziare.",
+  "no_files_open": "Nessun file presente",
+  "no_files_open_desc": "Crea un nuovo file o trascina qui dei file dal tuo computer."
 }

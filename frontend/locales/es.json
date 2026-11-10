@@ -68,8 +68,6 @@
   "create_file_title": "Crear archivo",
   "create_file": "Crear",
   "other": "Otro",
-  "no_workspace_selected": "Ningún espacio de trabajo seleccionado",
-  "no_file_open": "Ningún archivo abierto",
 
   "new_file": "Nuevo archivo",
   "rename_file": "Renombrar archivo",
@@ -85,5 +83,9 @@
   "default_programming_language": "Lenguaje predeterminado",
   "choose_default_language_title": "Elige tu lenguaje predeterminado",
   "choose_default_language_desc": "Se usará para inicializar tus espacios de trabajo. Siempre podrás crear espacios de trabajo en otros lenguajes o cambiarlo en la Configuración.",
-  "continue_btn": "Continuar"
+  "continue_btn": "Continuar",
+  "no_workspace_selected": "Ningún espacio de trabajo seleccionado",
+  "no_workspace_selected_desc": "Selecciona o crea un espacio de trabajo en la barra superior para empezar.",
+  "no_files_open": "No hay archivos en este panel",
+  "no_files_open_desc": "Crea un archivo nuevo o arrastra y suelta archivos aquí."
 }
