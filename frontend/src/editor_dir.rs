@@ -171,10 +171,16 @@ pub fn EditorDir(
     let new_filename = RwSignal::new(String::new());
     let confirm_delete = RwSignal::new(None::<String>);
     let copied = RwSignal::new(false);
+    let loaded = RwSignal::new(false);
 
     Effect::new(move || {
         let revision = files_revision.get();
         let dir_path = dir.get();
+        if dir_path.is_none() {
+            loaded.set(true);
+        } else {
+            loaded.set(false);
+        }
         spawn_local(async move {
             editor_ctrl.wait_sync().await;
             let mut entries = match &dir_path {
@@ -226,6 +232,7 @@ pub fn EditorDir(
             }
             tabs.set(entries);
             workspace_files.set(files);
+            loaded.set(true);
         });
     });
 
@@ -758,12 +765,14 @@ pub fn EditorDir(
                 </div>
             </div>
             <div class="flex-1 min-h-0 relative">
-                <div
-                    class="h-full w-full"
-                    class:hidden=move || {
-                        dir.get().is_none() || editor_ctrl.filename.get().is_none()
+                <div class=move || {
+                    if dir.get().is_none() || (loaded.get() && editor_ctrl.filename.get().is_none())
+                    {
+                        "h-full w-full invisible pointer-events-none"
+                    } else {
+                        "h-full w-full"
                     }
-                >
+                }>
                     <Editor
                         controller=editor_ctrl
                         syntax=syntax
@@ -774,15 +783,70 @@ pub fn EditorDir(
                         ls_interface=ls_interface
                     />
                 </div>
-                <Show when=move || dir.get().is_none() || editor_ctrl.filename.get().is_none()>
-                    <div class="absolute inset-0 z-10 flex items-center justify-center bg-base-100 text-sm text-base-content/50 select-none">
-                        {move || {
-                            if dir.get().is_none() {
-                                t_string!(i18n, no_workspace_selected)
-                            } else {
-                                t_string!(i18n, no_file_open)
+                <Show when=move || {
+                    dir.get().is_none() || (loaded.get() && editor_ctrl.filename.get().is_none())
+                }>
+                    <div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-base-100 p-6 text-center select-none">
+                        <Icon
+                            attr:class="w-10 h-10 text-base-content/30"
+                            icon=icondata::BiFolderOpenSolid
+                        />
+                        <Show
+                            when=move || dir.get().is_some()
+                            fallback=move || {
+                                view! {
+                                    <div class="flex flex-col gap-1 max-w-xs">
+                                        <p class="text-sm font-semibold text-base-content/80">
+                                            {t!(i18n, no_workspace_selected)}
+                                        </p>
+                                        <p class="text-xs text-base-content/60">
+                                            {t!(i18n, no_workspace_selected_desc)}
+                                        </p>
+                                    </div>
+                                }
                             }
-                        }}
+                        >
+                            <div class="flex flex-col gap-1 max-w-xs">
+                                <p class="text-sm font-semibold text-base-content/80">
+                                    {t!(i18n, no_files_open)}
+                                </p>
+                                <p class="text-xs text-base-content/60">
+                                    {t!(i18n, no_files_open_desc)}
+                                </p>
+                            </div>
+                            <Show when=move || !readonly.get()>
+                                <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary btn-sm gap-1.5"
+                                        on:click=move |ev| {
+                                            ev.stop_propagation();
+                                            start_create(ev);
+                                        }
+                                    >
+                                        <Icon
+                                            attr:class="w-3.5 h-3.5"
+                                            icon=icondata::AiPlusOutlined
+                                        />
+                                        {t!(i18n, new_file)}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline border-base-300 btn-sm gap-1.5"
+                                        on:click=move |_| {
+                                            if !readonly.get()
+                                                && let Some(el) = upload_el.get()
+                                            {
+                                                el.click();
+                                            }
+                                        }
+                                    >
+                                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::ChUpload />
+                                        {t!(i18n, upload_file)}
+                                    </button>
+                                </div>
+                            </Show>
+                        </Show>
                     </div>
                 </Show>
             </div>
