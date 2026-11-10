@@ -84,6 +84,9 @@ impl ContestAPI for Cms {
         if stdin.is_empty() {
             stdin.insert("input.txt".to_string(), String::new().into());
         }
+        if stdin.is_empty() {
+            stdin.insert("input.txt".to_string(), String::new().into());
+        }
 
         Ok(Workspace { code, stdin })
     }

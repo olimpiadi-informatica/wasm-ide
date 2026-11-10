@@ -68,8 +68,6 @@
   "create_file_title": "Crea file",
   "create_file": "Crea",
   "other": "Altro",
-  "no_workspace_selected": "Nissun spasio de łavoro sełesionà",
-  "no_file_open": "Nissun file verto",
 
   "new_file": "Novo file",
   "rename_file": "Rinomina file",
@@ -85,5 +83,9 @@
   "default_programming_language": "Łenguajo predefinìo",
   "choose_default_language_title": "Sèłi el to łenguajo predefinìo",
   "choose_default_language_desc": "El vegnarà doparà par inisiałizar i to spasi de łavoro. Te podarè senpre crear spasi de łavoro in altri łenguaji o canbiarlo inte łe Inpostazion.",
-  "continue_btn": "Continua"
+  "continue_btn": "Continua",
+  "no_workspace_selected": "Nissun spasio de łavoro sełesionà",
+  "no_workspace_selected_desc": "Sèłi o crea un spasio de łavoro da ła bara in alto par tacar.",
+  "no_files_open": "Nissun file presente",
+  "no_files_open_desc": "Crea un novo file o strasina qua dei file."
 }

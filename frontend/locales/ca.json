@@ -68,8 +68,6 @@
   "create_file_title": "Crea un fitxer",
   "create_file": "Crea",
   "other": "Altre",
-  "no_workspace_selected": "Cap espai de treball seleccionat",
-  "no_file_open": "Cap fitxer obert",
 
   "new_file": "Nou fitxer",
   "rename_file": "Canvia el nom del fitxer",
@@ -85,5 +83,9 @@
   "default_programming_language": "Llenguatge predeterminat",
   "choose_default_language_title": "Tria el teu llenguatge predeterminat",
   "choose_default_language_desc": "S'utilitzarà per inicialitzar els teus espais de treball. Sempre podràs crear espais de treball en altres llenguatges o canviar-ho a la Configuració.",
-  "continue_btn": "Continua"
+  "continue_btn": "Continua",
+  "no_workspace_selected": "Cap espai de treball seleccionat",
+  "no_workspace_selected_desc": "Tria o crea un espai de treball des de la barra superior per començar.",
+  "no_files_open": "Cap fitxer en aquest panell",
+  "no_files_open_desc": "Crea un fitxer nou o arrossega i deixa anar fitxers aquí."
 }

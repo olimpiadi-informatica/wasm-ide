@@ -67,8 +67,6 @@
   "create_file_title": "Create file",
   "create_file": "Create",
   "other": "Other",
-  "no_workspace_selected": "No workspace selected",
-  "no_file_open": "No file open",
 
   "new_file": "New file",
   "rename_file": "Rename file",
@@ -84,5 +82,9 @@
   "default_programming_language": "Default programming language",
   "choose_default_language_title": "Choose your default language",
   "choose_default_language_desc": "This will be used to initialize your workspaces. You can always create workspaces in other languages or change this later in Settings.",
-  "continue_btn": "Continue"
+  "continue_btn": "Continue",
+  "no_workspace_selected": "No workspace selected",
+  "no_workspace_selected_desc": "Select or create a workspace from the top bar to start editing.",
+  "no_files_open": "No files in this panel",
+  "no_files_open_desc": "Create a new file or drag and drop files here."
 }
