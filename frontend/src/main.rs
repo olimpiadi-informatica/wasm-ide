@@ -15,9 +15,11 @@ use common::{
 };
 use futures_channel::mpsc::{UnboundedSender, unbounded};
 use gloo_net::http::Request;
+use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use leptos::task::{spawn_local, spawn_local_scoped};
 use leptos_i18n::context::CookieOptions;
+use leptos_use::{use_document, use_event_listener, use_window};
 use tracing::{info, warn};
 
 mod backend;
@@ -35,7 +37,7 @@ mod workspace;
 
 use crate::backend::{JsBackend, RemoteBackend, WorkerBackend};
 use crate::config::Config;
-use crate::contest_api::SubmitStatus;
+use crate::contest_api::{ContestPhase, ContestStatus, SubmitStatus, format_countdown};
 use crate::editor_dir::{EditorDirController, select_best_code_file};
 use crate::editor_view::EditorView;
 use crate::enum_select::EnumSelect;
@@ -350,6 +352,69 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
     }));
 
     let workspace = RwSignal::new(initial_workspace);
+    let workspaces_revision = RwSignal::new(0u64);
+    let contest_status = RwSignal::new(None::<ContestStatus>);
+    let checking_contest_status = RwSignal::new(false);
+    let now_ms = RwSignal::new(js_sys::Date::now() as i64);
+
+    let refresh_contest_status = Callback::new(move |()| {
+        let Some(api) = contest_api::get() else {
+            return;
+        };
+        if checking_contest_status.get_untracked() {
+            return;
+        }
+        checking_contest_status.set(true);
+        spawn_local(async move {
+            match api.contest_status().await {
+                Ok(status) => {
+                    now_ms.set(js_sys::Date::now() as i64);
+                    contest_status.set(Some(status));
+                }
+                Err(err) => {
+                    warn!("Failed to query contest status: {err:?}");
+                }
+            }
+            checking_contest_status.set(false);
+        });
+    });
+
+    if contest_api::get().is_some() {
+        refresh_contest_status.run(());
+
+        spawn_local(async move {
+            loop {
+                TimeoutFuture::new(1000).await;
+                now_ms.set(js_sys::Date::now() as i64);
+            }
+        });
+
+        spawn_local(async move {
+            loop {
+                let delay_ms = contest_status.with_untracked(|s| match s {
+                    Some(status)
+                        if status.logged_in
+                            && status.effective_phase(now_ms.get_untracked())
+                                == ContestPhase::Running =>
+                    {
+                        30_000
+                    }
+                    _ => 10_000,
+                });
+                TimeoutFuture::new(delay_ms).await;
+                refresh_contest_status.run(());
+            }
+        });
+
+        let _ = use_event_listener(use_window(), leptos::ev::focus, move |_| {
+            refresh_contest_status.run(());
+        });
+        let _ = use_event_listener(use_document(), leptos::ev::visibilitychange, move |_| {
+            if !gloo_utils::document().hidden() {
+                refresh_contest_status.run(());
+            }
+        });
+    }
 
     Effect::new(move |_| {
         let current = workspace.get();
@@ -364,12 +429,70 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
     });
     let task_score = LocalResource::new(move || {
         let workspace_config = workspace_config.get();
+        let _ = workspaces_revision.get();
         async move {
             let config = workspace_config.flatten()?;
             let task = config.task?;
             let api = contest_api::get()?;
             api.task_score(&task).await.ok()
         }
+    });
+
+    let effective_contest_phase = Memo::new(move |_| {
+        let now = now_ms.get();
+        contest_status
+            .get()
+            .map(|status| (status.logged_in, status.effective_phase(now)))
+    });
+
+    {
+        let app_config = expect_context::<Config>();
+        Effect::new(move |prev: Option<Option<(bool, ContestPhase)>>| {
+            let current = effective_contest_phase.get();
+            if let Some(Some((_, prev_phase))) = prev
+                && let Some((_, new_phase)) = current
+                && prev_phase != new_phase
+            {
+                refresh_contest_status.run(());
+            }
+            let became_active = prev != Some(Some((true, ContestPhase::Running)))
+                && current == Some((true, ContestPhase::Running));
+            if became_active {
+                workspaces_revision.update(|r| *r += 1);
+                if app_config.auto_init_contest_tasks
+                    && let Some(api) = contest_api::get()
+                {
+                    let lang = default_language
+                        .get_untracked()
+                        .or_else(|| backend::languages().first().map(|l| l.name.clone()))
+                        .unwrap_or_else(|| "C++".to_owned());
+                    spawn_local(async move {
+                        if let Err(err) = ensure_contest_workspaces(&api, &lang).await {
+                            warn!("Failed to auto-init contest workspaces: {err:?}");
+                            return;
+                        }
+                        workspaces_revision.update(|r| *r += 1);
+                        if workspace.get_untracked().is_none() {
+                            let ws_dir = common::opfs::open_dir("workspace", true).await;
+                            let mut entries = ws_dir.list_entries().await;
+                            entries.sort();
+                            let chosen = get_saved_workspace()
+                                .filter(|s| entries.contains(s))
+                                .or_else(|| entries.into_iter().next());
+                            if chosen.is_some() {
+                                workspace.set(chosen);
+                            }
+                        }
+                    });
+                }
+            }
+            current
+        });
+    }
+
+    let contest_ready = Signal::derive(move || match contest_api::get() {
+        None => true,
+        Some(_) => effective_contest_phase.get() == Some((true, ContestPhase::Running)),
     });
 
     let code = EditorDirController::new(Signal::derive(move || {
@@ -565,6 +688,17 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 .get()
                 .map(|cfg| cfg.and_then(|cfg| cfg.task).is_none())
                 .unwrap_or(false)
+            || effective_contest_phase
+                .get()
+                .is_some_and(|(logged_in, phase)| !logged_in || phase != ContestPhase::Running)
+    });
+
+    let submit_title = Signal::derive(move || match effective_contest_phase.get() {
+        Some((false, _)) => t_string!(i18n, contest_not_logged_in).to_string(),
+        Some((true, ContestPhase::NotStarted)) => t_string!(i18n, contest_not_started).to_string(),
+        Some((true, ContestPhase::Ended)) => t_string!(i18n, contest_ended).to_string(),
+        Some((true, ContestPhase::NotOpen)) => t_string!(i18n, contest_not_open).to_string(),
+        _ => t_string!(i18n, submit).to_string(),
     });
 
     let app_owner = Owner::current();
@@ -674,6 +808,8 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 active=workspace
                 active_language=language
                 readonly=is_running
+                workspaces_revision=workspaces_revision
+                contest_ready=contest_ready
             />
             <ShowLet some=move || task_score.get().flatten() let:((score, max_score))>
                 <div class="hidden sm:flex items-center gap-2.5 px-3 py-1 bg-base-200/80 border border-base-300 rounded-lg">
@@ -698,6 +834,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                     />
                 </div>
             </ShowLet>
+            <ContestTimeBadge status=contest_status now_ms=now_ms />
             <div class="flex-1" />
             <ShowLet some=exec_stage_label let:label>
                 <div class="hidden md:flex items-center gap-1.5 text-xs font-medium text-base-content/70 px-2">
@@ -739,6 +876,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 <button
                     type="button"
                     class="btn btn-info btn-sm gap-1.5 min-w-24"
+                    title=submit_title
                     disabled=disable_submit
                     on:click=move |_| {
                         if !disable_submit.get() {
@@ -764,6 +902,11 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
         <StoragePersistView />
         <div class="flex flex-col h-dvh w-screen overflow-hidden bg-base-200">
             {navbar}
+            <ContestLoginBanner
+                status=contest_status
+                checking=checking_contest_status
+                on_retry=refresh_contest_status
+            />
             <EditorView
                 ls_receiver=ls_receiver
                 send_worker_message=Callback::new(send_worker_message)
@@ -777,6 +920,129 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 state=state
             />
         </div>
+    }
+}
+
+#[component]
+fn ContestLoginBanner(
+    #[prop(into)] status: Signal<Option<ContestStatus>>,
+    #[prop(into)] checking: Signal<bool>,
+    on_retry: Callback<()>,
+) -> impl IntoView {
+    let i18n = use_i18n();
+    let unauthenticated = Signal::derive(move || status.get().filter(|s| !s.logged_in));
+
+    view! {
+        <ShowLet some=unauthenticated let:status>
+            <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-warning/15 border-b border-warning/30 text-xs shrink-0">
+                <div class="flex items-center gap-2 font-medium text-base-content">
+                    <Icon attr:class="w-4 h-4 text-warning shrink-0" icon=icondata::BiErrorSolid />
+                    <span>{t!(i18n, contest_not_logged_in)}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <a
+                        href=status.login_url
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="btn btn-warning btn-xs gap-1"
+                    >
+                        {t!(i18n, contest_login_action)}
+                        <Icon attr:class="w-3.5 h-3.5" icon=icondata::BiLinkExternalRegular />
+                    </a>
+                    <button
+                        type="button"
+                        class="btn btn-ghost btn-xs gap-1"
+                        disabled=move || checking.get()
+                        on:click=move |_| on_retry.run(())
+                    >
+                        <Icon
+                            attr:class=move || {
+                                if checking.get() { "w-3.5 h-3.5 animate-spin" } else { "w-3.5 h-3.5" }
+                            }
+                            icon=icondata::LuRotateCcw
+                        />
+                        {t!(i18n, contest_retry_login)}
+                    </button>
+                </div>
+            </div>
+        </ShowLet>
+    }
+}
+
+#[component]
+fn ContestTimeBadge(
+    #[prop(into)] status: Signal<Option<ContestStatus>>,
+    #[prop(into)] now_ms: Signal<i64>,
+) -> impl IntoView {
+    let i18n = use_i18n();
+    let badge_state = Memo::new(move |_| {
+        let status = status.get()?;
+        let now = now_ms.get();
+        let phase = status.effective_phase(now);
+        let countdown = status.countdown_seconds(now);
+        match (phase, countdown, status.logged_in) {
+            (ContestPhase::Running, None, _) => None,
+            (_, None, false) => None,
+            _ => Some((phase, countdown)),
+        }
+    });
+
+    view! {
+        <ShowLet some=move || badge_state.get() let:((phase, countdown))>
+            <div
+                class=move || {
+                    let base = "hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs shrink-0";
+                    match (phase, countdown) {
+                        (ContestPhase::Running, Some(secs)) if secs <= 300 => {
+                            format!("{base} bg-error/15 border-error/40 text-error")
+                        }
+                        (ContestPhase::Running, Some(secs)) if secs <= 900 => {
+                            format!("{base} bg-warning/15 border-warning/40 text-base-content")
+                        }
+                        (ContestPhase::Ended, _) => {
+                            format!("{base} bg-error/10 border-error/30 text-error")
+                        }
+                        (ContestPhase::NotStarted | ContestPhase::NotOpen, _) => {
+                            format!("{base} bg-base-200/80 border-base-300 text-base-content/80")
+                        }
+                        _ => format!("{base} bg-base-200/80 border-base-300 text-base-content"),
+                    }
+                }
+                title=move || match phase {
+                    ContestPhase::Running => t_string!(i18n, contest_time_remaining).to_string(),
+                    ContestPhase::NotStarted => t_string!(i18n, contest_not_started).to_string(),
+                    ContestPhase::Ended => t_string!(i18n, contest_ended).to_string(),
+                    ContestPhase::NotOpen => t_string!(i18n, contest_not_open).to_string(),
+                }
+            >
+                <Icon attr:class="w-3.5 h-3.5 shrink-0" icon=icondata::BiTimeFiveRegular />
+                {match (phase, countdown) {
+                    (ContestPhase::NotStarted, Some(secs)) => {
+                        view! {
+                            <span class="text-base-content/70">{t!(i18n, contest_starts_in)}</span>
+                            <span class="font-mono font-semibold">{format_countdown(secs)}</span>
+                        }
+                            .into_any()
+                    }
+                    (ContestPhase::NotStarted, None) => {
+                        view! { <span class="font-medium">{t!(i18n, contest_not_started)}</span> }
+                            .into_any()
+                    }
+                    (ContestPhase::Running, Some(secs)) => {
+                        view! { <span class="font-mono font-semibold">{format_countdown(secs)}</span> }
+                            .into_any()
+                    }
+                    (ContestPhase::Ended, _) => {
+                        view! { <span class="font-medium">{t!(i18n, contest_ended)}</span> }
+                            .into_any()
+                    }
+                    (ContestPhase::NotOpen | ContestPhase::Running, _) => {
+                        view! { <span class="font-medium">{t!(i18n, contest_not_open)}</span> }
+                            .into_any()
+                    }
+                }}
+            </div>
+        </ShowLet>
     }
 }
 

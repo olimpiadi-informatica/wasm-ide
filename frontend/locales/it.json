@@ -89,5 +89,13 @@
   "no_workspace_selected": "Nessuno spazio di lavoro selezionato",
   "no_workspace_selected_desc": "Seleziona o crea uno spazio di lavoro dalla barra in alto per iniziare.",
   "no_files_open": "Nessun file presente",
-  "no_files_open_desc": "Crea un nuovo file o trascina qui dei file dal tuo computer."
+  "no_files_open_desc": "Crea un nuovo file o trascina qui dei file dal tuo computer.",
+  "contest_not_logged_in": "Non hai effettuato l'accesso al sistema di gara. Accedi per caricare i task e inviare soluzioni.",
+  "contest_login_action": "Accedi",
+  "contest_retry_login": "Riprova",
+  "contest_starts_in": "Inizia tra",
+  "contest_time_remaining": "Tempo rimanente",
+  "contest_not_started": "Gara non iniziata",
+  "contest_ended": "Gara terminata",
+  "contest_not_open": "Gara non aperta"
 }
