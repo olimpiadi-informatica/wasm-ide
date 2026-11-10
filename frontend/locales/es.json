@@ -51,6 +51,8 @@
   "vim_mode": "Modo Vim",
   "emacs_mode": "Modo Emacs",
   "standard_mode": "Modo estándar",
+  "tab_size": "Tamaño de tabulación",
+  "tab_spaces": "{{count}} espacios",
 
   "workspaces": "Espacios de trabajo",
   "workspace_name": "Nombre del espacio de trabajo",

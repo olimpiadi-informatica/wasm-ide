@@ -50,6 +50,8 @@
   "vim_mode": "Vim mode",
   "emacs_mode": "Emacs mode",
   "standard_mode": "Standard mode",
+  "tab_size": "Tab size",
+  "tab_spaces": "{{count}} spaces",
 
   "workspaces": "Workspaces",
   "workspace_name": "Workspace name",

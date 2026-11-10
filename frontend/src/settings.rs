@@ -64,12 +64,18 @@ const fn default_input_height_percent() -> f32 {
     50.0
 }
 
+const fn default_tab_size() -> u8 {
+    4
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub(crate) struct StoredSettings {
     theme: Option<Theme>,
     keyboard_mode: KeyboardMode,
     input_mode: InputMode,
+    #[serde(default = "default_tab_size")]
+    pub(crate) tab_size: u8,
     persist_storage: bool,
     editor_width_percent: f32,
     #[serde(default = "default_input_height_percent")]
@@ -85,6 +91,7 @@ impl Default for StoredSettings {
             theme: None,
             keyboard_mode: KeyboardMode::Standard,
             input_mode: InputMode::Batch,
+            tab_size: default_tab_size(),
             persist_storage: false,
             editor_width_percent: 65.0,
             input_height_percent: default_input_height_percent(),
@@ -104,6 +111,7 @@ pub struct SettingsProvider {
     pub input_height_percent: Signal<f32>,
     pub keyboard_mode: Signal<KeyboardMode>,
     pub input_mode: Signal<InputMode>,
+    pub tab_size: Signal<u8>,
     pub persist_storage: Signal<bool>,
     pub mem_limit: Signal<Option<u32>>,
     pub time_limit: Signal<Option<f64>>,
@@ -157,6 +165,7 @@ impl SettingsProvider {
             input_height_percent: Memo::new(move |_| read.get().input_height_percent).into(),
             keyboard_mode: Memo::new(move |_| read.get().keyboard_mode).into(),
             input_mode: Memo::new(move |_| read.get().input_mode).into(),
+            tab_size: Memo::new(move |_| read.get().tab_size.clamp(1, 16)).into(),
             persist_storage: Memo::new(move |_| read.get().persist_storage).into(),
             mem_limit: Memo::new(move |_| read.get().mem_limit).into(),
             time_limit: Memo::new(move |_| read.get().time_limit).into(),
@@ -271,6 +280,8 @@ pub fn Settings() -> impl IntoView {
                             </div>
                         </div>
 
+                        <TabSizeControl />
+
                         <ThemeControl />
                         <PersistStorageControl />
 
@@ -315,6 +326,46 @@ fn DefaultLanguageControl() -> impl IntoView {
                         }>{lang.name.clone()}</option>
                     </For>
                 </select>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn TabSizeControl() -> impl IntoView {
+    let i18n = use_i18n();
+    let settings = use_settings();
+
+    let set_tab_size = move |size: u8| {
+        settings.write.update(|v| v.tab_size = size);
+    };
+
+    view! {
+        <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
+            <label class="text-sm font-medium">{t!(i18n, tab_size)}</label>
+            <div class="sm:col-span-2">
+                <div class="join">
+                    {[2u8, 4, 8]
+                        .into_iter()
+                        .map(|size| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class=move || {
+                                        if settings.tab_size.get() == size {
+                                            "btn btn-sm join-item btn-primary font-mono"
+                                        } else {
+                                            "btn btn-sm join-item btn-outline border-base-300 font-mono"
+                                        }
+                                    }
+                                    on:click=move |_| set_tab_size(size)
+                                >
+                                    {t!(i18n, tab_spaces, count = size)}
+                                </button>
+                            }
+                        })
+                        .collect_view()}
+                </div>
             </div>
         </div>
     }

@@ -1,7 +1,7 @@
 import {basicSetup} from "codemirror";
 import {EditorView, keymap} from "@codemirror/view";
 import {ChangeSet, Compartment, Prec, EditorState, Facet, Extension, Text, TransactionSpec} from "@codemirror/state";
-import {StreamLanguage} from "@codemirror/language";
+import {indentUnit, StreamLanguage} from "@codemirror/language";
 import {pascal} from "@codemirror/legacy-modes/mode/pascal";
 import {cpp} from "@codemirror/lang-cpp";
 import {python} from "@codemirror/lang-python";
@@ -161,6 +161,7 @@ export class CM6Editor {
   keyboardMode = new Compartment();
   theme = new Compartment();
   isReadOnly = new Compartment();
+  indentation = new Compartment();
 
   execCallback: () => void = () => {};
   onchangeCallback: (filename: string) => void = () => {};
@@ -187,6 +188,7 @@ export class CM6Editor {
   keyboardExtension: Extension = [];
   themeExtension: Extension = solarizedLight;
   readOnly = false;
+  tabSizeValue = 4;
   openFileCallback: (filename: string) => void = () => {};
 
   constructor(element: HTMLElement) {
@@ -214,6 +216,7 @@ export class CM6Editor {
         this.keyboardMode.of(this.keyboardExtension),
         this.execKeyBinding,
         this.theme.of(this.themeExtension),
+        this.indentation.of(this.indentationExtension()),
         this.language.of([this.languageExtension, languageId.of(this.languageID)]),
         this.isReadOnly.of(EditorState.readOnly.of(this.readOnly)),
         EditorView.updateListener.of((update) => {
@@ -238,11 +241,19 @@ export class CM6Editor {
       : [];
   }
 
+  indentationExtension(): Extension {
+    return [
+      EditorState.tabSize.of(this.tabSizeValue),
+      indentUnit.of(" ".repeat(this.tabSizeValue)),
+    ];
+  }
+
   configureState(state: EditorState) {
     return state.update({
       effects: [
         this.keyboardMode.reconfigure(this.keyboardExtension),
         this.theme.reconfigure(this.themeExtension),
+        this.indentation.reconfigure(this.indentationExtension()),
         this.language.reconfigure([this.languageExtension, languageId.of(this.languageID)]),
         this.isReadOnly.reconfigure(EditorState.readOnly.of(this.readOnly)),
         this.lspPlugin.reconfigure(this.languageServerExtension()),
@@ -380,6 +391,14 @@ export class CM6Editor {
       this.keyboardExtension = [];
     }
     this.view.dispatch({effects: this.keyboardMode.reconfigure(this.keyboardExtension)});
+  }
+
+  setTabSize(size: number) {
+    const normalized = Math.max(1, Math.min(16, Math.trunc(size) || 4));
+    this.tabSizeValue = normalized;
+    this.view.dispatch({
+      effects: this.indentation.reconfigure(this.indentationExtension()),
+    });
   }
 
   setExec(exec: () => void) {

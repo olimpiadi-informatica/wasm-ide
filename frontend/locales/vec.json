@@ -51,6 +51,8 @@
   "vim_mode": "Modo Vim",
   "emacs_mode": "Modo Emacs",
   "standard_mode": "Modo normałe",
+  "tab_size": "Granesa del tab",
+  "tab_spaces": "{{count}} spasi",
 
   "workspaces": "Spasi de łavoro",
   "workspace_name": "Nome del spasio de łavoro",
