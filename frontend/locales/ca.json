@@ -89,5 +89,13 @@
   "no_workspace_selected": "Cap espai de treball seleccionat",
   "no_workspace_selected_desc": "Tria o crea un espai de treball des de la barra superior per començar.",
   "no_files_open": "Cap fitxer en aquest panell",
-  "no_files_open_desc": "Crea un fitxer nou o arrossega i deixa anar fitxers aquí."
+  "no_files_open_desc": "Crea un fitxer nou o arrossega i deixa anar fitxers aquí.",
+  "contest_not_logged_in": "No heu iniciat sessió al sistema del concurs. Inicieu sessió per accedir a les tasques i enviar solucions.",
+  "contest_login_action": "Inicia sessió",
+  "contest_retry_login": "Torna-ho a provar",
+  "contest_starts_in": "Comença en",
+  "contest_time_remaining": "Temps restant",
+  "contest_not_started": "Concurs no iniciat",
+  "contest_ended": "Concurs finalitzat",
+  "contest_not_open": "Concurs tancat"
 }

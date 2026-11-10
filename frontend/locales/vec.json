@@ -89,5 +89,13 @@
   "no_workspace_selected": "Nissun spasio de łavoro sełesionà",
   "no_workspace_selected_desc": "Sèłi o crea un spasio de łavoro da ła bara in alto par tacar.",
   "no_files_open": "Nissun file presente",
-  "no_files_open_desc": "Crea un novo file o strasina qua dei file."
+  "no_files_open_desc": "Crea un novo file o strasina qua dei file.",
+  "contest_not_logged_in": "No te sì entrà inte'l sistema de gara. Entra par cargar i task e mandar sołuzion.",
+  "contest_login_action": "Entra",
+  "contest_retry_login": "Riprova",
+  "contest_starts_in": "Taca tra",
+  "contest_time_remaining": "Tenpo che resta",
+  "contest_not_started": "Gara miga tacà",
+  "contest_ended": "Gara finìa",
+  "contest_not_open": "Gara serà"
 }
