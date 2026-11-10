@@ -13,6 +13,7 @@ use common::{
 };
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
+use futures::channel::oneshot;
 use serde::de::DeserializeOwned;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -33,15 +34,23 @@ int main() {
 #[wasm_bindgen(inline_js = r#"
 const workerFrames = new WeakMap();
 
-export function createWorker(url) {
+export function createWorker(url, onMessage, onError, onReady) {
     const frame = document.createElement("iframe");
     frame.style.display = "none";
+    frame.addEventListener(
+        "load",
+        () => {
+            const workerUrl = new URL(url, document.baseURI).href;
+            const worker = new frame.contentWindow.Worker(workerUrl, { type: "module" });
+            worker.onmessage = onMessage;
+            worker.onerror = onError;
+            workerFrames.set(worker, frame);
+            onReady(worker);
+        },
+        { once: true },
+    );
+    frame.srcdoc = "";
     document.body.appendChild(frame);
-
-    const workerUrl = new URL(url, document.baseURI).href;
-    const worker = new frame.contentWindow.Worker(workerUrl, { type: "module" });
-    workerFrames.set(worker, frame);
-    return worker;
 }
 
 export function disposeWorker(worker) {
@@ -55,7 +64,12 @@ export function disposeWorker(worker) {
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = createWorker)]
-    fn create_worker(url: &str) -> Worker;
+    fn create_worker(
+        url: &str,
+        on_message: &js_sys::Function,
+        on_error: &js_sys::Function,
+        on_ready: &js_sys::Function,
+    );
 
     #[wasm_bindgen(js_name = disposeWorker)]
     fn dispose_worker(worker: &Worker);
@@ -74,25 +88,41 @@ struct TestWorker {
 }
 
 impl TestWorker {
-    fn start() -> Self {
+    async fn start() -> Self {
         let (sender, events) = unbounded();
-        let worker = create_worker("/dist/worker_loader.js");
 
         let message_sender = sender.clone();
         let on_message = Closure::<dyn FnMut(_)>::new(move |event: MessageEvent| {
             let _ = message_sender.unbounded_send(WorkerEvent::Message(event.data()));
         });
-        worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
         let error_sender = sender;
         let on_error = Closure::<dyn FnMut(_)>::new(move |event: JsValue| {
             let message = js_sys::Reflect::get(&event, &"message".into())
                 .ok()
                 .and_then(|message| message.as_string())
-                .unwrap_or_else(|| "unknown worker error".to_owned());
+                .filter(|message| !message.is_empty())
+                .unwrap_or_else(|| {
+                    let event_type = js_sys::Reflect::get(&event, &"type".into())
+                        .ok()
+                        .and_then(|t| t.as_string())
+                        .unwrap_or_else(|| "unknown".to_owned());
+                    format!("worker error event ({event_type})")
+                });
             let _ = error_sender.unbounded_send(WorkerEvent::Error(message));
         });
-        worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+
+        let (ready_tx, ready_rx) = oneshot::channel::<Worker>();
+        let on_ready = Closure::once(move |worker: Worker| {
+            let _ = ready_tx.send(worker);
+        });
+        create_worker(
+            "/dist/worker_loader.js",
+            on_message.as_ref().unchecked_ref(),
+            on_error.as_ref().unchecked_ref(),
+            on_ready.as_ref().unchecked_ref(),
+        );
+        let worker = ready_rx.await.expect("iframe failed to load");
 
         Self {
             worker,
@@ -135,7 +165,7 @@ impl Drop for TestWorker {
 
 #[wasm_bindgen_test]
 async fn compile_and_run() {
-    let mut worker = TestWorker::start();
+    let mut worker = TestWorker::start().await;
     worker.expect_language("C++").await;
     worker.send(WorkerExecRequest::Run {
         files: vec![File {
@@ -258,7 +288,7 @@ async fn lsp() {
         .write(CPP_SOURCE.as_bytes())
         .await;
 
-    let mut worker = TestWorker::start();
+    let mut worker = TestWorker::start().await;
     worker.expect_language("C++").await;
     worker.send(WorkerLSRequest::Start {
         language: "C++".to_owned(),
