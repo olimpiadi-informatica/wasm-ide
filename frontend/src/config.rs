@@ -40,6 +40,10 @@ impl Config {
                 "default_settings.default_language cannot be empty"
             );
         }
+        anyhow::ensure!(
+            (1..=16).contains(&self.default_settings.tab_size),
+            "default_settings.tab_size must be between 1 and 16"
+        );
         Ok(())
     }
 
@@ -189,7 +193,8 @@ mod tests {
             "default_settings": {
                 "theme": "dark",
                 "keyboard_mode": "vim",
-                "input_mode": "mixed_interactive"
+                "input_mode": "mixed_interactive",
+                "tab_size": 2
             },
             "contest": {
                 "type": "terry",
@@ -203,6 +208,7 @@ mod tests {
         assert_eq!(settings["theme"], "dark");
         assert_eq!(settings["keyboard_mode"], "vim");
         assert_eq!(settings["input_mode"], "mixed_interactive");
+        assert_eq!(settings["tab_size"], 2);
         assert!(matches!(
             config.contest,
             Some(ContestConfig::Terry { ref endpoint }) if endpoint == "https://example.invalid"

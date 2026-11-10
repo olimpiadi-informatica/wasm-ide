@@ -67,6 +67,9 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "setKeymap")]
     fn set_keymap(this: &CM6Editor, kbh: &str);
 
+    #[wasm_bindgen(method, js_name = "setTabSize")]
+    fn set_tab_size(this: &CM6Editor, tab_size: u8);
+
     #[wasm_bindgen(method, js_name = "setLanguageServer")]
     fn set_language_server(this: &CM6Editor, send_message: Function) -> LSEventHandler;
 }
@@ -300,6 +303,15 @@ pub fn Editor(
                 KeyboardMode::Vim => cm6.set_keymap("vim"),
                 KeyboardMode::Emacs => cm6.set_keymap("emacs"),
             }
+        });
+    });
+
+    Effect::new(move |_| {
+        cm6.with(|x| {
+            let Some(cm6) = x else {
+                return;
+            };
+            cm6.set_tab_size(settings.tab_size.get());
         });
     });
 
