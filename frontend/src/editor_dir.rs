@@ -66,6 +66,7 @@ pub fn EditorDir(
         editor_ctrl,
         files_revision,
     } = controller;
+    let i18n = use_i18n();
     let tabs = RwSignal::new(Vec::new());
     let workspace_files = RwSignal::new(Vec::<(String, String)>::new());
     let rename_target = RwSignal::new(None::<String>);
@@ -117,10 +118,6 @@ pub fn EditorDir(
             tracing::error!("Directory not set when trying to remove file");
             return;
         };
-        let t = tabs.get_untracked();
-        if t.len() == 1 {
-            return;
-        }
         tabs.update(|t| t.retain(|f| f != file));
         let file_path = dir + "/" + file;
         editor_ctrl.filename.update(|f| {
@@ -331,13 +328,17 @@ pub fn EditorDir(
     };
 
     view! {
-        <div class:is-flex class:is-flex-direction-column style:height="100%">
+        <div
+            class:is-flex
+            class:is-flex-direction-column
+            style:height="100%"
+            on:dragover=dragover_handler
+            on:drop=drop_handler
+        >
             <div
                 class:is-flex
                 class:is-align-items-center
                 class:is-justify-content-space-between
-                on:dragover=dragover_handler
-                on:drop=drop_handler
             >
                 <div class:tabs class:is-boxed class:mb-0 style:width="fit-content">
                     <For
@@ -349,15 +350,42 @@ pub fn EditorDir(
                 <AddFile controller tabs />
             </div>
             <div class:is-flex-grow-1 style:height="0">
-                <Editor
-                    controller=editor_ctrl
-                    syntax=syntax
-                    readonly=readonly
-                    ctrl_enter=ctrl_enter
-                    keyboard_mode=keyboard_mode
-                    files=workspace_files
-                    ls_interface=ls_interface
-                />
+                <Show when=move || dir.get().is_none() || editor_ctrl.filename.get().is_none()>
+                    <div
+                        class:is-height-100
+                        class:is-flex
+                        class:is-align-items-center
+                        class:is-justify-content-center
+                        class:faint-text
+                        class:is-size-5
+                        style:background-color="var(--bulma-scheme-main-bis)"
+                        style:border="1px solid var(--bulma-border)"
+                    >
+                        {move || {
+                            if dir.get().is_none() {
+                                t_string!(i18n, no_workspace_selected)
+                            } else {
+                                t_string!(i18n, no_file_open)
+                            }
+                        }}
+                    </div>
+                </Show>
+                <div
+                    class:is-height-100
+                    class:is-hidden=move || {
+                        dir.get().is_none() || editor_ctrl.filename.get().is_none()
+                    }
+                >
+                    <Editor
+                        controller=editor_ctrl
+                        syntax=syntax
+                        readonly=readonly
+                        ctrl_enter=ctrl_enter
+                        keyboard_mode=keyboard_mode
+                        files=workspace_files
+                        ls_interface=ls_interface
+                    />
+                </div>
             </div>
         </div>
     }

@@ -67,5 +67,7 @@
 
   "create_file_title": "Crea un fitxer",
   "create_file": "Crea",
-  "other": "Altre"
+  "other": "Altre",
+  "no_workspace_selected": "Cap espai de treball seleccionat",
+  "no_file_open": "Cap fitxer obert"
 }

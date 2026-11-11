@@ -67,5 +67,7 @@
 
   "create_file_title": "Crear archivo",
   "create_file": "Crear",
-  "other": "Otro"
+  "other": "Otro",
+  "no_workspace_selected": "Ningún espacio de trabajo seleccionado",
+  "no_file_open": "Ningún archivo abierto"
 }

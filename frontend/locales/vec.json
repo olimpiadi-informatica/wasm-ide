@@ -67,5 +67,7 @@
 
   "create_file_title": "Crea file",
   "create_file": "Crea",
-  "other": "Altro"
+  "other": "Altro",
+  "no_workspace_selected": "Nissun spasio de łavoro sełesionà",
+  "no_file_open": "Nissun file verto"
 }

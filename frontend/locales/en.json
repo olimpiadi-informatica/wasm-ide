@@ -66,5 +66,7 @@
 
   "create_file_title": "Create file",
   "create_file": "Create",
-  "other": "Other"
+  "other": "Other",
+  "no_workspace_selected": "No workspace selected",
+  "no_file_open": "No file open"
 }

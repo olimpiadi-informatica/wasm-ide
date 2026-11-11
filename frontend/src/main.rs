@@ -363,7 +363,11 @@ fn App() -> impl IntoView {
         backend::for_lang(&language.get_untracked()).send_message(msg);
     };
 
-    let disable_start = Memo::new(move |_| state.with(|s| !s.can_start()));
+    let disable_start = Memo::new(move |_| {
+        state.with(|s| !s.can_start())
+            || workspace.get().is_none()
+            || code.open_filename().get().is_none()
+    });
     let disable_stop = Memo::new(move |_| state.with(|s| !s.can_stop()));
     let is_running = Memo::new(move |_| state.with(|s| s.is_running()));
 
@@ -488,6 +492,7 @@ fn App() -> impl IntoView {
     let disable_submit = Memo::new(move |_| {
         state.with(|s| matches!(s.submit, StateSubmit::Submitting(_)) || s.is_running())
             || workspace.get().is_none()
+            || code.open_filename().get().is_none()
             || workspace_config
                 .get()
                 .map(|cfg| cfg.and_then(|cfg| cfg.task).is_none())
