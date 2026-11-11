@@ -37,13 +37,10 @@ function buildEditorTheme(p: EditorPalette): Extension {
         color: p.foreground,
         backgroundColor: p.background,
       },
-      ".cm-content": {
-        caretColor: p.caret,
-      },
       ".cm-cursor, .cm-dropCursor": {
         borderLeftColor: p.caret,
       },
-      "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+      "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground":
         {
           backgroundColor: `${p.selection} !important`,
         },
