@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use common::{ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerResponse};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, future::try_join};
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 
@@ -47,11 +47,12 @@ impl ContestAPI for Terry {
             .unwrap();
 
         let filename = format!("{task}.{lang_ext}");
-        let source = SendWrapper::new(api::get_statement_file(&self.path, task, &filename)).await?;
-
         let input_filename = format!("{task}.input.txt");
-        let input =
-            SendWrapper::new(api::get_statement_file(&self.path, task, &input_filename)).await?;
+        let (source, input) = try_join(
+            SendWrapper::new(api::get_statement_file(&self.path, task, &filename)),
+            SendWrapper::new(api::get_statement_file(&self.path, task, &input_filename)),
+        )
+        .await?;
 
         let code = [(filename, source.into())].into_iter().collect();
         let stdin = [(input_filename, input.into())].into_iter().collect();
@@ -155,21 +156,21 @@ impl ContestAPI for Terry {
         }
 
         let source_name = format!("{task}.{lang_ext}");
-        let uploaded_source = SendWrapper::new(api::upload_source(
-            &self.path,
-            &input.id,
-            &source_name,
-            &source,
-        ))
-        .await?;
-
         let output_name = format!("{task}.output.txt");
-        let uploaded_output = SendWrapper::new(api::upload_output(
-            &self.path,
-            &input.id,
-            &output_name,
-            &output,
-        ))
+        let (uploaded_source, uploaded_output) = try_join(
+            SendWrapper::new(api::upload_source(
+                &self.path,
+                &input.id,
+                &source_name,
+                &source,
+            )),
+            SendWrapper::new(api::upload_output(
+                &self.path,
+                &input.id,
+                &output_name,
+                &output,
+            )),
+        )
         .await?;
 
         let sub = SendWrapper::new(api::submit(

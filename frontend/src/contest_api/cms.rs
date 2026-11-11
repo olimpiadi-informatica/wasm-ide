@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
+use futures_util::future::{try_join, try_join_all};
 use gloo_timers::future::TimeoutFuture;
 use send_wrapper::SendWrapper;
 
@@ -18,6 +19,14 @@ impl Cms {
     pub fn new(path: String) -> Self {
         Self { path }
     }
+
+    async fn task_info(&self, task: &str) -> Result<api::TaskListEntry> {
+        SendWrapper::new(api::task_list(&self.path))
+            .await?
+            .into_iter()
+            .find(|candidate| candidate.name == task)
+            .ok_or_else(|| anyhow!("CMS task not found: {task}"))
+    }
 }
 
 #[async_trait]
@@ -27,53 +36,73 @@ impl ContestAPI for Cms {
             .await?
             .into_iter()
             .map(|task| Task {
-                id: task.name.clone(),
-                // TODO(virv): fetch the task title
-                name: task.name,
+                id: task.name,
+                name: task.title,
             })
             .collect())
     }
 
     async fn init_workspace(&self, task: &str, lang: &str) -> Result<Workspace> {
-        let lang_ext = backend::languages()
+        let extensions = backend::languages()
             .iter()
             .find(|l| l.name == lang)
-            .map(|l| l.extensions[0].clone())
+            .map(|l| l.extensions.clone())
             .ok_or_else(|| anyhow!("Unsupported language: {lang}"))?;
 
-        let source_name = format!("{task}.{lang_ext}");
-        let source = SendWrapper::new(api::get_attachment(&self.path, task, &source_name)).await?;
-        let mut code = WorkspaceDir::new();
-        code.insert(source_name, source.into());
-        if let Some(grader) =
-            SendWrapper::new(api::get_optional_attachment(&self.path, task, "grader.cpp")).await?
-        {
-            code.insert("grader.cpp".to_string(), grader.into());
-        }
+        let task_info = self.task_info(task).await?;
 
-        let mut stdin = WorkspaceDir::new();
-        for i in 0.. {
-            let input_name = format!("{task}.input{i}.txt");
-            let input =
-                SendWrapper::new(api::get_optional_attachment(&self.path, task, &input_name))
-                    .await?;
-            let Some(input) = input else {
-                break;
-            };
-            stdin.insert(input_name, input.into());
+        let (code_names, stdin_names): (Vec<_>, Vec<_>) = task_info.attachments.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut code, mut stdin), attachment| {
+                let is_code = attachment
+                    .rsplit_once('.')
+                    .is_some_and(|(_, ext)| extensions.iter().any(|e| e == ext));
+                let is_stdin = attachment.contains("input") && attachment.ends_with(".txt");
+
+                if is_code {
+                    code.push(attachment);
+                } else if is_stdin {
+                    stdin.push(attachment);
+                }
+                (code, stdin)
+            },
+        );
+
+        let fetch_files = |names: Vec<String>| {
+            try_join_all(names.into_iter().map(|attachment| async move {
+                let data =
+                    SendWrapper::new(api::get_attachment(&self.path, task, &attachment)).await?;
+                Ok::<_, anyhow::Error>((attachment, data.into()))
+            }))
+        };
+
+        let (code_entries, stdin_entries) =
+            try_join(fetch_files(code_names), fetch_files(stdin_names)).await?;
+
+        let code: WorkspaceDir = code_entries.into_iter().collect();
+        let mut stdin: WorkspaceDir = stdin_entries.into_iter().collect();
+        if stdin.is_empty() {
+            stdin.insert("input.txt".to_string(), String::new().into());
         }
 
         Ok(Workspace { code, stdin })
     }
 
-    async fn task_score(&self, _task: &str) -> Result<(f64, f64)> {
-        let submissions = SendWrapper::new(api::submission_list(&self.path, _task)).await?;
+    async fn task_score(&self, task: &str) -> Result<(f64, f64)> {
+        let (task_info, submissions) = try_join(
+            self.task_info(task),
+            SendWrapper::new(api::submission_list(&self.path, task)),
+        )
+        .await?;
         let Some(submission) = submissions.last() else {
-            return Ok((0.0, 100.0));
+            return Ok((0.0, task_info.max_public_score));
         };
         let submission =
-            SendWrapper::new(api::submission_info(&self.path, _task, &submission.id)).await?;
-        Ok((submission.task_public_score.unwrap_or(0.0), 100.0))
+            SendWrapper::new(api::submission_info(&self.path, task, &submission.id)).await?;
+        Ok((
+            submission.task_public_score.unwrap_or(0.0),
+            task_info.max_public_score,
+        ))
     }
 
     async fn submit(
@@ -89,11 +118,7 @@ impl ContestAPI for Cms {
             .map(|l| l.extensions[0].clone())
             .ok_or_else(|| anyhow!("Unsupported language: {language}"))?;
 
-        let task_info = SendWrapper::new(api::task_list(&self.path))
-            .await?
-            .into_iter()
-            .find(|candidate| candidate.name == task)
-            .ok_or_else(|| anyhow!("CMS task not found: {task}"))?;
+        let task_info = self.task_info(task).await?;
 
         let files_by_name = files
             .into_iter()
@@ -109,19 +134,35 @@ impl ContestAPI for Cms {
 
         let submission_id =
             SendWrapper::new(api::submit(&self.path, task, submission_files)).await?;
-        let score = loop {
+        let status = loop {
             let submission =
                 SendWrapper::new(api::submission_info(&self.path, task, &submission_id)).await?;
-            if let Some(score) = submission.public_score {
-                break score;
+            match submission.status {
+                api::STATUS_COMPILATION_FAILED => {
+                    break SubmitStatus {
+                        score: 0.0,
+                        message: Some(submission.status_text),
+                    };
+                }
+                api::STATUS_SCORED => {
+                    break SubmitStatus {
+                        score: submission.public_score.unwrap_or(0.0),
+                        message: None,
+                    };
+                }
+                _ => {
+                    if let Some(score) = submission.public_score {
+                        break SubmitStatus {
+                            score,
+                            message: None,
+                        };
+                    }
+                }
             }
             SendWrapper::new(TimeoutFuture::new(1000)).await;
         };
 
-        Ok(SubmitStatus {
-            score,
-            message: None,
-        })
+        Ok(status)
     }
 }
 
@@ -136,6 +177,9 @@ mod api {
 
     use crate::util::check_response;
 
+    pub const STATUS_COMPILATION_FAILED: u8 = 2;
+    pub const STATUS_SCORED: u8 = 5;
+
     #[derive(Debug, Deserialize)]
     struct TaskListResponse {
         tasks: Vec<TaskListEntry>,
@@ -144,7 +188,10 @@ mod api {
     #[derive(Debug, Deserialize)]
     pub struct TaskListEntry {
         pub name: String,
+        pub title: String,
+        pub attachments: Vec<String>,
         pub submission_format: Vec<String>,
+        pub max_public_score: f64,
     }
 
     #[derive(Debug, Deserialize)]
@@ -164,6 +211,8 @@ mod api {
 
     #[derive(Debug, Deserialize)]
     pub struct SubmissionInfo {
+        pub status: u8,
+        pub status_text: String,
         pub public_score: Option<f64>,
         pub task_public_score: Option<f64>,
     }
@@ -183,21 +232,6 @@ mod api {
             .await?;
         check_response(&res, "Failed to get CMS attachment").await?;
         Ok(res.binary().await?)
-    }
-
-    pub async fn get_optional_attachment(
-        path: &str,
-        task: &str,
-        file: &str,
-    ) -> Result<Option<Vec<u8>>> {
-        let res = Request::get(&format!("{path}/tasks/{task}/attachments/{file}"))
-            .send()
-            .await?;
-        if res.status() == 404 {
-            return Ok(None);
-        }
-        check_response(&res, "Failed to get CMS attachment").await?;
-        Ok(Some(res.binary().await?))
     }
 
     pub async fn submit(
