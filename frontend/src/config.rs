@@ -119,7 +119,8 @@ mod tests {
 
     use super::Config;
     use crate::contest_api::ContestConfig;
-    use crate::settings::StoredSettings;
+    use crate::settings::{StoredSettings, Theme};
+    use strum::VariantArray;
 
     #[wasm_bindgen_test]
     fn config_defaults() {
@@ -238,5 +239,19 @@ mod tests {
         let py_ws = config.local_workspace("Python3", "py");
         assert_eq!(py_ws.code["main.py"].as_bytes(), b"");
         assert_eq!(py_ws.stdin["input.txt"].as_bytes(), b"42\n");
+    }
+
+    #[wasm_bindgen_test]
+    fn theme_presets_roundtrip_and_match_editor_ids() {
+        assert_eq!(
+            Theme::LIGHT_PRESETS.len() + Theme::DARK_PRESETS.len(),
+            Theme::VARIANTS.len()
+        );
+        for &theme in Theme::VARIANTS {
+            let serialized = serde_json::to_value(theme).unwrap();
+            assert_eq!(serialized.as_str(), Some(theme.editor_theme()));
+            let parsed: Theme = serde_json::from_value(serialized).unwrap();
+            assert_eq!(parsed, theme);
+        }
     }
 }

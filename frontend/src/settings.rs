@@ -15,11 +15,87 @@ use crate::enum_select::{DisplayLocalized, EnumSelect};
 use crate::i18n::*;
 use crate::util::Icon;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, VariantArray)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
     Light,
+    CatppuccinLatte,
+    SolarizedLight,
+    NordLight,
     Dark,
+    OneDark,
+    Dracula,
+    CatppuccinMocha,
+    Nord,
+    GruvboxDark,
+    SolarizedDark,
+}
+
+impl Theme {
+    pub const LIGHT_PRESETS: &'static [Theme] = &[
+        Theme::Light,
+        Theme::CatppuccinLatte,
+        Theme::SolarizedLight,
+        Theme::NordLight,
+    ];
+
+    pub const DARK_PRESETS: &'static [Theme] = &[
+        Theme::Dark,
+        Theme::OneDark,
+        Theme::Dracula,
+        Theme::CatppuccinMocha,
+        Theme::Nord,
+        Theme::GruvboxDark,
+        Theme::SolarizedDark,
+    ];
+
+    pub const fn daisy_theme(self) -> &'static str {
+        match self {
+            Theme::Light => "winter",
+            Theme::CatppuccinLatte => "catppuccin-latte",
+            Theme::SolarizedLight => "solarized-light",
+            Theme::NordLight => "nord",
+            Theme::Dark => "night",
+            Theme::OneDark => "one-dark",
+            Theme::Dracula => "dracula",
+            Theme::CatppuccinMocha => "catppuccin-mocha",
+            Theme::Nord => "nord-dark",
+            Theme::GruvboxDark => "gruvbox-dark",
+            Theme::SolarizedDark => "solarized-dark",
+        }
+    }
+
+    pub const fn editor_theme(self) -> &'static str {
+        match self {
+            Theme::Light => "light",
+            Theme::CatppuccinLatte => "catppuccin_latte",
+            Theme::SolarizedLight => "solarized_light",
+            Theme::NordLight => "nord_light",
+            Theme::Dark => "dark",
+            Theme::OneDark => "one_dark",
+            Theme::Dracula => "dracula",
+            Theme::CatppuccinMocha => "catppuccin_mocha",
+            Theme::Nord => "nord",
+            Theme::GruvboxDark => "gruvbox_dark",
+            Theme::SolarizedDark => "solarized_dark",
+        }
+    }
+
+    pub fn label(self, locale: Locale) -> String {
+        match self {
+            Theme::Light => td_display!(locale, theme_light).to_string(),
+            Theme::CatppuccinLatte => "Catppuccin Latte".to_owned(),
+            Theme::SolarizedLight => "Solarized Light".to_owned(),
+            Theme::NordLight => "Nord Light".to_owned(),
+            Theme::Dark => td_display!(locale, theme_dark).to_string(),
+            Theme::OneDark => "One Dark".to_owned(),
+            Theme::Dracula => "Dracula".to_owned(),
+            Theme::CatppuccinMocha => "Catppuccin Mocha".to_owned(),
+            Theme::Nord => "Nord".to_owned(),
+            Theme::GruvboxDark => "Gruvbox Dark".to_owned(),
+            Theme::SolarizedDark => "Solarized Dark".to_owned(),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Hash, Debug, Serialize, Deserialize, VariantArray)]
@@ -150,11 +226,7 @@ impl SettingsProvider {
         Effect::new(move || {
             info!(theme = ?theme.get());
             if let Some(root) = document().document_element() {
-                let daisy_theme = match theme.get() {
-                    Theme::Light => "winter",
-                    Theme::Dark => "night",
-                };
-                let _ = root.set_attribute("data-theme", daisy_theme);
+                let _ = root.set_attribute("data-theme", theme.get().daisy_theme());
             }
         });
         provide_context(Self {
@@ -228,11 +300,19 @@ pub fn Settings() -> impl IntoView {
     );
 
     let content = NodeRef::new();
+    let theme_dropdown_open = RwSignal::new(false);
 
-    let _ = on_click_outside(content, move |_| open.set(false));
+    let _ = on_click_outside(content, move |_| {
+        theme_dropdown_open.set(false);
+        open.set(false);
+    });
     let _ = use_event_listener(use_document(), keydown, move |evt| {
         if evt.key_code() == 27 {
-            open.set(false);
+            if theme_dropdown_open.get_untracked() {
+                theme_dropdown_open.set(false);
+            } else {
+                open.set(false);
+            }
         }
     });
 
@@ -282,7 +362,7 @@ pub fn Settings() -> impl IntoView {
 
                         <TabSizeControl />
 
-                        <ThemeControl />
+                        <ThemeControl dropdown_open=theme_dropdown_open />
                         <PersistStorageControl />
 
                         <div class="divider my-1" />
@@ -372,15 +452,30 @@ fn TabSizeControl() -> impl IntoView {
 }
 
 #[component]
-fn ThemeControl() -> impl IntoView {
+fn ThemeSwatch(#[prop(into)] daisy_theme: Signal<&'static str>) -> impl IntoView {
+    view! {
+        <span
+            attr:data-theme=move || daisy_theme.get()
+            class="inline-flex items-center gap-0.5 rounded-md border border-base-300 bg-base-100 px-1.5 py-1 shrink-0"
+        >
+            <span class="w-2 h-2 rounded-full bg-primary" />
+            <span class="w-2 h-2 rounded-full bg-secondary" />
+            <span class="w-2 h-2 rounded-full bg-accent" />
+        </span>
+    }
+}
+
+#[component]
+fn ThemeControl(dropdown_open: RwSignal<bool>) -> impl IntoView {
     let settings = use_settings();
     let read = settings.read;
+    let resolved_theme = settings.theme;
     let i18n = use_i18n();
-    let theme = Signal::derive(move || read.get().theme);
+    let selected = Signal::derive(move || read.get().theme);
     let set_theme = move |theme| settings.set_theme(theme);
 
     let preferred_dark = leptos_use::use_preferred_dark();
-    let system_theme = Signal::derive(move || {
+    let system_icon = Signal::derive(move || {
         if preferred_dark.get() {
             icondata::BiMoonSolid
         } else {
@@ -388,54 +483,105 @@ fn ThemeControl() -> impl IntoView {
         }
     });
 
+    let dropdown_ref = NodeRef::new();
+    let _ = on_click_outside(dropdown_ref, move |_| dropdown_open.set(false));
+
+    let active_daisy = Signal::derive(move || resolved_theme.get().daisy_theme());
+    let active_label = Signal::derive(move || {
+        let locale = i18n.get_locale();
+        match selected.get() {
+            None => format!(
+                "{} ({})",
+                td_string!(locale, theme_system),
+                resolved_theme.get().label(locale)
+            ),
+            Some(preset) => preset.label(locale),
+        }
+    });
+
+    let render_preset = move |preset: Theme| {
+        let is_selected = Signal::derive(move || selected.get() == Some(preset));
+        let label = Signal::derive(move || preset.label(i18n.get_locale()));
+        view! {
+            <button
+                type="button"
+                class=move || {
+                    if is_selected.get() {
+                        "flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-primary/15 text-base-content ring-1 ring-primary/50 cursor-pointer text-left transition-colors"
+                    } else {
+                        "flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs text-base-content/85 hover:bg-base-200 cursor-pointer text-left transition-colors"
+                    }
+                }
+                on:click=move |_| set_theme(Some(preset))
+            >
+                <span class="flex items-center gap-2 min-w-0">
+                    <ThemeSwatch daisy_theme=Signal::derive(move || preset.daisy_theme()) />
+                    <span class="truncate">{label}</span>
+                </span>
+                <Show when=move || is_selected.get()>
+                    <Icon attr:class="w-3.5 h-3.5 text-primary shrink-0" icon=icondata::BiCheckRegular />
+                </Show>
+            </button>
+        }
+    };
+
     view! {
         <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
             <label class="text-sm font-medium">{t!(i18n, theme)}</label>
-            <div class="sm:col-span-2">
-                <div class="join">
-                    <button
-                        type="button"
-                        class=move || {
-                            if theme.get() == Some(Theme::Dark) {
-                                "btn btn-sm join-item btn-primary gap-1.5"
-                            } else {
-                                "btn btn-sm join-item btn-outline border-base-300 gap-1.5"
+            <div class="sm:col-span-2 relative" node_ref=dropdown_ref>
+                <button
+                    type="button"
+                    class="btn btn-sm btn-outline border-base-300 w-full justify-between font-normal px-3"
+                    on:click=move |_| dropdown_open.update(|v| *v = !*v)
+                >
+                    <span class="flex items-center gap-2 min-w-0">
+                        <ThemeSwatch daisy_theme=active_daisy />
+                        <Show when=move || selected.get().is_none()>
+                            <Icon attr:class="w-3.5 h-3.5 opacity-75 shrink-0" icon=system_icon />
+                        </Show>
+                        <span class="truncate">{active_label}</span>
+                    </span>
+                    <Icon attr:class="w-4 h-4 opacity-60 shrink-0" icon=icondata::BiChevronDownRegular />
+                </button>
+                <Show when=move || dropdown_open.get()>
+                    <div class="absolute bottom-full left-0 right-0 mb-1.5 z-50 rounded-xl border border-base-300 bg-base-100 shadow-xl p-2 max-h-60 overflow-y-auto flex flex-col gap-1.5">
+                        <button
+                            type="button"
+                            class=move || {
+                                if selected.get().is_none() {
+                                    "flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-primary/15 text-base-content ring-1 ring-primary/50 cursor-pointer transition-colors"
+                                } else {
+                                    "flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs text-base-content/85 hover:bg-base-200 cursor-pointer transition-colors"
+                                }
                             }
-                        }
-                        on:click=move |_| set_theme(Some(Theme::Dark))
-                    >
-                        <Icon icon=icondata::BiMoonSolid />
-                        {t!(i18n, theme_dark)}
-                    </button>
-                    <button
-                        type="button"
-                        class=move || {
-                            if theme.get() == Some(Theme::Light) {
-                                "btn btn-sm join-item btn-primary gap-1.5"
-                            } else {
-                                "btn btn-sm join-item btn-outline border-base-300 gap-1.5"
-                            }
-                        }
-                        on:click=move |_| set_theme(Some(Theme::Light))
-                    >
-                        <Icon icon=icondata::BiSunSolid />
-                        {t!(i18n, theme_light)}
-                    </button>
-                    <button
-                        type="button"
-                        class=move || {
-                            if theme.get().is_none() {
-                                "btn btn-sm join-item btn-primary gap-1.5"
-                            } else {
-                                "btn btn-sm join-item btn-outline border-base-300 gap-1.5"
-                            }
-                        }
-                        on:click=move |_| set_theme(None)
-                    >
-                        <Icon icon=system_theme />
-                        {t!(i18n, theme_system)}
-                    </button>
-                </div>
+                            on:click=move |_| set_theme(None)
+                        >
+                            <span class="flex items-center gap-2">
+                                <Icon attr:class="w-4 h-4 shrink-0" icon=system_icon />
+                                <span>{t!(i18n, theme_system)}</span>
+                            </span>
+                            <Show when=move || selected.get().is_none()>
+                                <Icon attr:class="w-3.5 h-3.5 text-primary shrink-0" icon=icondata::BiCheckRegular />
+                            </Show>
+                        </button>
+
+                        <div class="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-base-content/50 flex items-center gap-1.5">
+                            <Icon attr:class="w-3 h-3" icon=icondata::BiSunSolid />
+                            {t!(i18n, theme_light)}
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                            {Theme::LIGHT_PRESETS.iter().copied().map(render_preset).collect_view()}
+                        </div>
+
+                        <div class="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-base-content/50 flex items-center gap-1.5">
+                            <Icon attr:class="w-3 h-3" icon=icondata::BiMoonSolid />
+                            {t!(i18n, theme_dark)}
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                            {Theme::DARK_PRESETS.iter().copied().map(render_preset).collect_view()}
+                        </div>
+                    </div>
+                </Show>
             </div>
         </div>
     }

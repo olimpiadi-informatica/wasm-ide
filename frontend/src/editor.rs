@@ -13,7 +13,7 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys::Function;
 use web_sys::{HtmlDivElement, HtmlElement};
 
-use crate::settings::{KeyboardMode, Theme, use_settings};
+use crate::settings::{KeyboardMode, use_settings};
 
 #[wasm_bindgen(raw_module = "./codemirror.js")]
 extern "C" {
@@ -40,8 +40,8 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "setExec")]
     fn set_exec(this: &CM6Editor, exec: Function);
 
-    #[wasm_bindgen(method, js_name = "setDark")]
-    fn set_dark(this: &CM6Editor, dark: bool);
+    #[wasm_bindgen(method, js_name = "setTheme")]
+    fn set_theme(this: &CM6Editor, theme: &str);
 
     #[wasm_bindgen(method, js_name = "setReadOnly")]
     fn set_readonly(this: &CM6Editor, readonly: bool);
@@ -270,7 +270,7 @@ pub fn Editor(
             let Some(cm6) = x else {
                 return;
             };
-            cm6.set_dark(settings.theme.get() != Theme::Light);
+            cm6.set_theme(settings.theme.get().editor_theme());
         });
     });
 
