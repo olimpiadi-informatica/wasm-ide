@@ -13,7 +13,7 @@ import {csharp} from "@replit/codemirror-lang-csharp";
 import {emacs} from "@replit/codemirror-emacs";
 import {vim} from "@replit/codemirror-vim";
 import {indentWithTab} from "@codemirror/commands"
-import {solarizedLight, solarizedDark} from "@uiw/codemirror-theme-solarized";
+import {resolveEditorTheme} from "./themes";
 import {LSPClient, LSPPlugin, Transport, Workspace, WorkspaceFile, findReferencesKeymap, formatKeymap, jumpToDefinitionKeymap, languageServerExtensions, renameKeymap} from "@codemirror/lsp-client";
 
 export class LSEventHandler implements Transport {
@@ -186,7 +186,7 @@ export class CM6Editor {
   languageID = "";
   languageExtension: Extension = [];
   keyboardExtension: Extension = [];
-  themeExtension: Extension = solarizedLight;
+  themeExtension: Extension = resolveEditorTheme("light");
   readOnly = false;
   tabSizeValue = 4;
   openFileCallback: (filename: string) => void = () => {};
@@ -368,11 +368,15 @@ export class CM6Editor {
     this.lspClient.sync();
   }
 
-  setDark(dark: boolean) {
-    this.themeExtension = dark ? solarizedDark : solarizedLight;
+  setTheme(themeName: string) {
+    this.themeExtension = resolveEditorTheme(themeName);
     this.view.dispatch({
       effects: this.theme.reconfigure(this.themeExtension),
     });
+  }
+
+  setDark(dark: boolean) {
+    this.setTheme(dark ? "dark" : "light");
   }
 
   setReadOnly(isReadonly: boolean) {
