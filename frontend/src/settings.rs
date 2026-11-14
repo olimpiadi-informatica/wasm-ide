@@ -81,6 +81,30 @@ impl Theme {
         }
     }
 
+    pub const fn swatch_colors(
+        self,
+    ) -> (
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+    ) {
+        match self {
+            Theme::Light => ("#ffffff", "#e5ecf6", "#0069ff", "#463aa2", "#c148ac"),
+            Theme::CatppuccinLatte => ("#eff1f5", "#dce0e8", "#1e66f5", "#8839ef", "#179299"),
+            Theme::SolarizedLight => ("#fdf6e3", "#e2dbc7", "#268bd2", "#2aa198", "#6c71c4"),
+            Theme::NordLight => ("#eceff4", "#d8dee9", "#5e81ac", "#81a1c1", "#88c0d0"),
+            Theme::Dark => ("#0f172a", "#0b1120", "#38bdf8", "#818cf8", "#f471b5"),
+            Theme::OneDark => ("#282c34", "#181a1f", "#61afef", "#c678dd", "#56b6c2"),
+            Theme::Dracula => ("#282a36", "#21222c", "#ff79c6", "#bd93f9", "#ffb86c"),
+            Theme::CatppuccinMocha => ("#1e1e2e", "#11111b", "#89b4fa", "#cba6f7", "#94e2d5"),
+            Theme::Nord => ("#2e3440", "#21262e", "#88c0d0", "#81a1c1", "#b48ead"),
+            Theme::GruvboxDark => ("#282828", "#161819", "#fabd2f", "#83a598", "#fe8019"),
+            Theme::SolarizedDark => ("#002b36", "#00212b", "#268bd2", "#2aa198", "#6c71c4"),
+        }
+    }
+
     pub fn label(self, locale: Locale) -> String {
         match self {
             Theme::Light => td_display!(locale, theme_light).to_string(),
@@ -452,15 +476,25 @@ fn TabSizeControl() -> impl IntoView {
 }
 
 #[component]
-fn ThemeSwatch(#[prop(into)] daisy_theme: Signal<&'static str>) -> impl IntoView {
+fn ThemeSwatch(#[prop(into)] theme: Signal<Theme>) -> impl IntoView {
     view! {
         <span
-            attr:data-theme=move || daisy_theme.get()
-            class="inline-flex items-center gap-0.5 rounded-md border border-base-300 bg-base-100 px-1.5 py-1 shrink-0"
+            class="inline-flex items-center gap-0.5 rounded-md border px-1.5 py-1 shrink-0"
+            style:background-color=move || theme.get().swatch_colors().0
+            style:border-color=move || theme.get().swatch_colors().1
         >
-            <span class="w-2 h-2 rounded-full bg-primary" />
-            <span class="w-2 h-2 rounded-full bg-secondary" />
-            <span class="w-2 h-2 rounded-full bg-accent" />
+            <span
+                class="w-2 h-2 rounded-full"
+                style:background-color=move || theme.get().swatch_colors().2
+            />
+            <span
+                class="w-2 h-2 rounded-full"
+                style:background-color=move || theme.get().swatch_colors().3
+            />
+            <span
+                class="w-2 h-2 rounded-full"
+                style:background-color=move || theme.get().swatch_colors().4
+            />
         </span>
     }
 }
@@ -486,7 +520,6 @@ fn ThemeControl(dropdown_open: RwSignal<bool>) -> impl IntoView {
     let dropdown_ref = NodeRef::new();
     let _ = on_click_outside(dropdown_ref, move |_| dropdown_open.set(false));
 
-    let active_daisy = Signal::derive(move || resolved_theme.get().daisy_theme());
     let active_label = Signal::derive(move || {
         let locale = i18n.get_locale();
         match selected.get() {
@@ -515,7 +548,7 @@ fn ThemeControl(dropdown_open: RwSignal<bool>) -> impl IntoView {
                 on:click=move |_| set_theme(Some(preset))
             >
                 <span class="flex items-center gap-2 min-w-0">
-                    <ThemeSwatch daisy_theme=Signal::derive(move || preset.daisy_theme()) />
+                    <ThemeSwatch theme=Signal::derive(move || preset) />
                     <span class="truncate">{label}</span>
                 </span>
                 <Show when=move || is_selected.get()>
@@ -535,7 +568,7 @@ fn ThemeControl(dropdown_open: RwSignal<bool>) -> impl IntoView {
                     on:click=move |_| dropdown_open.update(|v| *v = !*v)
                 >
                     <span class="flex items-center gap-2 min-w-0">
-                        <ThemeSwatch daisy_theme=active_daisy />
+                        <ThemeSwatch theme=resolved_theme />
                         <Show when=move || selected.get().is_none()>
                             <Icon attr:class="w-3.5 h-3.5 opacity-75 shrink-0" icon=system_icon />
                         </Show>
