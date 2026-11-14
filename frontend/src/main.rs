@@ -802,7 +802,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
     });
 
     let navbar = view! {
-        <div class="flex flex-row items-center gap-2 px-3 py-1.5 bg-base-100 border-b border-base-300 min-h-12 shrink-0">
+        <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 bg-base-100 border-b border-base-300 min-h-12 shrink-0">
             <Settings />
             <WorkspaceSelector
                 active=workspace
@@ -835,7 +835,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 </div>
             </ShowLet>
             <ContestTimeBadge status=contest_status now_ms=now_ms />
-            <div class="flex-1" />
+            <div class="flex-1 min-w-2" />
             <ShowLet some=exec_stage_label let:label>
                 <div class="hidden md:flex items-center gap-1.5 text-xs font-medium text-base-content/70 px-2">
                     <span class="loading loading-spinner loading-xs text-primary" />
@@ -848,7 +848,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
             <Show when=move || is_running.get()>
                 <button
                     type="button"
-                    class="btn btn-error btn-sm gap-1.5 min-w-24"
+                    class="btn btn-error btn-sm gap-1.5 min-w-0 sm:min-w-24"
                     disabled=disable_stop
                     on:click=do_stop
                 >
@@ -859,7 +859,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
             <Show when=move || !is_running.get()>
                 <button
                     type="button"
-                    class="btn btn-success btn-sm gap-1.5 min-w-24"
+                    class="btn btn-success btn-sm gap-1.5 min-w-0 sm:min-w-24"
                     title=move || format!("{} (Ctrl+Enter)", t_string!(i18n, run))
                     disabled=disable_start
                     on:click=move |_| {
@@ -875,7 +875,7 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
             <Show when=move || contest_api::get().is_some()>
                 <button
                     type="button"
-                    class="btn btn-info btn-sm gap-1.5 min-w-24"
+                    class="btn btn-info btn-sm gap-1.5 min-w-0 sm:min-w-24"
                     title=submit_title
                     disabled=disable_submit
                     on:click=move |_| {

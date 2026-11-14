@@ -97,5 +97,7 @@
   "contest_time_remaining": "Tiempo restante",
   "contest_not_started": "Concurso no iniciado",
   "contest_ended": "Concurso finalizado",
-  "contest_not_open": "Concurso cerrado"
+  "contest_not_open": "Concurso cerrado",
+  "code": "Código",
+  "input": "Entrada"
 }
