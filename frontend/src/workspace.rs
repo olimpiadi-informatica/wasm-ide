@@ -389,7 +389,7 @@ pub fn WorkspaceSelector(
                 on:click=move |_| open.update(|v| *v = !*v)
             >
                 <Icon attr:class="w-4 h-4 text-primary" icon=icondata::BiFolderOpenSolid />
-                <span class="font-mono text-xs sm:text-sm max-w-44 truncate">
+                <span class="font-mono text-xs sm:text-sm max-w-32 sm:max-w-44 truncate">
                     {move || active.get().unwrap_or_else(|| t_string!(i18n, choose_workspace).into())}
                 </span>
                 <Show when=move || active.get().is_some()>

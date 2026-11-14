@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use common::{WorkerExecRequest, WorkerLSRequest, WorkerRequest};
 use leptos::prelude::*;
-use leptos_i18n::t_display;
+use leptos_i18n::{t, t_display};
 use leptos_use::{UseMouseReturn, UseWindowSizeReturn, use_mouse, use_window_size};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
@@ -14,6 +14,13 @@ use crate::i18n::use_i18n;
 use crate::output::OutputView;
 use crate::settings::{InputMode, SettingsProvider, use_settings};
 use crate::util::{Icon, get_input_mode};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MobilePane {
+    Code,
+    Input,
+    Output,
+}
 
 #[component]
 pub fn EditorView(
@@ -117,6 +124,9 @@ pub fn EditorView(
     let UseMouseReturn { x, y, .. } = use_mouse();
     let UseWindowSizeReturn { width, .. } = use_window_size();
     let right_col_ref = NodeRef::<leptos::html::Div>::new();
+    let is_mobile = Memo::new(move |_| width.get() < 768.0);
+    let mobile_pane = RwSignal::new(MobilePane::Code);
+    let is_running = Signal::derive(move || state.with(|s| s.is_running()));
 
     Effect::new(move || {
         if is_resizing_col.get() {
@@ -134,76 +144,162 @@ pub fn EditorView(
         }
     });
 
+    let mobile_tab_btn = move |pane: MobilePane, label: ViewFn| {
+        view! {
+            <button
+                type="button"
+                class=move || {
+                    if mobile_pane.get() == pane {
+                        "btn btn-xs btn-primary gap-1.5"
+                    } else {
+                        "btn btn-xs btn-ghost gap-1.5 text-base-content/70"
+                    }
+                }
+                on:click=move |_| mobile_pane.set(pane)
+            >
+                {label.run()}
+                <Show when=move || pane == MobilePane::Output && is_running.get()>
+                    <span class="loading loading-spinner loading-xs" />
+                </Show>
+            </button>
+        }
+    };
+
     view! {
         <div
             class:covers-page-col=is_resizing_col
             class:covers-page-row=is_resizing_row
         />
-        <div class="flex flex-row flex-1 min-h-0 w-full overflow-hidden">
-            <div
-                class="h-full min-h-0 shrink-0"
-                style:width=move || format!("calc({}% - 3px)", editor_width_percent.get())
-            >
-                <EditorDir
-                    controller=code
-                    kind=EditorDirKind::Code
-                    syntax=language
-                    readonly=code_readonly
-                    ctrl_enter=ctrl_enter
-                    keyboard_mode=keyboard_mode
-                    ls_interface=Some((
-                        ls_receiver,
-                        Box::new(move |s| {
-                            send_worker_message.run(WorkerLSRequest::Message(s).into())
-                        }),
-                    ))
-                />
-            </div>
-            <div
-                class="w-1.5 cursor-col-resize bg-base-300 hover:bg-primary active:bg-primary transition-colors shrink-0 select-none"
-                on:mousedown=move |e| {
-                    is_resizing_col.set(true);
-                    e.prevent_default();
-                }
-                on:touchstart=move |e| {
-                    is_resizing_col.set(true);
-                    e.prevent_default();
-                }
-            />
-            <div
-                node_ref=right_col_ref
-                class="flex-1 min-w-0 h-full flex flex-col overflow-hidden"
-            >
+        <div class="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+            <Show when=move || is_mobile.get()>
+                <div class="grid grid-cols-3 gap-1 p-1 bg-base-200 border-b border-base-300 shrink-0">
+                    {mobile_tab_btn(MobilePane::Code, ViewFn::from(move || t!(i18n, code)))}
+                    {mobile_tab_btn(MobilePane::Input, ViewFn::from(move || t!(i18n, input)))}
+                    {mobile_tab_btn(MobilePane::Output, ViewFn::from(move || t!(i18n, output)))}
+                </div>
+            </Show>
+            <div class="flex flex-row flex-1 min-h-0 w-full overflow-hidden">
                 <div
-                    class="w-full min-h-0 flex flex-col shrink-0"
-                    style:height=move || format!("calc({}% - 3px)", input_height_percent.get())
+                    class=move || {
+                        if is_mobile.get() {
+                            if mobile_pane.get() == MobilePane::Code {
+                                "flex-1 h-full min-h-0 min-w-0"
+                            } else {
+                                "hidden"
+                            }
+                        } else {
+                            "h-full min-h-0 shrink-0"
+                        }
+                    }
+                    style:width=move || {
+                        if is_mobile.get() {
+                            String::new()
+                        } else {
+                            format!("calc({}% - 3px)", editor_width_percent.get())
+                        }
+                    }
                 >
-                    {additional_input_line}
-                    <div class="flex-1 min-h-0">
-                        <EditorDir
-                            controller=stdin
-                            kind=EditorDirKind::Input
-                            syntax=None
-                            readonly=input_readonly
-                            ctrl_enter=ctrl_enter
-                            keyboard_mode=keyboard_mode
-                            ls_interface=None
-                        />
-                    </div>
+                    <EditorDir
+                        controller=code
+                        kind=EditorDirKind::Code
+                        syntax=language
+                        readonly=code_readonly
+                        ctrl_enter=ctrl_enter
+                        keyboard_mode=keyboard_mode
+                        ls_interface=Some((
+                            ls_receiver,
+                            Box::new(move |s| {
+                                send_worker_message.run(WorkerLSRequest::Message(s).into())
+                            }),
+                        ))
+                    />
                 </div>
                 <div
-                    class="h-1.5 cursor-row-resize bg-base-300 hover:bg-primary active:bg-primary transition-colors shrink-0 select-none"
+                    class=move || {
+                        if is_mobile.get() {
+                            "hidden"
+                        } else {
+                            "w-1.5 cursor-col-resize bg-base-300 hover:bg-primary active:bg-primary transition-colors shrink-0 select-none"
+                        }
+                    }
                     on:mousedown=move |e| {
-                        is_resizing_row.set(true);
+                        is_resizing_col.set(true);
                         e.prevent_default();
                     }
                     on:touchstart=move |e| {
-                        is_resizing_row.set(true);
+                        is_resizing_col.set(true);
                         e.prevent_default();
                     }
                 />
-                <div class="flex-1 min-h-0 w-full">
-                    <OutputView state />
+                <div
+                    node_ref=right_col_ref
+                    class=move || {
+                        if is_mobile.get() && mobile_pane.get() == MobilePane::Code {
+                            "hidden"
+                        } else {
+                            "flex-1 min-w-0 h-full flex flex-col overflow-hidden"
+                        }
+                    }
+                >
+                    <div
+                        class=move || {
+                            if is_mobile.get() {
+                                if mobile_pane.get() == MobilePane::Input {
+                                    "w-full flex-1 min-h-0 flex flex-col"
+                                } else {
+                                    "hidden"
+                                }
+                            } else {
+                                "w-full min-h-0 flex flex-col shrink-0"
+                            }
+                        }
+                        style:height=move || {
+                            if is_mobile.get() {
+                                String::new()
+                            } else {
+                                format!("calc({}% - 3px)", input_height_percent.get())
+                            }
+                        }
+                    >
+                        {additional_input_line}
+                        <div class="flex-1 min-h-0">
+                            <EditorDir
+                                controller=stdin
+                                kind=EditorDirKind::Input
+                                syntax=None
+                                readonly=input_readonly
+                                ctrl_enter=ctrl_enter
+                                keyboard_mode=keyboard_mode
+                                ls_interface=None
+                            />
+                        </div>
+                    </div>
+                    <div
+                        class=move || {
+                            if is_mobile.get() {
+                                "hidden"
+                            } else {
+                                "h-1.5 cursor-row-resize bg-base-300 hover:bg-primary active:bg-primary transition-colors shrink-0 select-none"
+                            }
+                        }
+                        on:mousedown=move |e| {
+                            is_resizing_row.set(true);
+                            e.prevent_default();
+                        }
+                        on:touchstart=move |e| {
+                            is_resizing_row.set(true);
+                            e.prevent_default();
+                        }
+                    />
+                    <div class=move || {
+                        if is_mobile.get() && mobile_pane.get() != MobilePane::Output {
+                            "hidden"
+                        } else {
+                            "flex-1 min-h-0 w-full"
+                        }
+                    }>
+                        <OutputView state />
+                    </div>
                 </div>
             </div>
         </div>

@@ -97,5 +97,7 @@
   "contest_time_remaining": "Tenpo che resta",
   "contest_not_started": "Gara miga tacà",
   "contest_ended": "Gara finìa",
-  "contest_not_open": "Gara serà"
+  "contest_not_open": "Gara serà",
+  "code": "Còdeze",
+  "input": "Input"
 }

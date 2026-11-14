@@ -96,5 +96,7 @@
   "contest_time_remaining": "Time remaining",
   "contest_not_started": "Contest not started",
   "contest_ended": "Contest ended",
-  "contest_not_open": "Contest not open"
+  "contest_not_open": "Contest not open",
+  "code": "Code",
+  "input": "Input"
 }
