@@ -7,7 +7,7 @@ use send_wrapper::SendWrapper;
 use crate::{
     backend,
     config::{Workspace, WorkspaceDir},
-    contest_api::{ContestAPI, SubmitStatus, Task},
+    contest_api::{ContestAPI, ContestStatus, SubmitStatus, Task},
 };
 
 pub struct Cms {
@@ -31,6 +31,10 @@ impl Cms {
 
 #[async_trait]
 impl ContestAPI for Cms {
+    async fn contest_status(&self) -> Result<ContestStatus> {
+        SendWrapper::new(api::contest_status(&self.path)).await
+    }
+
     async fn list_tasks(&self) -> Result<Vec<Task>> {
         Ok(SendWrapper::new(api::task_list(&self.path))
             .await?
@@ -81,6 +85,9 @@ impl ContestAPI for Cms {
 
         let code: WorkspaceDir = code_entries.into_iter().collect();
         let mut stdin: WorkspaceDir = stdin_entries.into_iter().collect();
+        if stdin.is_empty() {
+            stdin.insert("input.txt".to_string(), String::new().into());
+        }
         if stdin.is_empty() {
             stdin.insert("input.txt".to_string(), String::new().into());
         }
@@ -175,7 +182,16 @@ mod api {
     use wasm_bindgen::JsCast;
     use web_sys::{Blob, FormData, HtmlDocument};
 
-    use crate::util::check_response;
+    use crate::{
+        contest_api::{ContestPhase, ContestStatus, endpoint_login_url, response_clock_offset_ms},
+        util::check_response,
+    };
+
+    #[derive(Debug, Deserialize)]
+    struct ErrorResponse {
+        #[serde(default)]
+        error: String,
+    }
 
     pub const STATUS_COMPILATION_FAILED: u8 = 2;
     pub const STATUS_SCORED: u8 = 5;
@@ -224,6 +240,40 @@ mod api {
         check_response(&res, "Failed to fetch CMS task list").await?;
         let res: TaskListResponse = res.json().await?;
         Ok(res.tasks)
+    }
+
+    pub async fn contest_status(path: &str) -> Result<ContestStatus> {
+        let login_url = endpoint_login_url(path);
+        let res = Request::get(&format!("{path}/api/task_list"))
+            .send()
+            .await?;
+        let clock_offset_ms = response_clock_offset_ms(&res);
+        if res.ok() {
+            return Ok(ContestStatus {
+                logged_in: true,
+                login_url,
+                phase: ContestPhase::Running,
+                time: None,
+                clock_offset_ms,
+            });
+        }
+        if res.status() == 401 || res.status() == 403 {
+            let err_msg = res
+                .json::<ErrorResponse>()
+                .await
+                .map(|e| e.error.to_ascii_lowercase())
+                .unwrap_or_default();
+            let is_phase_error = err_msg.contains("not open") || err_msg.contains("contest phase");
+            return Ok(ContestStatus {
+                logged_in: is_phase_error,
+                login_url,
+                phase: ContestPhase::NotOpen,
+                time: None,
+                clock_offset_ms,
+            });
+        }
+        check_response(&res, "Failed to fetch CMS contest status").await?;
+        unreachable!()
     }
 
     pub async fn get_attachment(path: &str, task: &str, file: &str) -> Result<Vec<u8>> {

@@ -23,6 +23,15 @@ pub fn download(name: &str, data: &[u8]) {
     a.click();
 }
 
+pub fn copy_to_clipboard(text: &str) {
+    if let Ok(clipboard) = js_sys::Reflect::get(&window().navigator(), &"clipboard".into())
+        && let Ok(write_text) = js_sys::Reflect::get(&clipboard, &"writeText".into())
+        && let Some(func) = write_text.dyn_ref::<js_sys::Function>()
+    {
+        let _ = func.call1(&clipboard, &text.into());
+    }
+}
+
 #[component]
 pub fn Icon(#[prop(into)] icon: Signal<icondata::Icon>) -> impl IntoView {
     view! {

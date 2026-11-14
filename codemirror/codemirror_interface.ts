@@ -1,7 +1,46 @@
-import {basicSetup} from "codemirror";
-import {EditorView, keymap} from "@codemirror/view";
-import {ChangeSet, Compartment, Prec, EditorState, Facet, Extension, Text, TransactionSpec} from "@codemirror/state";
-import {StreamLanguage} from "@codemirror/language";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from "@codemirror/autocomplete";
+import {defaultKeymap, history, historyKeymap, indentWithTab} from "@codemirror/commands";
+import {
+  bracketMatching,
+  defaultHighlightStyle,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+  indentUnit,
+  StreamLanguage,
+  syntaxHighlighting,
+} from "@codemirror/language";
+import {lintKeymap} from "@codemirror/lint";
+import {highlightSelectionMatches, searchKeymap} from "@codemirror/search";
+import {
+  ChangeSet,
+  Compartment,
+  EditorState,
+  Extension,
+  Facet,
+  Prec,
+  Text,
+  TransactionSpec,
+} from "@codemirror/state";
+import {
+  crosshairCursor,
+  drawSelection,
+  dropCursor,
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  keymap,
+  lineNumbers,
+  rectangularSelection,
+  ViewPlugin,
+  ViewUpdate,
+} from "@codemirror/view";
 import {pascal} from "@codemirror/legacy-modes/mode/pascal";
 import {cpp} from "@codemirror/lang-cpp";
 import {python} from "@codemirror/lang-python";
@@ -12,9 +51,171 @@ import {javascript} from "@codemirror/lang-javascript";
 import {csharp} from "@replit/codemirror-lang-csharp";
 import {emacs} from "@replit/codemirror-emacs";
 import {vim} from "@replit/codemirror-vim";
-import {indentWithTab} from "@codemirror/commands"
-import {solarizedLight, solarizedDark} from "@uiw/codemirror-theme-solarized";
+import {resolveEditorTheme} from "./themes";
 import {LSPClient, LSPPlugin, Transport, Workspace, WorkspaceFile, findReferencesKeymap, formatKeymap, jumpToDefinitionKeymap, languageServerExtensions, renameKeymap} from "@codemirror/lsp-client";
+
+const CURSOR_BLINK_RATE_MS = 1500;
+
+const cursorFocusSync = ViewPlugin.fromClass(
+  class {
+    private timers: ReturnType<typeof setTimeout>[] = [];
+    private rafId = -1;
+    private wasFocused: boolean;
+
+    constructor(private readonly view: EditorView) {
+      this.wasFocused = view.hasFocus;
+      this.onWindowFocus = this.onWindowFocus.bind(this);
+      this.onWindowBlur = this.onWindowBlur.bind(this);
+      this.onVisibilityChange = this.onVisibilityChange.bind(this);
+
+      const doc = view.dom.ownerDocument;
+      const win = doc.defaultView;
+      if (win) {
+        win.addEventListener("focus", this.onWindowFocus);
+        win.addEventListener("blur", this.onWindowBlur);
+      }
+      doc.addEventListener("visibilitychange", this.onVisibilityChange);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.focusChanged) {
+        const focused = update.view.hasFocus;
+        this.wasFocused = focused;
+        this.syncCursorAnimation(focused);
+      } else if (update.transactions.some((tr) => tr.reconfigured)) {
+        this.syncDurationAndUnfocusedLayers(update.view.hasFocus);
+      }
+    }
+
+    private syncDurationAndUnfocusedLayers(focused: boolean) {
+      const layers = this.view.scrollDOM.querySelectorAll<HTMLElement>(".cm-cursorLayer");
+      layers.forEach((layer) => {
+        layer.style.animationDuration = `${CURSOR_BLINK_RATE_MS}ms`;
+        if (!focused) {
+          layer.style.animationName = "none";
+        }
+      });
+    }
+
+    private syncCursorAnimation(focused: boolean) {
+      const layers = this.view.scrollDOM.querySelectorAll<HTMLElement>(".cm-cursorLayer");
+      layers.forEach((layer) => {
+        layer.style.animationDuration = `${CURSOR_BLINK_RATE_MS}ms`;
+        if (!focused) {
+          layer.style.animationName = "none";
+        } else {
+          layer.style.animationName =
+            layer.style.animationName === "cm-blink" ? "cm-blink2" : "cm-blink";
+        }
+      });
+    }
+
+    private hasStoppedBlinkAnimation(): boolean {
+      const layers = this.view.scrollDOM.querySelectorAll<HTMLElement>(".cm-cursorLayer");
+      for (let i = 0; i < layers.length; i++) {
+        if (layers[i].style.animationName === "none") return true;
+      }
+      return false;
+    }
+
+    private clearScheduled() {
+      const win = this.view.dom.ownerDocument.defaultView;
+      for (const timer of this.timers) clearTimeout(timer);
+      this.timers = [];
+      if (win && this.rafId >= 0) {
+        win.cancelAnimationFrame(this.rafId);
+        this.rafId = -1;
+      }
+    }
+
+    private checkFocusState() {
+      if (!this.view.dom.isConnected) return;
+      const doc = this.view.dom.ownerDocument;
+      const focused = !doc.hidden && this.view.hasFocus;
+      const hasFocusedClass = this.view.dom.classList.contains("cm-focused");
+      if (focused !== this.wasFocused || focused !== hasFocusedClass) {
+        this.wasFocused = focused;
+        this.view.update([]);
+        this.syncCursorAnimation(this.view.hasFocus);
+      } else if (focused && this.hasStoppedBlinkAnimation()) {
+        this.syncCursorAnimation(true);
+      } else if (!focused) {
+        this.syncCursorAnimation(false);
+      }
+    }
+
+    private scheduleFocusChecks() {
+      this.clearScheduled();
+      const win = this.view.dom.ownerDocument.defaultView;
+      if (win) {
+        this.rafId = win.requestAnimationFrame(() => {
+          this.rafId = -1;
+          this.checkFocusState();
+        });
+      }
+      for (const delay of [0, 50, 150, 350]) {
+        this.timers.push(setTimeout(() => this.checkFocusState(), delay));
+      }
+    }
+
+    private onWindowFocus() {
+      this.scheduleFocusChecks();
+    }
+
+    private onWindowBlur() {
+      this.syncCursorAnimation(false);
+      this.scheduleFocusChecks();
+    }
+
+    private onVisibilityChange() {
+      if (this.view.dom.ownerDocument.hidden) {
+        this.syncCursorAnimation(false);
+      }
+      this.scheduleFocusChecks();
+    }
+
+    destroy() {
+      this.clearScheduled();
+      const doc = this.view.dom.ownerDocument;
+      const win = doc.defaultView;
+      if (win) {
+        win.removeEventListener("focus", this.onWindowFocus);
+        win.removeEventListener("blur", this.onWindowBlur);
+      }
+      doc.removeEventListener("visibilitychange", this.onVisibilityChange);
+    }
+  },
+);
+
+const editorSetup: Extension = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection({cursorBlinkRate: CURSOR_BLINK_RATE_MS}),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, {fallback: true}),
+  bracketMatching(),
+  closeBrackets(),
+  autocompletion(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  cursorFocusSync,
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    ...lintKeymap,
+  ]),
+];
 
 export class LSEventHandler implements Transport {
   subscribers = new Set<(value: string) => void>();
@@ -161,6 +362,7 @@ export class CM6Editor {
   keyboardMode = new Compartment();
   theme = new Compartment();
   isReadOnly = new Compartment();
+  indentation = new Compartment();
 
   execCallback: () => void = () => {};
   onchangeCallback: (filename: string) => void = () => {};
@@ -185,8 +387,9 @@ export class CM6Editor {
   languageID = "";
   languageExtension: Extension = [];
   keyboardExtension: Extension = [];
-  themeExtension: Extension = solarizedLight;
+  themeExtension: Extension = resolveEditorTheme("light");
   readOnly = false;
+  tabSizeValue = 4;
   openFileCallback: (filename: string) => void = () => {};
 
   constructor(element: HTMLElement) {
@@ -208,12 +411,13 @@ export class CM6Editor {
     return EditorState.create({
       doc,
       extensions: [
-        basicSetup,
+        editorSetup,
 
         keymap.of([indentWithTab]),
         this.keyboardMode.of(this.keyboardExtension),
         this.execKeyBinding,
         this.theme.of(this.themeExtension),
+        this.indentation.of(this.indentationExtension()),
         this.language.of([this.languageExtension, languageId.of(this.languageID)]),
         this.isReadOnly.of(EditorState.readOnly.of(this.readOnly)),
         EditorView.updateListener.of((update) => {
@@ -238,11 +442,19 @@ export class CM6Editor {
       : [];
   }
 
+  indentationExtension(): Extension {
+    return [
+      EditorState.tabSize.of(this.tabSizeValue),
+      indentUnit.of(" ".repeat(this.tabSizeValue)),
+    ];
+  }
+
   configureState(state: EditorState) {
     return state.update({
       effects: [
         this.keyboardMode.reconfigure(this.keyboardExtension),
         this.theme.reconfigure(this.themeExtension),
+        this.indentation.reconfigure(this.indentationExtension()),
         this.language.reconfigure([this.languageExtension, languageId.of(this.languageID)]),
         this.isReadOnly.reconfigure(EditorState.readOnly.of(this.readOnly)),
         this.lspPlugin.reconfigure(this.languageServerExtension()),
@@ -357,11 +569,15 @@ export class CM6Editor {
     this.lspClient.sync();
   }
 
-  setDark(dark: boolean) {
-    this.themeExtension = dark ? solarizedDark : solarizedLight;
+  setTheme(themeName: string) {
+    this.themeExtension = resolveEditorTheme(themeName);
     this.view.dispatch({
       effects: this.theme.reconfigure(this.themeExtension),
     });
+  }
+
+  setDark(dark: boolean) {
+    this.setTheme(dark ? "dark" : "light");
   }
 
   setReadOnly(isReadonly: boolean) {
@@ -380,6 +596,14 @@ export class CM6Editor {
       this.keyboardExtension = [];
     }
     this.view.dispatch({effects: this.keyboardMode.reconfigure(this.keyboardExtension)});
+  }
+
+  setTabSize(size: number) {
+    const normalized = Math.max(1, Math.min(16, Math.trunc(size) || 4));
+    this.tabSizeValue = normalized;
+    this.view.dispatch({
+      effects: this.indentation.reconfigure(this.indentationExtension()),
+    });
   }
 
   setExec(exec: () => void) {

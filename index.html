@@ -1,15 +1,15 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Editor online</title>
     <link data-trunk rel="copy-dir" href="compilers" />
-    <link data-trunk rel="scss" href="style/main.scss" data-inline />
-    <link data-trunk rel="css" href="style/bulma-1.0.4.min.css" />
+    <link data-trunk rel="tailwind-css" href="style/main.css" />
     <link data-trunk rel="icon" href="favicon.svg" />
     <link rel="modulepreload" href="codemirror.js" />
-    <meta charset="utf-8">
   </head>
-  <body>
+  <body class="bg-base-200 text-base-content h-dvh overflow-hidden">
     <link data-trunk rel="rust" href="frontend/Cargo.toml" data-wasm-opt="4" data-bin="frontend" data-type="main" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
     <link data-trunk rel="rust" href="worker/Cargo.toml" data-wasm-opt="4" data-type="worker" data-bindgen-target="web" data-loader-shim data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
   </body>

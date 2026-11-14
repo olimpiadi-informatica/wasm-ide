@@ -7,16 +7,19 @@ use crate::{contest_api::ContestConfig, i18n::Locale, settings::StoredSettings};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub default_ws: Workspace,
+    #[serde(default)]
+    pub default_templates: HashMap<String, WorkspaceDir>,
+    #[serde(default)]
+    pub default_stdin: WorkspaceDir,
+    #[serde(default)]
+    pub default_language: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
-    #[serde(default = "workspace_enabled_default")]
-    pub workspace_enabled: bool,
     pub default_locale: Option<Locale>,
     pub remote_eval: Option<String>,
     pub contest: Option<ContestConfig>,
-    #[serde(default)]
-    pub auto_init_contest_tasks: Option<String>,
+    #[serde(default = "auto_init_contest_tasks_default")]
+    pub auto_init_contest_tasks: bool,
     #[serde(default)]
     pub(crate) default_settings: StoredSettings,
     #[serde(flatten)]
@@ -28,25 +31,45 @@ impl Config {
         if let Some(title) = &self.title {
             anyhow::ensure!(!title.trim().is_empty(), "title cannot be empty");
         }
-        anyhow::ensure!(
-            self.workspace_enabled || self.contest.is_none(),
-            "contest integration requires workspaces to be enabled"
-        );
-        if let Some(lang) = &self.auto_init_contest_tasks {
-            anyhow::ensure!(
-                self.contest.is_some(),
-                "auto_init_contest_tasks requires a contest integration"
-            );
+        if let Some(lang) = &self.default_language {
+            anyhow::ensure!(!lang.trim().is_empty(), "default_language cannot be empty");
+        }
+        if let Some(lang) = &self.default_settings.default_language {
             anyhow::ensure!(
                 !lang.trim().is_empty(),
-                "auto_init_contest_tasks language cannot be empty"
+                "default_settings.default_language cannot be empty"
             );
         }
+        anyhow::ensure!(
+            (1..=16).contains(&self.default_settings.tab_size),
+            "default_settings.tab_size must be between 1 and 16"
+        );
         Ok(())
+    }
+
+    pub fn local_workspace(&self, language: &str, primary_ext: &str) -> Workspace {
+        let code = self
+            .default_templates
+            .get(language)
+            .filter(|dir| !dir.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                [(format!("main.{primary_ext}"), String::new().into())]
+                    .into_iter()
+                    .collect()
+            });
+        let stdin = if self.default_stdin.is_empty() {
+            [("input.txt".to_owned(), String::new().into())]
+                .into_iter()
+                .collect()
+        } else {
+            self.default_stdin.clone()
+        };
+        Workspace { code, stdin }
     }
 }
 
-const fn workspace_enabled_default() -> bool {
+const fn auto_init_contest_tasks_default() -> bool {
     true
 }
 
@@ -96,19 +119,21 @@ mod tests {
 
     use super::Config;
     use crate::contest_api::ContestConfig;
-    use crate::settings::StoredSettings;
+    use crate::settings::{StoredSettings, Theme};
+    use strum::VariantArray;
 
     #[wasm_bindgen_test]
     fn config_defaults() {
         let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
             "compilers": {}
         }))
         .unwrap();
 
-        assert!(config.workspace_enabled);
+        assert!(config.default_templates.is_empty());
+        assert!(config.default_stdin.is_empty());
+        assert!(config.default_language.is_none());
         assert!(config.title.is_none());
-        assert!(config.auto_init_contest_tasks.is_none());
+        assert!(config.auto_init_contest_tasks);
         assert!(config.default_locale.is_none());
         assert!(config.remote_eval.is_none());
         assert!(config.contest.is_none());
@@ -118,10 +143,10 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn config_auto_init_contest_tasks() {
+    fn config_default_language_and_auto_init() {
         let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
-            "auto_init_contest_tasks": "C++",
+            "default_language": "C++",
+            "auto_init_contest_tasks": false,
             "contest": {
                 "type": "cms",
                 "endpoint": "https://example.invalid"
@@ -130,29 +155,14 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(config.auto_init_contest_tasks.as_deref(), Some("C++"));
+        assert_eq!(config.default_language.as_deref(), Some("C++"));
+        assert!(!config.auto_init_contest_tasks);
         config.validate().unwrap();
-    }
-
-    #[wasm_bindgen_test]
-    fn auto_init_requires_contest() {
-        let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
-            "auto_init_contest_tasks": "C++",
-            "compilers": {}
-        }))
-        .unwrap();
-
-        assert_eq!(
-            config.validate().unwrap_err().to_string(),
-            "auto_init_contest_tasks requires a contest integration"
-        );
     }
 
     #[wasm_bindgen_test]
     fn title_rejects_empty() {
         let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
             "title": "   ",
             "compilers": {}
         }))
@@ -165,32 +175,27 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn auto_init_rejects_empty_language() {
+    fn default_language_rejects_empty() {
         let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
-            "auto_init_contest_tasks": "   ",
-            "contest": {
-                "type": "cms",
-                "endpoint": "https://example.invalid"
-            },
+            "default_language": "   ",
             "compilers": {}
         }))
         .unwrap();
 
         assert_eq!(
             config.validate().unwrap_err().to_string(),
-            "auto_init_contest_tasks language cannot be empty"
+            "default_language cannot be empty"
         );
     }
 
     #[wasm_bindgen_test]
     fn config_uses_snake_case_settings_and_an_internally_tagged_contest() {
         let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
             "default_settings": {
                 "theme": "dark",
                 "keyboard_mode": "vim",
-                "input_mode": "mixed_interactive"
+                "input_mode": "mixed_interactive",
+                "tab_size": 2
             },
             "contest": {
                 "type": "terry",
@@ -200,10 +205,11 @@ mod tests {
         }))
         .unwrap();
 
-        let settings = serde_json::to_value(config.default_settings).unwrap();
+        let settings = serde_json::to_value(&config.default_settings).unwrap();
         assert_eq!(settings["theme"], "dark");
         assert_eq!(settings["keyboard_mode"], "vim");
         assert_eq!(settings["input_mode"], "mixed_interactive");
+        assert_eq!(settings["tab_size"], 2);
         assert!(matches!(
             config.contest,
             Some(ContestConfig::Terry { ref endpoint }) if endpoint == "https://example.invalid"
@@ -212,21 +218,40 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn contest_requires_workspaces() {
+    fn local_workspace_uses_language_template_or_fallback() {
         let config: Config = serde_json::from_value(json!({
-            "default_ws": { "code": {}, "stdin": {} },
-            "workspace_enabled": false,
-            "contest": {
-                "type": "cms",
-                "endpoint": "https://example.invalid"
+            "default_templates": {
+                "C++": {
+                    "main.cpp": "int main() {}\n"
+                }
+            },
+            "default_stdin": {
+                "input.txt": "42\n"
             },
             "compilers": {}
         }))
         .unwrap();
 
+        let cpp_ws = config.local_workspace("C++", "cpp");
+        assert_eq!(cpp_ws.code["main.cpp"].as_bytes(), b"int main() {}\n");
+        assert_eq!(cpp_ws.stdin["input.txt"].as_bytes(), b"42\n");
+
+        let py_ws = config.local_workspace("Python3", "py");
+        assert_eq!(py_ws.code["main.py"].as_bytes(), b"");
+        assert_eq!(py_ws.stdin["input.txt"].as_bytes(), b"42\n");
+    }
+
+    #[wasm_bindgen_test]
+    fn theme_presets_roundtrip_and_match_editor_ids() {
         assert_eq!(
-            config.validate().unwrap_err().to_string(),
-            "contest integration requires workspaces to be enabled"
+            Theme::LIGHT_PRESETS.len() + Theme::DARK_PRESETS.len(),
+            Theme::VARIANTS.len()
         );
+        for &theme in Theme::VARIANTS {
+            let serialized = serde_json::to_value(theme).unwrap();
+            assert_eq!(serialized.as_str(), Some(theme.editor_theme()));
+            let parsed: Theme = serde_json::from_value(serialized).unwrap();
+            assert_eq!(parsed, theme);
+        }
     }
 }

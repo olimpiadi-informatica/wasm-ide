@@ -22,10 +22,15 @@
 //! futures by default. Follow the existing integrations and wrap those futures with
 //! `send_wrapper::SendWrapper` when necessary.
 
-use std::sync::{Arc, OnceLock};
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use gloo_net::http::Response;
 use serde::Deserialize;
 
 use crate::config::Workspace;
@@ -52,6 +57,98 @@ pub struct SubmitStatus {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContestPhase {
+    NotStarted,
+    Running,
+    Ended,
+    /// The contest is not currently open and exact start/end timestamps are unavailable.
+    NotOpen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContestStatus {
+    pub logged_in: bool,
+    pub login_url: String,
+    pub phase: ContestPhase,
+    pub time: Option<Range<DateTime<Utc>>>,
+    /// Difference `server_now_ms - client_now_ms` derived from the HTTP `Date` header, if present.
+    pub clock_offset_ms: i64,
+}
+
+impl ContestStatus {
+    pub fn effective_phase(&self, client_now_ms: i64) -> ContestPhase {
+        let Some(time) = &self.time else {
+            return self.phase;
+        };
+        let server_ms = client_now_ms.saturating_add(self.clock_offset_ms);
+        let Some(now) = DateTime::from_timestamp_millis(server_ms) else {
+            return self.phase;
+        };
+        if now < time.start {
+            ContestPhase::NotStarted
+        } else if now >= time.end {
+            ContestPhase::Ended
+        } else if self.phase == ContestPhase::NotStarted {
+            ContestPhase::NotStarted
+        } else {
+            ContestPhase::Running
+        }
+    }
+
+    pub fn countdown_seconds(&self, client_now_ms: i64) -> Option<i64> {
+        let time = self.time.as_ref()?;
+        let server_ms = client_now_ms.saturating_add(self.clock_offset_ms);
+        let now = DateTime::from_timestamp_millis(server_ms)?;
+        match self.effective_phase(client_now_ms) {
+            ContestPhase::NotStarted if now < time.start => Some(
+                ((time.start - now).num_milliseconds() + 999)
+                    .div_euclid(1000)
+                    .max(0),
+            ),
+            ContestPhase::Running if now < time.end => Some(
+                ((time.end - now).num_milliseconds() + 999)
+                    .div_euclid(1000)
+                    .max(0),
+            ),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) fn endpoint_login_url(endpoint: &str) -> String {
+    let trimmed = endpoint.trim();
+    if trimmed.is_empty() {
+        "/".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+pub(crate) fn response_clock_offset_ms(res: &Response) -> i64 {
+    let client_now = js_sys::Date::now();
+    res.headers()
+        .get("date")
+        .map(|date| js_sys::Date::parse(&date))
+        .filter(|ms| ms.is_finite())
+        .map(|server_ms| (server_ms - client_now).round() as i64)
+        .unwrap_or(0)
+}
+
+pub fn format_countdown(total_seconds: i64) -> String {
+    let secs = total_seconds.max(0);
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+    if hours >= 24 {
+        let days = hours / 24;
+        let rem_hours = hours % 24;
+        format!("{days}d {rem_hours:02}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
+    }
+}
+
 /// Common interface between the frontend and a remote contest system.
 ///
 /// Implementations translate the contest system's protocol into the task, workspace, scoring, and
@@ -59,6 +156,9 @@ pub struct SubmitStatus {
 /// implementation must also be `Send + Sync`.
 #[async_trait]
 pub trait ContestAPI {
+    /// Queries authentication status and contest timing/phase information.
+    async fn contest_status(&self) -> Result<ContestStatus>;
+
     /// Lists the tasks available to the current user.
     ///
     /// Each returned [`Task`] must contain the stable remote identifier used by the other methods
@@ -112,4 +212,41 @@ pub async fn init(config: Option<&ContestConfig>) {
         .set(api)
         .ok()
         .expect("ContestAPI already initialized");
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::DateTime;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::{ContestPhase, ContestStatus, format_countdown};
+
+    #[wasm_bindgen_test]
+    fn contest_status_computes_phases_and_ceil_countdown() {
+        let start = DateTime::from_timestamp(1_000, 0).unwrap();
+        let end = DateTime::from_timestamp(4_600, 0).unwrap();
+        let status = ContestStatus {
+            logged_in: true,
+            login_url: "/".to_owned(),
+            phase: ContestPhase::Running,
+            time: Some(start..end),
+            clock_offset_ms: 0,
+        };
+
+        assert_eq!(status.effective_phase(999_200), ContestPhase::NotStarted);
+        assert_eq!(status.countdown_seconds(999_200), Some(1));
+
+        assert_eq!(status.effective_phase(1_000_000), ContestPhase::Running);
+        assert_eq!(status.countdown_seconds(1_000_000), Some(3_600));
+
+        assert_eq!(status.effective_phase(4_600_000), ContestPhase::Ended);
+        assert_eq!(status.countdown_seconds(4_600_000), None);
+    }
+
+    #[wasm_bindgen_test]
+    fn countdown_formats_hours_and_days() {
+        assert_eq!(format_countdown(65), "00:01:05");
+        assert_eq!(format_countdown(3_661), "01:01:01");
+        assert_eq!(format_countdown(90_061), "1d 01:01:01");
+    }
 }

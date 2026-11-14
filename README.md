@@ -59,18 +59,21 @@ The main fields are:
 
 - `title`: an optional window/tab title for the application. Set to `null`
   or omit to preserve the default title.
-- `default_ws`: initial `code` and `stdin` files for a new local workspace. Each
-  object maps a filename to either a UTF-8 string or an array of bytes.
+- `default_language`: an optional programming language name (e.g., `"C++"`).
+  When `null` or omitted, new users are prompted on first load to choose their
+  default programming language.
+- `default_templates`: a map from language name (e.g., `"C++"`, `"Python3"`) to
+  an initial `code` directory map for new local workspaces. Languages not listed
+  fall back to an empty `main.<ext>` file.
+- `default_stdin`: initial `stdin` files for new local workspaces. Each entry
+  maps a filename to either a UTF-8 string or an array of bytes.
 - `remote_eval`: an optional endpoint for a remote evaluation backend. Set it
   to `null` to use only the in-browser backends.
 - `contest`: an optional contest-system connection. Set it to `null` when no
   contest integration is needed.
-- `workspace_enabled`: whether to show workspace management. It defaults to
-  `true`; set it to `false` to use a persistent workspace named `default`
-  automatically. This mode cannot be combined with a contest integration.
-- `auto_init_contest_tasks`: an optional language name (e.g., `"C++"`). When configured
-  with a contest system, wasm-ide automatically queries the contest API at startup
-  and creates non-deletable workspaces for all contest tasks using this language (if not already present).
+- `auto_init_contest_tasks`: whether to automatically create non-deletable
+  workspaces for all contest tasks using the default language when a contest
+  integration is configured (defaults to `true`).
 - `default_locale`: the initial interface language. A locale previously selected
   by the user takes precedence; set this field to `null` to use the browser
   language.

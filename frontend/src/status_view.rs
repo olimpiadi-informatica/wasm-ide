@@ -1,40 +1,11 @@
 use common::WorkerExecStatus;
-use leptos::either::{Either, EitherOf3, EitherOf4, EitherOf5};
 use leptos::prelude::*;
 use tracing::warn;
 
 use crate::config::Config;
 use crate::i18n::*;
+use crate::util::Icon;
 use crate::{FetchingCompilerProgress, RunState, StateExec, StateLS, StateSubmit};
-
-#[derive(Default)]
-#[slot]
-struct MessageHeader {
-    #[prop(optional)]
-    children: Option<Children>,
-}
-
-#[component]
-fn Message(
-    #[prop(into)] kind: Signal<String>,
-    #[prop(optional)] message_header: MessageHeader,
-    children: Children,
-) -> impl IntoView {
-    view! {
-        <div
-            style:position="fixed"
-            style:top="0.5em"
-            style:left="50%"
-            style:transform="translateX(-50%)"
-            style:z-index="1000"
-            style:box-shadow="0 0 1em 0 hsla(var(--bulma-shadow-h), var(--bulma-shadow-s), var(--bulma-shadow-l), .1)"
-            class=move || format!("message {}", kind.get())
-        >
-            {message_header.children.map(|h| view! { <div class="message-header">{h()}</div> })}
-            <div class:message-body>{children()}</div>
-        </div>
-    }
-}
 
 #[component]
 pub fn StatusView(
@@ -43,124 +14,111 @@ pub fn StatusView(
 ) -> impl IntoView {
     let i18n = use_i18n();
 
-    let render_exec = move |exec: &StateExec| match exec {
-        StateExec::Ready | StateExec::Complete { error: None, .. } => None,
+    let is_fetching_compiler = Memo::new(move |_| {
+        let s = state.read();
+        matches!(
+            s.exec,
+            StateExec::Processing {
+                status: Some(WorkerExecStatus::FetchingCompiler),
+                ..
+            }
+        ) || matches!(s.ls, StateLS::FetchingCompiler)
+            || !fetching_compiler_progress.read().is_empty()
+    });
 
-        StateExec::Processing { stopping: true, .. } => Some(EitherOf5::A(
-            view! { <Message kind="is-warning">{t!(i18n, stopping_execution)}</Message> },
-        )),
+    let ls_error = Memo::new(move |_| match &state.read().ls {
+        StateLS::Error(err) => Some(err.clone()),
+        _ => None,
+    });
 
-        StateExec::Processing {
-            status: Some(WorkerExecStatus::FetchingCompiler),
-            ..
-        } => Some(EitherOf5::B(
-            view! { <FetchingCompilerMessageBar fetching_compiler_progress /> },
-        )),
+    let is_submitting =
+        Memo::new(move |_| matches!(state.read().submit, StateSubmit::Submitting(_)));
 
-        StateExec::Processing {
-            status: Some(WorkerExecStatus::Compiling),
-            ..
-        } => Some(EitherOf5::C(
-            view! { <Message kind="is-success">{t!(i18n, compiling)}</Message> },
-        )),
+    let submit_complete = Memo::new(move |_| match &state.read().submit {
+        StateSubmit::Complete(status) => Some((status.score, status.message.clone())),
+        _ => None,
+    });
 
-        StateExec::Processing {
-            status: None | Some(WorkerExecStatus::Running),
-            ..
-        } => Some(EitherOf5::D(
-            view! { <Message kind="is-success">{t!(i18n, executing)}</Message> },
-        )),
+    let submit_error = Memo::new(move |_| match &state.read().submit {
+        StateSubmit::Error(err) => Some(err.clone()),
+        _ => None,
+    });
 
-        StateExec::Complete {
-            error: Some(err), ..
-        } => Some(EitherOf5::E(view! {
-            <ErrorMessageBar
-                err
-                clear=move || {
-                    match &mut state.write().exec {
-                        StateExec::Complete { error, .. } => {
-                            *error = None;
-                        }
-                        _ => warn!("Unexpected state when hiding error"),
-                    }
-                }
-            />
-        })),
-    };
+    view! {
+        <div class="toast toast-bottom toast-end z-[1000] gap-2 p-3 pointer-events-none">
+            <Show when=move || is_fetching_compiler.get()>
+                <div class="pointer-events-auto">
+                    <FetchingCompilerMessageBar fetching_compiler_progress />
+                </div>
+            </Show>
 
-    let render_ls = move |ls: &StateLS| match ls {
-        StateLS::Ready => None,
-        StateLS::Requested => None,
-        StateLS::FetchingCompiler => Some(Either::Left(
-            view! { <FetchingCompilerMessageBar fetching_compiler_progress /> },
-        )),
-        StateLS::Running => None,
-        StateLS::Error(err) => Some(Either::Right(view! {
-            <ErrorMessageBar
-                err
-                clear=move || {
-                    match &mut state.write().ls {
-                        ls @ StateLS::Error(_) => {
-                            *ls = StateLS::Ready;
-                        }
-                        _ => warn!("Unexpected state when hiding LS error"),
-                    }
-                }
-            />
-        })),
-    };
+            <Show when=move || is_submitting.get()>
+                <div class="alert alert-info shadow-lg py-2.5 px-4 text-sm pointer-events-auto">
+                    <span class="loading loading-spinner loading-sm" />
+                    <span>{t!(i18n, submitting)}</span>
+                </div>
+            </Show>
 
-    let render_submit = move |submit: &StateSubmit| match submit {
-        StateSubmit::Ready => None,
-        StateSubmit::Submitting(_) => Some(EitherOf3::A(
-            view! { <Message kind="is-success">{t!(i18n, submitting)}</Message> },
-        )),
-        StateSubmit::Complete(status) => {
-            let status = status.clone();
-            Some(EitherOf3::B(view! {
-                <Message kind="is-success">
-                    <MessageHeader slot>
-                        <p>{t!(i18n, submission)}</p>
+            <ShowLet some=submit_complete let:((score, message))>
+                <div class="alert alert-success shadow-lg py-3 px-4 text-sm flex flex-col items-stretch gap-1 max-w-md pointer-events-auto">
+                    <div class="flex items-center justify-between gap-4">
+                        <div class="flex items-center gap-2 font-semibold">
+                            <Icon attr:class="w-4 h-4 shrink-0" icon=icondata::BiCheckCircleSolid />
+                            <span>{t!(i18n, submission)}</span>
+                        </div>
                         <button
-                            class="delete"
-                            aria-label="delete"
+                            type="button"
+                            class="btn btn-ghost btn-xs btn-circle"
+                            aria-label="close"
                             on:click=move |_| {
-                                state
-                                    .update(|s| {
-                                        s.submit = StateSubmit::Ready;
-                                    });
+                                state.update(|s| {
+                                    s.submit = StateSubmit::Ready;
+                                });
                             }
-                        ></button>
-                    </MessageHeader>
-                    <p>{t!(i18n, submission_score, score = status.score)}</p>
-                    {status.message.map(|message| view! { <pre>{message}</pre> })}
-                </Message>
-            }))
-        }
-        StateSubmit::Error(err) => Some(EitherOf3::C(view! {
-            <ErrorMessageBar
-                err
-                clear=move || {
-                    state
-                        .update(|s| {
-                            s.submit = StateSubmit::Ready;
-                        });
-                }
-            />
-        })),
-    };
+                        >
+                            <Icon attr:class="w-3.5 h-3.5" icon=icondata::IoClose />
+                        </button>
+                    </div>
+                    <p class="font-mono font-medium">{t!(i18n, submission_score, score = score)}</p>
+                    {message.map(|msg| {
+                        view! {
+                            <pre class="text-xs bg-base-100/20 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
+                                {msg}
+                            </pre>
+                        }
+                    })}
+                </div>
+            </ShowLet>
 
-    move || {
-        let snapshot = state.read();
-        if let Some(view) = render_exec(&snapshot.exec) {
-            EitherOf4::A(view)
-        } else if let Some(view) = render_submit(&snapshot.submit) {
-            EitherOf4::B(view)
-        } else if let Some(view) = render_ls(&snapshot.ls) {
-            EitherOf4::C(view)
-        } else {
-            EitherOf4::D(())
-        }
+            <ShowLet some=submit_error let:err>
+                <div class="pointer-events-auto">
+                    <ErrorMessageBar
+                        err
+                        clear=move || {
+                            state.update(|s| {
+                                s.submit = StateSubmit::Ready;
+                            });
+                        }
+                    />
+                </div>
+            </ShowLet>
+
+            <ShowLet some=ls_error let:err>
+                <div class="pointer-events-auto">
+                    <ErrorMessageBar
+                        err
+                        clear=move || {
+                            match &mut state.write().ls {
+                                ls @ StateLS::Error(_) => {
+                                    *ls = StateLS::Ready;
+                                }
+                                _ => warn!("Unexpected state when hiding LS error"),
+                            }
+                        }
+                    />
+                </div>
+            </ShowLet>
+        </div>
     }
 }
 
@@ -173,18 +131,26 @@ fn ErrorMessageBar(
     let title = move || t_string!(i18n, hide_error);
     let clear = move |_| clear();
     view! {
-        <Message kind="is-danger">
-            <MessageHeader slot>
-                <p>{t!(i18n, error)}</p>
+        <div class="alert alert-error shadow-lg py-3 px-4 text-sm flex flex-col items-stretch gap-1 max-w-md">
+            <div class="flex items-center justify-between gap-4">
+                <div class="flex items-center gap-2 font-semibold">
+                    <Icon attr:class="w-4 h-4 shrink-0" icon=icondata::BiErrorCircleSolid />
+                    <span>{t!(i18n, error)}</span>
+                </div>
                 <button
-                    class="delete"
-                    aria-label="delete"
+                    type="button"
+                    class="btn btn-ghost btn-xs btn-circle"
+                    aria-label="close"
                     title=title
-                    on:click=clear.clone()
-                ></button>
-            </MessageHeader>
-            <pre>{err}</pre>
-        </Message>
+                    on:click=clear
+                >
+                    <Icon attr:class="w-3.5 h-3.5" icon=icondata::IoClose />
+                </button>
+            </div>
+            <pre class="text-xs font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
+                {err}
+            </pre>
+        </div>
     }
 }
 
@@ -193,58 +159,49 @@ fn FetchingCompilerMessageBar(
     fetching_compiler_progress: RwSignal<FetchingCompilerProgress>,
 ) -> impl IntoView {
     let i18n = use_i18n();
+    let app_config = StoredValue::new(expect_context::<Config>());
 
     let render_progress = move |name: String| {
-        let config = expect_context::<Config>();
         let progress = {
             let name = name.clone();
             Signal::derive(move || fetching_compiler_progress.read().get(&name).cloned())
         };
-        let max = config.worker.compilers.get(&name).copied();
+        let max = app_config.with_value(|cfg| cfg.worker.compilers.get(&name).copied());
         view! {
-            <tr>
-                <td class:is-family-monospace>{name}</td>
-                <td style:vertical-align="middle">
-                    <progress
-                        class:progress
-                        class:is-primary
-                        style:margin-bottom="0"
-                        style:width="20em"
-                        value=move || progress.get()
-                        max=max
-                    />
-                </td>
-                <td style:width="4em" style:text-align="right">
+            <div class="flex items-center gap-3 text-xs">
+                <span class="font-mono font-medium w-16 truncate">{name}</span>
+                <progress
+                    class="progress progress-primary w-40 h-2"
+                    value=move || progress.get()
+                    max=max
+                />
+                <span class="font-mono w-12 text-right">
                     {move || {
                         progress
                             .get()
                             .zip(max)
-                            .map(|(cur, tot)| { format!("{:.1}%", 100. * cur as f64 / tot as f64) })
+                            .map(|(cur, tot)| format!("{:.0}%", 100. * cur as f64 / tot as f64))
                     }}
-                </td>
-            </tr>
+                </span>
+            </div>
         }
     };
 
     view! {
-        <Message kind="is-primary">
-            <h3>{t!(i18n, downloading_runtime)}</h3>
-            <table
-                class:table
-                style:--bulma-table-background-color="none"
-                style:--bulma-table-color="inherit"
-                style:--bulma-table-cell-border-width="0"
-            >
-                <tbody>
-                    <For
-                        each=move || fetching_compiler_progress.get()
-                        key=|x| x.0.clone()
-                        let((name, _))
-                    >
-                        {move || render_progress(name.clone())}
-                    </For>
-                </tbody>
-            </table>
-        </Message>
+        <div class="alert bg-base-100 border border-base-300 shadow-lg py-3 px-4 text-sm flex flex-col items-stretch gap-2">
+            <div class="flex items-center gap-2 font-semibold text-xs">
+                <span class="loading loading-spinner loading-xs text-primary" />
+                <span>{t!(i18n, downloading_runtime)}</span>
+            </div>
+            <div class="flex flex-col gap-1.5">
+                <For
+                    each=move || fetching_compiler_progress.get()
+                    key=|x| x.0.clone()
+                    let((name, _))
+                >
+                    {move || render_progress(name.clone())}
+                </For>
+            </div>
+        </div>
     }
 }
