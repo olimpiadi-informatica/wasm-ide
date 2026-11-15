@@ -441,43 +441,46 @@ pub fn EditorDir(
                             }
                         >
                             <span class="font-mono">{label}</span>
-                            <Show when=move || !readonly.get()>
-                                <button
-                                    type="button"
-                                    class=move || {
-                                        if is_confirming_del.get() {
-                                            "btn btn-error btn-xs h-4 min-h-0 px-1 rounded text-[10px]"
-                                        } else {
-                                            "opacity-40 group-hover:opacity-100 hover:text-error transition-opacity p-0.5 rounded"
-                                        }
+                            <button
+                                type="button"
+                                disabled=move || readonly.get()
+                                class=move || {
+                                    if readonly.get() {
+                                        "opacity-20 pointer-events-none p-0.5 rounded"
+                                    } else if is_confirming_del.get() {
+                                        "btn btn-error btn-xs h-4 min-h-0 px-1 rounded text-[10px]"
+                                    } else {
+                                        "opacity-40 group-hover:opacity-100 hover:text-error transition-opacity p-0.5 rounded"
                                     }
-                                    title=move || {
-                                        if is_confirming_del.get() {
-                                            t_string!(i18n, confirm_delete).to_string()
-                                        } else {
-                                            t_string!(i18n, delete_file).to_string()
-                                        }
+                                }
+                                title=move || {
+                                    if is_confirming_del.get() {
+                                        t_string!(i18n, confirm_delete).to_string()
+                                    } else {
+                                        t_string!(i18n, delete_file).to_string()
                                     }
-                                    on:click={
-                                        let del_name = del_name.clone();
-                                        move |ev| {
-                                            ev.stop_propagation();
+                                }
+                                on:click={
+                                    let del_name = del_name.clone();
+                                    move |ev| {
+                                        ev.stop_propagation();
+                                        if !readonly.get_untracked() {
                                             arm_or_remove_file(del_name.clone());
                                         }
                                     }
-                                >
-                                    <Icon
-                                        attr:class="w-3 h-3"
-                                        icon=Signal::derive(move || {
-                                            if is_confirming_del.get() {
-                                                icondata::BiTrashSolid
-                                            } else {
-                                                icondata::IoClose
-                                            }
-                                        })
-                                    />
-                                </button>
-                            </Show>
+                                }
+                            >
+                                <Icon
+                                    attr:class="w-3 h-3"
+                                    icon=Signal::derive(move || {
+                                        if is_confirming_del.get() {
+                                            icondata::BiTrashSolid
+                                        } else {
+                                            icondata::IoClose
+                                        }
+                                    })
+                                />
+                            </button>
                         </div>
                     }
                 }
