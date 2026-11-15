@@ -39,7 +39,7 @@ jobs:
       - name: Download compiler assets
         run: |
           mkdir -p compilers
-          gh release download v0.1.2 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern "*.tar.br"
+          gh release download v0.2.0 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern "*.tar.br"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
