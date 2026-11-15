@@ -415,9 +415,9 @@ pub fn OutputView(state: RwSignal<RunState>) -> impl IntoView {
             <pre
                 class=move || {
                     if did_execute.get() {
-                        "flex-1 min-h-0 w-full overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words m-0"
+                        "flex-1 min-h-0 w-full overflow-auto p-3 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words m-0"
                     } else {
-                        "flex-1 min-h-0 w-full overflow-auto p-3 font-mono text-xs leading-relaxed text-base-content/40 italic m-0"
+                        "flex-1 min-h-0 w-full overflow-auto p-3 font-mono text-sm leading-relaxed text-base-content/40 italic m-0"
                     }
                 }
                 node_ref=content_ref

@@ -128,6 +128,14 @@ pub fn EditorView(
     let mobile_pane = RwSignal::new(MobilePane::Code);
     let is_running = Signal::derive(move || state.with(|s| s.is_running()));
 
+    Effect::new(move |prev_running: Option<bool>| {
+        let running = is_running.get();
+        if is_mobile.get_untracked() && running && !prev_running.unwrap_or(false) {
+            mobile_pane.set(MobilePane::Output);
+        }
+        running
+    });
+
     Effect::new(move || {
         if is_resizing_col.get() {
             let perc = x.get() / width.get() * 100.0;
