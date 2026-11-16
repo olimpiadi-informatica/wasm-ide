@@ -34,6 +34,7 @@ pub async fn run(
             send_compiler_message(buf);
             buf.len()
         })))
+        .arg("rustc")
         .arg("--target=wasm32-wasip1-threads")
         .arg("--sysroot=/")
         .arg("-Zno-parallel-backend")
@@ -81,13 +82,52 @@ pub async fn run(
     Ok(())
 }
 
-pub async fn run_ls(files: Vec<File>, _stdin: Pipe, _stdout: Pipe, _stderr: Pipe) -> Result<()> {
+pub async fn run_ls(files: Vec<File>, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
     crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
     let mut fs = get_fs("rust")
         .await
         .context("Failed to get Rust filesystem")?;
+
+    let mut crate_entries = Vec::new();
+    for file in &files {
+        if file.name.ends_with(".rs") {
+            crate_entries.push(format!(
+                r#"{{"root_module": "/workdir/{}", "edition": "2024", "deps": []}}"#,
+                file.name
+            ));
+        }
+    }
+    if crate_entries.is_empty() {
+        fs.add_file_with_path(b"/workdir/main.rs", Rc::new(Vec::new()));
+        crate_entries.push(
+            r#"{"root_module": "/workdir/main.rs", "edition": "2024", "deps": []}"#.to_owned(),
+        );
+    }
+
     super::mirror_workdir(&mut fs, files);
 
+    let rust_project = format!(
+        r#"{{"sysroot": "/", "sysroot_src": "/lib/rustlib/src/rust/library", "crates": [{}]}}"#,
+        crate_entries.join(", ")
+    );
+    fs.add_file_with_path(
+        b"/workdir/rust-project.json",
+        Rc::new(rust_project.into_bytes()),
+    );
+
+    let proc = ProcessHandle::builder()
+        .name("rust-analyzer")
+        .fs(fs)
+        .stdin(FdEntry::Pipe(stdin))
+        .stdout(FdEntry::Pipe(stdout))
+        .stderr(FdEntry::Pipe(stderr))
+        .arg("rust-analyzer")
+        .spawn_with_path(b"bin/rust-analyzer");
+
     crate::send_msg(common::WorkerLSResponse::Started);
+    let status_code = proc.proc.wait().await;
+    status_code
+        .check_success()
+        .context("rust-analyzer failed")?;
     Ok(())
 }

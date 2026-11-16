@@ -9,7 +9,7 @@
     "@codemirror/lang-rust": "^6.0.2",
     "@codemirror/language": "^6.12.4",
     "@codemirror/legacy-modes": "^6.5.3",
-    "@codemirror/lsp-client": "git+https://github.com/veluca93/lsp-client.git",
+    "@codemirror/lsp-client": "^6.3.1",
     "@replit/codemirror-emacs": "^6.1.0",
     "@replit/codemirror-lang-csharp": "^6.2.0",
     "@replit/codemirror-vim": "^6.4.0",

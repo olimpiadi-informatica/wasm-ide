@@ -114,7 +114,7 @@ jobs:
       - name: Download C++ compiler
         run: |
           mkdir -p compilers
-          gh release download v0.1.2 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern cpp.tar.br
+          gh release download v0.2.0 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern cpp.tar.br
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
