@@ -187,6 +187,88 @@ const cursorFocusSync = ViewPlugin.fromClass(
   },
 );
 
+const docTooltipTypography = {
+  fontSize: "0.8125rem",
+  lineHeight: "1.45",
+  overflowWrap: "anywhere",
+};
+
+const docTooltipScrollBox = {
+  maxHeight: "min(360px, 45vh)",
+  overflow: "auto",
+};
+
+const lspTooltipTheme = EditorView.theme({
+  ".cm-tooltip": {
+    borderRadius: "6px",
+    boxShadow: "0 8px 24px rgb(0 0 0 / 0.18)",
+  },
+  ".cm-tooltip.cm-tooltip-hover": {
+    ...docTooltipScrollBox,
+    maxWidth: "min(450px, calc(100vw - 24px))",
+  },
+  ".cm-tooltip-hover .cm-lsp-hover-tooltip": {
+    ...docTooltipTypography,
+    padding: "8px 12px",
+  },
+  ".cm-tooltip.cm-completionInfo": {
+    ...docTooltipScrollBox,
+    ...docTooltipTypography,
+    padding: "8px 12px",
+  },
+  ".cm-lsp-completion-documentation": {
+    ...docTooltipTypography,
+    whiteSpace: "normal",
+    padding: "0",
+  },
+  ".cm-lsp-documentation > :first-child": {
+    marginTop: "0",
+  },
+  ".cm-lsp-documentation > :last-child": {
+    marginBottom: "0",
+  },
+  ".cm-lsp-documentation p, .cm-lsp-documentation ul, .cm-lsp-documentation ol, .cm-lsp-documentation pre, .cm-lsp-documentation blockquote":
+    {
+      margin: "6px 0",
+    },
+  ".cm-lsp-documentation h1, .cm-lsp-documentation h2, .cm-lsp-documentation h3, .cm-lsp-documentation h4":
+    {
+      fontWeight: "600",
+      margin: "8px 0 4px",
+    },
+  ".cm-lsp-documentation ul": {
+    listStyleType: "disc",
+    paddingLeft: "20px",
+  },
+  ".cm-lsp-documentation ol": {
+    listStyleType: "decimal",
+    paddingLeft: "20px",
+  },
+  ".cm-lsp-documentation pre": {
+    overflowX: "auto",
+    padding: "6px 8px",
+    borderRadius: "4px",
+    backgroundColor: "color-mix(in oklab, currentColor 8%, transparent)",
+    fontSize: "0.75rem",
+    lineHeight: "1.4",
+  },
+  ".cm-lsp-documentation code": {
+    fontFamily: "var(--font-mono, monospace)",
+    fontSize: "0.9em",
+  },
+  ".cm-lsp-documentation pre code": {
+    fontSize: "inherit",
+  },
+  ".cm-lsp-documentation a": {
+    textDecoration: "underline",
+  },
+  ".cm-lsp-documentation hr": {
+    border: "0",
+    borderTop: "1px solid color-mix(in oklab, currentColor 18%, transparent)",
+    margin: "8px 0",
+  },
+});
+
 const editorSetup: Extension = [
   lineNumbers(),
   highlightActiveLineGutter(),
@@ -206,6 +288,7 @@ const editorSetup: Extension = [
   highlightActiveLine(),
   highlightSelectionMatches(),
   cursorFocusSync,
+  lspTooltipTheme,
   keymap.of([
     ...closeBracketsKeymap,
     ...defaultKeymap,

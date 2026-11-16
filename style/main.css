@@ -245,18 +245,6 @@ body {
   height: 100%;
 }
 
-.cm-hover-doc-tt {
-  font-family: monospace;
-}
-
-.cm-hover-doc {
-  max-width: min(600px, 50vw);
-}
-
-.cm-hover-doc ol {
-  margin: 0;
-}
-
 .covers-page-col {
   position: fixed;
   inset: 0;
