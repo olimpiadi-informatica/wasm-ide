@@ -17,7 +17,7 @@ use crate::settings::use_settings;
 use crate::util::Icon;
 use crate::{backend, contest_api};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     pub task: Option<String>,
     pub language: String,

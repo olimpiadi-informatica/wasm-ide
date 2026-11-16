@@ -217,7 +217,11 @@ fn handle_ls_message(
             ls_message_chan.unbounded_send(msg2)?;
         }
 
-        (WorkerLSResponse::Stopped, StateLS::Requested) => {}
+        (WorkerLSResponse::Stopped, StateLS::Ready | StateLS::Requested) => {}
+
+        (WorkerLSResponse::Stopped, StateLS::FetchingCompiler | StateLS::Running) => {
+            state.ls = StateLS::Ready;
+        }
 
         (
             WorkerLSResponse::Error(msg),
@@ -420,12 +424,18 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
         let current = workspace.get();
         set_saved_workspace(current.as_deref());
     });
-    let workspace_config = LocalResource::new(move || {
+    let workspace_config_raw = LocalResource::new(move || {
         let workspace = workspace.get();
         async move {
             let ws = workspace?;
-            WorkspaceConfig::load(&ws).await.ok()
+            let cfg = WorkspaceConfig::load(&ws).await.ok();
+            Some((ws, cfg))
         }
+    });
+    let workspace_config = Memo::new(move |_| {
+        let ws = workspace.get()?;
+        let (loaded_ws, cfg) = workspace_config_raw.get().flatten()?;
+        (loaded_ws == ws).then_some(cfg)
     });
     let task_score = LocalResource::new(move || {
         let workspace_config = workspace_config.get();
@@ -544,16 +554,23 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
 
     {
         let ls_sender = ls_sender.clone();
-        Effect::new(move |old: Option<(String, Option<String>, u64)>| {
-            let lang = language.get();
+        Effect::new(move |old: Option<Option<(String, String, u64)>>| {
             let code_dir = code.dir().get();
             let revision = code.files_revision().get();
-            info!("Requesting language server for {lang:?}");
-            if let Some((old_lang, _, _)) = &old {
+            let ready = workspace
+                .get()
+                .is_none_or(|_| workspace_config.get().is_some());
+            if let Some(Some((old_lang, _, _))) = &old {
                 backend::for_lang(old_lang).send_message(WorkerLSRequest::Stop.into());
             }
             ls_sender.unbounded_send(WorkerLSResponse::Stopped).unwrap();
-            if let Some(code_dir) = &code_dir {
+            if !ready {
+                state.update(|s| s.ls = StateLS::Ready);
+                return None;
+            }
+            let lang = language.get();
+            info!("Requesting language server for {lang:?}");
+            if let Some(code_dir) = code_dir {
                 state.update(|s| {
                     s.ls = StateLS::Requested;
                 });
@@ -564,10 +581,11 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                     }
                     .into(),
                 );
+                Some((lang, code_dir, revision))
             } else {
                 state.update(|s| s.ls = StateLS::Ready);
+                None
             }
-            (lang, code_dir, revision)
         });
     }
 
