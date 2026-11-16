@@ -13,8 +13,19 @@ use web_sys::ReadableStreamDefaultReader;
 use crate::os::Fs;
 use crate::{WORKER_STATE, send_msg};
 
+struct FetchGuard(String);
+
+impl Drop for FetchGuard {
+    fn drop(&mut self) {
+        send_msg(WorkerResponse::CompilerFetchDone(std::mem::take(
+            &mut self.0,
+        )));
+    }
+}
+
 async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
     send_msg(WorkerResponse::FetchingCompiler(name.to_owned(), 0));
+    let _guard = FetchGuard(name.to_owned());
     let url = format!("./compilers/{name}.tar");
     let res = Request::get(&url).send().await?;
     ensure!(
@@ -49,7 +60,6 @@ async fn fetch_tar(name: &str) -> Result<Vec<u8>> {
         ));
     }
 
-    send_msg(WorkerResponse::CompilerFetchDone(name.to_owned()));
     Ok(body)
 }
 
