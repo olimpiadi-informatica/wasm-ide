@@ -21,6 +21,9 @@
         "Rust": {
             "main.rs": "fn main() {\n    println!(\"Hello world\");\n}\n"
         },
+        "Java": {
+            "Main.java": "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello world\");\n    }\n}\n"
+        },
         "JavaScript": {
             "main.js": "console.log(\"Hello world\");\n"
         }
