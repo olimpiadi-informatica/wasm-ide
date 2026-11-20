@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use common::{ExecConfig, File, WorkerExecRequest, WorkerExecResponse, WorkerResponse};
-use futures_util::{StreamExt, future::try_join};
+use futures_util::{
+    StreamExt,
+    future::{join, try_join},
+};
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 
@@ -47,19 +50,28 @@ impl ContestAPI for Terry {
         let lang_ext = backend::languages()
             .iter()
             .find(|l| l.name == lang)
-            .map(|l| l.extensions[0].clone())
-            .unwrap();
+            .and_then(|l| l.extensions.first())
+            .cloned()
+            .ok_or_else(|| anyhow!("Unsupported language: {lang}"))?;
 
         let filename = format!("{task}.{lang_ext}");
         let input_filename = format!("{task}.input.txt");
-        let (source, input) = try_join(
+        let (source, input) = join(
             SendWrapper::new(api::get_statement_file(&self.path, task, &filename)),
             SendWrapper::new(api::get_statement_file(&self.path, task, &input_filename)),
         )
-        .await?;
+        .await;
 
-        let code = [(filename, source.into())].into_iter().collect();
-        let stdin = [(input_filename, input.into())].into_iter().collect();
+        let code = source
+            .ok()
+            .map(|data| (filename, data.into()))
+            .into_iter()
+            .collect();
+        let stdin = input
+            .ok()
+            .map(|data| (input_filename, data.into()))
+            .into_iter()
+            .collect();
         Ok(Workspace { code, stdin })
     }
 

@@ -98,8 +98,22 @@ pub fn set_saved_workspace(ws: Option<&str>) {
     .expect("failed to update active workspace");
 }
 
+fn fill_missing_from_default(ws: &mut Workspace, config: &Config, language: &str) {
+    if ws.code.is_empty() || ws.stdin.is_empty() {
+        let ext = primary_extension_for_lang(language);
+        let default_ws = config.local_workspace(language, &ext);
+        if ws.code.is_empty() {
+            ws.code = default_ws.code;
+        }
+        if ws.stdin.is_empty() {
+            ws.stdin = default_ws.stdin;
+        }
+    }
+}
+
 pub async fn ensure_contest_workspaces(
     api: &contest_api::DynContestAPI,
+    config: &Config,
     language: &str,
 ) -> anyhow::Result<()> {
     let workspace_dir = common::opfs::open_dir("workspace", true).await;
@@ -110,7 +124,8 @@ pub async fn ensure_contest_workspaces(
             return Ok(());
         }
         let res = async {
-            let ws = api.init_workspace(task_id, language).await?;
+            let mut ws = api.init_workspace(task_id, language).await?;
+            fill_missing_from_default(&mut ws, config, language);
             let config = WorkspaceConfig {
                 task: Some(task_id.clone()),
                 language: language.to_string(),
@@ -292,7 +307,7 @@ pub fn WorkspaceSelector(
     });
 
     Effect::new(move |_| {
-        if show_create_form.get() {
+        if show_create_form.get() || workspaces.get().is_empty() {
             language.set(resolve_default_lang());
             if !name_customized.get_untracked() && new_name.get_untracked().trim().is_empty() {
                 let selected_task = task.get_untracked();
@@ -346,7 +361,10 @@ pub fn WorkspaceSelector(
                     .init_workspace(&selected_task, &selected_lang)
                     .await
                 {
-                    Ok(ws) => ws,
+                    Ok(mut ws) => {
+                        fill_missing_from_default(&mut ws, &config, &selected_lang);
+                        ws
+                    }
                     Err(err) => {
                         warn!("Failed to initialize workspace for task '{selected_task}': {err:?}");
                         return;
@@ -375,6 +393,7 @@ pub fn WorkspaceSelector(
             active.set(Some(name));
             open.set(false);
             show_create_form.set(false);
+            task.set(String::new());
             new_name.set(String::new());
             name_customized.set(false);
         });
@@ -407,38 +426,40 @@ pub fn WorkspaceSelector(
                             <Icon attr:class="w-4 h-4 text-primary" icon=icondata::BiFolderOpenSolid />
                             {t!(i18n, workspaces)}
                         </span>
-                        <button
-                            type="button"
-                            class=move || {
-                                if show_create_form.get() {
-                                    "btn btn-xs btn-ghost gap-1"
-                                } else {
-                                    "btn btn-xs btn-primary gap-1"
-                                }
-                            }
-                            on:click=move |_| {
-                                show_create_form.update(|v| *v = !*v);
-                                create_error.set(None);
-                            }
-                        >
-                            <Icon
-                                attr:class="w-3.5 h-3.5"
-                                icon=Signal::derive(move || {
+                        <Show when=move || !workspaces.get().is_empty()>
+                            <button
+                                type="button"
+                                class=move || {
                                     if show_create_form.get() {
-                                        icondata::IoClose
+                                        "btn btn-xs btn-ghost gap-1"
                                     } else {
-                                        icondata::AiPlusOutlined
+                                        "btn btn-xs btn-primary gap-1"
                                     }
-                                })
-                            />
-                            {move || {
-                                if show_create_form.get() {
-                                    t_string!(i18n, cancel).to_string()
-                                } else {
-                                    t_string!(i18n, new_workspace).to_string()
                                 }
-                            }}
-                        </button>
+                                on:click=move |_| {
+                                    show_create_form.update(|v| *v = !*v);
+                                    create_error.set(None);
+                                }
+                            >
+                                <Icon
+                                    attr:class="w-3.5 h-3.5"
+                                    icon=Signal::derive(move || {
+                                        if show_create_form.get() {
+                                            icondata::IoClose
+                                        } else {
+                                            icondata::AiPlusOutlined
+                                        }
+                                    })
+                                />
+                                {move || {
+                                    if show_create_form.get() {
+                                        t_string!(i18n, cancel).to_string()
+                                    } else {
+                                        t_string!(i18n, new_workspace).to_string()
+                                    }
+                                }}
+                            </button>
+                        </Show>
                     </div>
 
                     <Show when=move || !workspaces.get().is_empty()>
@@ -692,7 +713,10 @@ fn ConnectTask(
             </label>
             <select
                 class="select select-bordered select-sm w-full"
-                prop:value=move || task.get()
+                prop:value=move || {
+                    tasks.get();
+                    task.get()
+                }
                 on:change:target=move |ev| {
                     let selected = ev.target().value();
                     task.set(selected.clone());
