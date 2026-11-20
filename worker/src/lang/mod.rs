@@ -7,6 +7,7 @@ use common::{ExecConfig, File, Language};
 use crate::os::{Fs, Pipe};
 
 mod cpp;
+mod java;
 mod python;
 mod rust;
 
@@ -30,6 +31,7 @@ pub async fn run(
     match language.deref() {
         "C" => cpp::run(config, files, stdin, stdout).await,
         "C++" => cpp::run(config, files, stdin, stdout).await,
+        "Java" => java::run(config, files, primary_file, stdin, stdout).await,
         "Python3" => python::run(config, files, primary_file, stdin, stdout).await,
         "Rust" => rust::run(config, files, primary_file, stdin, stdout).await,
         _ => bail!("Unsupported language: {}", language),
@@ -46,6 +48,7 @@ pub async fn run_ls(
     match language.deref() {
         "C" => cpp::run_ls(false, files, stdin, stdout, stderr).await,
         "C++" => cpp::run_ls(true, files, stdin, stdout, stderr).await,
+        "Java" => java::run_ls(files, stdin, stdout, stderr).await,
         "Python3" => python::run_ls(files, stdin, stdout, stderr).await,
         "Rust" => rust::run_ls(files, stdin, stdout, stderr).await,
         _ => bail!("Unsupported language: {}", language),
@@ -69,6 +72,10 @@ pub fn list() -> Vec<Language> {
         Language {
             name: "Rust".to_string(),
             extensions: vec!["rs".to_string()],
+        },
+        Language {
+            name: "Java".to_string(),
+            extensions: vec!["java".to_string()],
         },
     ]
 }

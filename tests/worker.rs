@@ -31,6 +31,17 @@ int main() {
 }
 "#;
 
+const JAVA_SOURCE: &str = r#"import java.io.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        int value = Integer.parseInt(br.readLine().trim());
+        System.out.println(value + 1);
+    }
+}
+"#;
+
 #[wasm_bindgen(inline_js = r#"
 const workerFrames = new WeakMap();
 
@@ -248,6 +259,206 @@ async fn compile_and_run() {
         "unexpected stderr: {}",
         String::from_utf8_lossy(&stderr)
     );
+}
+
+#[wasm_bindgen_test]
+async fn compile_and_run_java() {
+    let mut worker = TestWorker::start().await;
+    worker.expect_language("Java").await;
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content: JAVA_SOURCE.as_bytes().to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(b"41\n".to_vec()),
+        config: ExecConfig::default(),
+    });
+
+    let expected_statuses = [
+        WorkerExecStatus::FetchingCompiler,
+        WorkerExecStatus::Compiling,
+        WorkerExecStatus::Running,
+    ];
+    let mut status_index = 0;
+    let mut saw_fetch_progress = false;
+    let mut saw_fetch_done = false;
+    let mut succeeded = false;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut compiler_output = Vec::new();
+
+    while !(succeeded
+        && saw_fetch_done
+        && status_index == expected_statuses.len()
+        && stdout.len() >= b"42\n".len())
+    {
+        let response: WorkerResponse = worker.receive().await;
+        match response {
+            WorkerResponse::FetchingCompiler(name, _) => {
+                assert_eq!(name, "java");
+                saw_fetch_progress = true;
+            }
+            WorkerResponse::CompilerFetchDone(name) => {
+                assert_eq!(name, "java");
+                saw_fetch_done = true;
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(status)) => {
+                let expected = expected_statuses
+                    .get(status_index)
+                    .expect("received an unexpected extra execution status");
+                assert_eq!(
+                    std::mem::discriminant(expected),
+                    std::mem::discriminant(&status),
+                    "execution statuses arrived out of order"
+                );
+                status_index += 1;
+            }
+            WorkerResponse::Execution(WorkerExecResponse::CompilationMessageChunk(chunk)) => {
+                compiler_output.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::StdoutChunk(chunk)) => {
+                stdout.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::StderrChunk(chunk)) => {
+                stderr.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Success) => succeeded = true,
+            WorkerResponse::Execution(WorkerExecResponse::Error(error)) => {
+                panic!(
+                    "Java compile-and-run failed: {error}\ncompiler output: {}\nstderr: {}",
+                    String::from_utf8_lossy(&compiler_output),
+                    String::from_utf8_lossy(&stderr)
+                );
+            }
+            WorkerResponse::LS(_) => panic!("unexpected language-server response"),
+        }
+    }
+
+    assert!(
+        saw_fetch_progress,
+        "compiler download did not report progress"
+    );
+    assert_eq!(stdout, b"42\n", "unexpected program output");
+    assert!(
+        stderr.is_empty(),
+        "unexpected stderr: {}",
+        String::from_utf8_lossy(&stderr)
+    );
+
+    // Run #2: verify compile error diagnostics are reported cleanly.
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content:
+                b"public class Main { public static void main(String[] a) { int x = \"bad\"; } }"
+                    .to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(Vec::new()),
+        config: ExecConfig::default(),
+    });
+    let mut err_compiler_out = Vec::new();
+    let mut saw_compile_error = false;
+    while !saw_compile_error {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::Execution(WorkerExecResponse::CompilationMessageChunk(chunk)) => {
+                err_compiler_out.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Error(_)) => {
+                saw_compile_error = true;
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Success) => {
+                panic!("expected compilation error to fail");
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(_)) => {}
+            other => panic!("unexpected response during compile error test: {other:?}"),
+        }
+    }
+    let err_msg = String::from_utf8_lossy(&err_compiler_out);
+    assert!(
+        err_msg.contains("incompatible types"),
+        "expected javac diagnostic, got: {err_msg}"
+    );
+
+    // Run #3: Scanner + input.txt/output.txt redirection + Java 25 IO + stderr.
+    const JAVA_IO_SOURCE: &str = r#"import java.io.*;
+import java.util.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        Scanner sc = new Scanner(new File("input.txt"));
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        try (PrintWriter pw = new PrintWriter(new FileWriter("output.txt"))) {
+            pw.println(a + b);
+        }
+        IO.println("ok");
+        System.err.println("err-line");
+    }
+}
+"#;
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content: JAVA_IO_SOURCE.as_bytes().to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(b"19 23\n".to_vec()),
+        config: ExecConfig::default(),
+    });
+    stdout.clear();
+    stderr.clear();
+    let mut run3_ok = false;
+    while !run3_ok {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::Execution(WorkerExecResponse::StdoutChunk(chunk)) => {
+                stdout.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::StderrChunk(chunk)) => {
+                stderr.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Success) => run3_ok = true,
+            WorkerResponse::Execution(WorkerExecResponse::Error(err)) => {
+                panic!("warm Java I/O run failed: {err}");
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(_)) => {}
+            other => panic!("unexpected response during warm Java I/O run: {other:?}"),
+        }
+    }
+    assert_eq!(stdout, b"42\nok\n");
+    assert_eq!(stderr, b"err-line\n");
+
+    // Run #4: verify time_limit terminates an infinite loop cleanly.
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content:
+                b"public class Main { public static void main(String[] a) { while (true) {} } }"
+                    .to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(Vec::new()),
+        config: ExecConfig {
+            time_limit: Some(0.3),
+            mem_limit: None,
+        },
+    });
+    let mut saw_tle = false;
+    while !saw_tle {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::Execution(WorkerExecResponse::Error(_)) => saw_tle = true,
+            WorkerResponse::Execution(WorkerExecResponse::Success) => {
+                panic!("expected infinite loop to hit time limit");
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(_)) => {}
+            other => panic!("unexpected response during TLE test: {other:?}"),
+        }
+    }
 }
 
 async fn receive_lsp_response(worker: &mut TestWorker, expected_id: u64) -> serde_json::Value {

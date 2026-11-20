@@ -111,10 +111,10 @@ jobs:
           name: testsuite
           path: ./testsuite
 
-      - name: Download C++ compiler
+      - name: Download compilers
         run: |
           mkdir -p compilers
-          gh release download v0.2.0 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern cpp.tar.br
+          gh release download v0.3.0 --repo olimpiadi-informatica/wasm-compilers --dir compilers --pattern cpp.tar.br --pattern java.tar.br
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -122,6 +122,7 @@ jobs:
         run: |
           trunk build
           brotli --decompress --stdout compilers/cpp.tar.br > dist/compilers/cpp.tar
+          brotli --decompress --stdout compilers/java.tar.br > dist/compilers/java.tar
 
       - name: Test on Chrome
         run: CHROMEDRIVER=$(which chromedriver) cargo test --workspace --no-fail-fast
