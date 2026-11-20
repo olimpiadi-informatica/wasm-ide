@@ -99,5 +99,7 @@
   "contest_ended": "Gara finìa",
   "contest_not_open": "Gara serà",
   "code": "Còdeze",
-  "input": "Input"
+  "input": "Input",
+  "statement": "Testo",
+  "open_in_new_tab": "Verzi in na nova scheda"
 }

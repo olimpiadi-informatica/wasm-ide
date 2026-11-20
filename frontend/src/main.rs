@@ -455,6 +455,26 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
             .map(|status| (status.logged_in, status.effective_phase(now)))
     });
 
+    let statement_url = LocalResource::new(move || {
+        let workspace_config = workspace_config.get();
+        let _ = workspaces_revision.get();
+        let _ = effective_contest_phase.get();
+        let locale = i18n.get_locale().as_str().to_owned();
+        async move {
+            let config = workspace_config.flatten()?;
+            let task = config.task?;
+            let api = contest_api::get()?;
+            api.statement_url(&task, &locale).await.ok().flatten()
+        }
+    });
+    let statement_url_signal = Signal::derive(move || statement_url.get().flatten());
+    let show_statement = RwSignal::new(false);
+    Effect::new(move |_| {
+        if statement_url_signal.get().is_none() {
+            show_statement.set(false);
+        }
+    });
+
     {
         let app_config = expect_context::<Config>();
         Effect::new(move |prev: Option<Option<(bool, ContestPhase)>>| {
@@ -854,6 +874,22 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 </div>
             </ShowLet>
             <ContestTimeBadge status=contest_status now_ms=now_ms />
+            <Show when=move || statement_url_signal.get().is_some()>
+                <button
+                    type="button"
+                    class=move || {
+                        if show_statement.get() {
+                            "hidden md:inline-flex btn btn-sm btn-primary gap-1.5"
+                        } else {
+                            "hidden md:inline-flex btn btn-sm btn-outline border-base-300 bg-base-100 gap-1.5"
+                        }
+                    }
+                    on:click=move |_| show_statement.update(|v| *v = !*v)
+                >
+                    <Icon attr:class="w-4 h-4" icon=icondata::BiBookOpenRegular />
+                    <span>{t!(i18n, statement)}</span>
+                </button>
+            </Show>
             <div class="flex-1 min-w-2" />
             <ShowLet some=exec_stage_label let:label>
                 <div class="hidden md:flex items-center gap-1.5 text-xs font-medium text-base-content/70 px-2">
@@ -937,6 +973,8 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                 input_readonly=disable_input_editor
                 disable_additional_input=disable_stop
                 state=state
+                statement_url=statement_url_signal
+                show_statement=show_statement
             />
         </div>
     }

@@ -177,6 +177,12 @@ pub trait ContestAPI {
     /// `task` is an identifier returned by [`ContestAPI::list_tasks`].
     async fn task_score(&self, task: &str) -> Result<(f64, f64)>;
 
+    /// Returns a URL to the task's PDF statement, or `None` if no PDF statement is available.
+    ///
+    /// `task` is an identifier returned by [`ContestAPI::list_tasks`], and `locale` is the active
+    /// UI language code (e.g. `"en"`, `"it"`).
+    async fn statement_url(&self, task: &str, locale: &str) -> Result<Option<String>>;
+
     /// Submits the current workspace and waits until a result is available.
     ///
     /// `task` is the remote task identifier, `language` is the selected backend language,

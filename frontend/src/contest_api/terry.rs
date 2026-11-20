@@ -92,6 +92,16 @@ impl ContestAPI for Terry {
         Ok((score, max_score))
     }
 
+    async fn statement_url(&self, task: &str, _locale: &str) -> Result<Option<String>> {
+        for filename in [format!("{task}.pdf"), "statement.pdf".to_owned()] {
+            let url = format!("{}/statements/{task}/{filename}", self.path);
+            if SendWrapper::new(api::head_ok(&url)).await {
+                return Ok(Some(url));
+            }
+        }
+        Ok(None)
+    }
+
     async fn submit(
         &self,
         task: &str,
@@ -420,6 +430,14 @@ mod api {
         check_response(&res, "Failed to get statement file").await?;
         let res = res.binary().await?;
         Ok(res)
+    }
+
+    pub async fn head_ok(url: &str) -> bool {
+        gloo_net::http::RequestBuilder::new(url)
+            .method(gloo_net::http::Method::HEAD)
+            .send()
+            .await
+            .is_ok_and(|res| res.ok())
     }
 
     pub async fn get_file(path: &str, file: &str) -> Result<Vec<u8>> {

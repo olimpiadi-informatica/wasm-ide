@@ -98,5 +98,7 @@
   "contest_ended": "Contest ended",
   "contest_not_open": "Contest not open",
   "code": "Code",
-  "input": "Input"
+  "input": "Input",
+  "statement": "Statement",
+  "open_in_new_tab": "Open in new tab"
 }

@@ -99,5 +99,7 @@
   "contest_ended": "Gara terminata",
   "contest_not_open": "Gara non aperta",
   "code": "Codice",
-  "input": "Input"
+  "input": "Input",
+  "statement": "Testo",
+  "open_in_new_tab": "Apri in una nuova scheda"
 }

@@ -99,5 +99,7 @@
   "contest_ended": "Concurs finalitzat",
   "contest_not_open": "Concurs tancat",
   "code": "Codi",
-  "input": "Entrada"
+  "input": "Entrada",
+  "statement": "Enunciat",
+  "open_in_new_tab": "Obre en una pestanya nova"
 }

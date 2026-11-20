@@ -106,6 +106,16 @@ impl ContestAPI for Cms {
         ))
     }
 
+    async fn statement_url(&self, task: &str, locale: &str) -> Result<Option<String>> {
+        let task_info = self.task_info(task).await?;
+        Ok(select_statement_lang(
+            &task_info.statements,
+            &task_info.primary_statements,
+            locale,
+        )
+        .map(|lang_code| build_statement_url(&self.path, task, lang_code)))
+    }
+
     async fn submit(
         &self,
         task: &str,
@@ -199,6 +209,10 @@ mod api {
     pub struct TaskListEntry {
         pub name: String,
         pub title: String,
+        #[serde(default)]
+        pub statements: Vec<String>,
+        #[serde(default)]
+        pub primary_statements: Vec<String>,
         pub attachments: Vec<String>,
         pub submission_format: Vec<String>,
         pub max_public_score: f64,
@@ -332,5 +346,68 @@ mod api {
             .find_map(|entry: &str| entry.strip_prefix("_xsrf="))
             .map(ToString::to_string)
             .ok_or_else(|| anyhow!("CMS XSRF cookie is missing"))
+    }
+}
+
+fn select_statement_lang<'a>(
+    statements: &'a [String],
+    primary_statements: &[String],
+    locale: &str,
+) -> Option<&'a str> {
+    if !locale.is_empty()
+        && let Some(found) = statements.iter().find(|s| s.as_str() == locale)
+    {
+        return Some(found.as_str());
+    }
+    for primary in primary_statements {
+        if let Some(found) = statements.iter().find(|s| s.as_str() == primary.as_str()) {
+            return Some(found.as_str());
+        }
+    }
+    statements.first().map(String::as_str)
+}
+
+fn build_statement_url(path: &str, task: &str, lang_code: &str) -> String {
+    let base = path.trim_end_matches('/');
+    if lang_code.is_empty() {
+        format!("{base}/tasks/{task}/statements/")
+    } else {
+        format!("{base}/tasks/{task}/statements/{lang_code}/{task}.{lang_code}.pdf")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::{build_statement_url, select_statement_lang};
+
+    #[wasm_bindgen_test]
+    fn statement_lang_prefers_locale_then_primary_then_first() {
+        let statements = vec!["en".to_owned(), "it".to_owned()];
+        let primary = vec!["it".to_owned()];
+
+        assert_eq!(
+            select_statement_lang(&statements, &primary, "en"),
+            Some("en")
+        );
+        assert_eq!(
+            select_statement_lang(&statements, &primary, "es"),
+            Some("it")
+        );
+        assert_eq!(select_statement_lang(&statements, &[], "es"), Some("en"));
+        assert_eq!(select_statement_lang(&[], &primary, "en"), None);
+    }
+
+    #[wasm_bindgen_test]
+    fn statement_url_formats_with_and_without_lang_code() {
+        assert_eq!(
+            build_statement_url("/cms", "batch", "en"),
+            "/cms/tasks/batch/statements/en/batch.en.pdf"
+        );
+        assert_eq!(
+            build_statement_url("/cms/", "batch", ""),
+            "/cms/tasks/batch/statements/"
+        );
     }
 }

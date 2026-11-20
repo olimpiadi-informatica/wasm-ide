@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::Closure;
 use crate::RunState;
 use crate::editor::LSRecv;
 use crate::editor_dir::{EditorDir, EditorDirController, EditorDirKind};
-use crate::i18n::use_i18n;
+use crate::i18n::{t_string, use_i18n};
 use crate::output::OutputView;
 use crate::settings::{InputMode, SettingsProvider, use_settings};
 use crate::util::{Icon, get_input_mode};
@@ -20,6 +20,7 @@ enum MobilePane {
     Code,
     Input,
     Output,
+    Statement,
 }
 
 #[component]
@@ -34,6 +35,8 @@ pub fn EditorView(
     #[prop(into)] input_readonly: Signal<bool>,
     #[prop(into)] disable_additional_input: Signal<bool>,
     state: RwSignal<RunState>,
+    #[prop(into)] statement_url: Signal<Option<String>>,
+    show_statement: RwSignal<bool>,
 ) -> impl IntoView {
     let settings = use_settings();
     let SettingsProvider {
@@ -136,6 +139,12 @@ pub fn EditorView(
         running
     });
 
+    Effect::new(move |_| {
+        if statement_url.get().is_none() && mobile_pane.get_untracked() == MobilePane::Statement {
+            mobile_pane.set(MobilePane::Code);
+        }
+    });
+
     Effect::new(move || {
         if is_resizing_col.get() {
             let perc = x.get() / width.get() * 100.0;
@@ -180,13 +189,78 @@ pub fn EditorView(
         />
         <div class="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
             <Show when=move || is_mobile.get()>
-                <div class="grid grid-cols-3 gap-1 p-1 bg-base-200 border-b border-base-300 shrink-0">
+                <div class=move || {
+                    if statement_url.get().is_some() {
+                        "grid grid-cols-4 gap-1 p-1 bg-base-200 border-b border-base-300 shrink-0"
+                    } else {
+                        "grid grid-cols-3 gap-1 p-1 bg-base-200 border-b border-base-300 shrink-0"
+                    }
+                }>
                     {mobile_tab_btn(MobilePane::Code, ViewFn::from(move || t!(i18n, code)))}
                     {mobile_tab_btn(MobilePane::Input, ViewFn::from(move || t!(i18n, input)))}
                     {mobile_tab_btn(MobilePane::Output, ViewFn::from(move || t!(i18n, output)))}
+                    <Show when=move || statement_url.get().is_some()>
+                        {mobile_tab_btn(
+                            MobilePane::Statement,
+                            ViewFn::from(move || t!(i18n, statement)),
+                        )}
+                    </Show>
                 </div>
             </Show>
             <div class="flex flex-row flex-1 min-h-0 w-full overflow-hidden">
+                <ShowLet
+                    some=move || {
+                        statement_url.get().filter(|_| {
+                            if is_mobile.get() {
+                                mobile_pane.get() == MobilePane::Statement
+                            } else {
+                                show_statement.get()
+                            }
+                        })
+                    }
+                    let:url
+                >
+                    <div class=move || {
+                        if is_mobile.get() {
+                            "flex-1 h-full min-h-0 min-w-0 flex flex-col bg-base-100"
+                        } else {
+                            "w-[40%] min-w-80 max-w-[50%] h-full min-h-0 shrink-0 border-r border-base-300 flex flex-col bg-base-100"
+                        }
+                    }>
+                        <div class="flex items-center justify-between gap-2 px-3 py-1.5 bg-base-200 border-b border-base-300 shrink-0">
+                            <span class="font-semibold text-xs flex items-center gap-1.5">
+                                <Icon attr:class="w-3.5 h-3.5 text-primary" icon=icondata::BiBookOpenRegular />
+                                {t!(i18n, statement)}
+                            </span>
+                            <div class="flex items-center gap-1">
+                                <a
+                                    href=url.clone()
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn btn-xs btn-ghost gap-1"
+                                >
+                                    {t!(i18n, open_in_new_tab)}
+                                    <Icon attr:class="w-3.5 h-3.5" icon=icondata::BiLinkExternalRegular />
+                                </a>
+                                <button
+                                    type="button"
+                                    class="btn btn-xs btn-ghost btn-square hidden md:inline-flex"
+                                    on:click=move |_| show_statement.set(false)
+                                >
+                                    <Icon attr:class="w-3.5 h-3.5" icon=icondata::IoClose />
+                                </button>
+                            </div>
+                        </div>
+                        <StatementIframe url=url.clone() />
+                    </div>
+                </ShowLet>
+                <div class=move || {
+                    if is_mobile.get() && mobile_pane.get() == MobilePane::Statement {
+                        "hidden"
+                    } else {
+                        "flex flex-row flex-1 min-w-0 h-full min-h-0 overflow-hidden"
+                    }
+                }>
                 <div
                     class=move || {
                         if is_mobile.get() {
@@ -309,7 +383,70 @@ pub fn EditorView(
                         <OutputView state />
                     </div>
                 </div>
+                </div>
             </div>
         </div>
+    }
+}
+
+#[component]
+fn StatementIframe(url: String) -> impl IntoView {
+    let i18n = use_i18n();
+    let blob_url_store = StoredValue::new(None::<String>);
+    on_cleanup(move || {
+        if let Some(prev) = blob_url_store.get_value() {
+            let _ = web_sys::Url::revoke_object_url(&prev);
+        }
+    });
+
+    let pdf_resource = LocalResource::new(move || {
+        let url = url.clone();
+        async move {
+            let res = gloo_net::http::Request::get(&url)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if !res.ok() {
+                return Err(format!("HTTP {}", res.status()));
+            }
+            let bytes = res.binary().await.map_err(|e| e.to_string())?;
+            let array = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes.as_slice()));
+            let opts = web_sys::BlobPropertyBag::new();
+            opts.set_type("application/pdf");
+            let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&array, &opts)
+                .map_err(|e| format!("{e:?}"))?;
+            let obj_url =
+                web_sys::Url::create_object_url_with_blob(&blob).map_err(|e| format!("{e:?}"))?;
+            if let Some(prev) = blob_url_store.get_value() {
+                let _ = web_sys::Url::revoke_object_url(&prev);
+            }
+            blob_url_store.set_value(Some(obj_url.clone()));
+            Ok::<String, String>(obj_url)
+        }
+    });
+
+    view! {
+        {move || match pdf_resource.get() {
+            None => view! {
+                <div class="flex-1 flex items-center justify-center bg-base-100">
+                    <span class="loading loading-spinner loading-md text-primary" />
+                </div>
+            }
+                .into_any(),
+            Some(Ok(obj_url)) => view! {
+                <iframe
+                    class="w-full flex-1 min-h-0 border-0 bg-white"
+                    src=obj_url
+                    title=move || t_string!(i18n, statement).to_string()
+                />
+            }
+                .into_any(),
+            Some(Err(err)) => view! {
+                <div class="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-sm text-error bg-base-100">
+                    <span>{err}</span>
+                </div>
+            }
+                .into_any(),
+        }}
     }
 }
