@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use anyhow::{Context, Result, anyhow, bail};
 use common::{ExecConfig, File};
 use futures::channel::oneshot;
+use futures::{FutureExt, select};
 use gloo_timers::callback::Timeout;
 use js_sys::{Array, Atomics, Int32Array, Object, Reflect, SharedArrayBuffer, Uint8Array};
 use wasm_bindgen::JsCast;
@@ -398,13 +399,169 @@ pub async fn run(
     run_compiled_wasm(&runtime_js, &app_wasm, config, stdin, stdout).await
 }
 
-pub async fn run_ls(_files: Vec<File>, _stdin: Pipe, _stdout: Pipe, _stderr: Pipe) -> Result<()> {
+pub async fn run_ls(files: Vec<File>, stdin: Pipe, stdout: Pipe, stderr: Pipe) -> Result<()> {
+    let _stdout_guard = PipeCloseGuard(stdout.clone());
+    let _stderr_guard = PipeCloseGuard(stderr);
+
     crate::send_msg(common::WorkerLSResponse::FetchingCompiler);
-    let _fs = get_fs("java")
+    let base_fs = get_fs("java")
         .await
         .context("Failed to get Java filesystem")?;
+
+    let compiler_wasm = base_fs
+        .get_file_with_path(b"/compiler.wasm")
+        .context("Missing /compiler.wasm in java.tar")?;
+    let runtime_js = base_fs
+        .get_file_with_path(b"/compiler.wasm-runtime.js")
+        .context("Missing /compiler.wasm-runtime.js in java.tar")?;
+    let compile_sdk = base_fs
+        .get_file_with_path(b"/compile-classlib-teavm.bin")
+        .context("Missing /compile-classlib-teavm.bin in java.tar")?;
+
+    let path = wasm_bindgen::link_to!(module = "/src/lang/java_ls.js");
+    let options = WorkerOptions::default();
+    options.set_type(WorkerType::Module);
+    options.set_name("java-ls");
+    let worker = Worker::new_with_options(&path, &options)
+        .map_err(|e| anyhow!("Failed to spawn Java language server worker: {e:?}"))?;
+    let mut guard = WorkerGuard::new(worker);
+
+    let (ready_tx, ready_rx) = oneshot::channel::<Result<()>>();
+    let (done_tx, done_rx) = oneshot::channel::<Result<()>>();
+    let ready_tx = std::rc::Rc::new(RefCell::new(Some(ready_tx)));
+    let done_tx = std::rc::Rc::new(RefCell::new(Some(done_tx)));
+    let ready_tx_err = ready_tx.clone();
+    let done_tx_err = done_tx.clone();
+    let stdout_for_msg = stdout;
+
+    let onmessage = Closure::<dyn Fn(MessageEvent)>::new(move |event: MessageEvent| {
+        let data = event.data();
+        let kind = Reflect::get(&data, &"kind".into())
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default();
+        match kind.as_str() {
+            "ready" => {
+                if let Some(tx) = ready_tx.borrow_mut().take() {
+                    let _ = tx.send(Ok(()));
+                }
+            }
+            "msg" => {
+                if let Some(json) = Reflect::get(&data, &"data".into())
+                    .ok()
+                    .and_then(|v| v.as_string())
+                {
+                    let header = format!("Content-Length: {}\r\n\r\n", json.len());
+                    stdout_for_msg.write(header.as_bytes());
+                    stdout_for_msg.write(json.as_bytes());
+                }
+            }
+            "exit" => {
+                if let Some(tx) = done_tx.borrow_mut().take() {
+                    let _ = tx.send(Ok(()));
+                }
+            }
+            "error" => {
+                let msg = Reflect::get(&data, &"message".into())
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_else(|| "Java language server error".to_owned());
+                if let Some(tx) = ready_tx.borrow_mut().take() {
+                    let _ = tx.send(Err(anyhow!(msg.clone())));
+                } else if let Some(tx) = done_tx.borrow_mut().take() {
+                    let _ = tx.send(Err(anyhow!(msg)));
+                }
+            }
+            _ => {}
+        }
+    });
+
+    let onerror = Closure::<dyn Fn(wasm_bindgen::JsValue)>::new(move |err| {
+        let msg = format!("Java language server worker error: {err:?}");
+        if let Some(tx) = ready_tx_err.borrow_mut().take() {
+            let _ = tx.send(Err(anyhow!(msg)));
+        } else if let Some(tx) = done_tx_err.borrow_mut().take() {
+            let _ = tx.send(Err(anyhow!(msg)));
+        }
+    });
+
+    guard.set_handlers(onmessage, onerror);
+
+    let js_files = Array::new();
+    for f in files.iter().filter(|f| f.name.ends_with(".java")) {
+        if let Ok(content) = std::str::from_utf8(&f.content) {
+            let obj = Object::new();
+            Reflect::set(&obj, &"name".into(), &f.name.clone().into()).unwrap();
+            Reflect::set(&obj, &"content".into(), &content.into()).unwrap();
+            js_files.push(&obj);
+        }
+    }
+
+    let compiler_wasm_js = bytes_to_uint8_array(&compiler_wasm);
+    let runtime_js_js = bytes_to_uint8_array(&runtime_js);
+    let compile_sdk_js = bytes_to_uint8_array(&compile_sdk);
+
+    let init_msg = Object::new();
+    Reflect::set(&init_msg, &"kind".into(), &"init".into()).unwrap();
+    Reflect::set(&init_msg, &"compilerWasm".into(), &compiler_wasm_js).unwrap();
+    Reflect::set(&init_msg, &"runtimeJs".into(), &runtime_js_js).unwrap();
+    Reflect::set(&init_msg, &"compileSdk".into(), &compile_sdk_js).unwrap();
+    Reflect::set(&init_msg, &"files".into(), &js_files).unwrap();
+
+    let transfer = Array::new();
+    transfer.push(&compiler_wasm_js.buffer());
+    transfer.push(&runtime_js_js.buffer());
+    transfer.push(&compile_sdk_js.buffer());
+
+    guard
+        .worker
+        .post_message_with_transfer(&init_msg, &transfer)
+        .map_err(|e| anyhow!("Failed to initialize Java language server worker: {e:?}"))?;
+
+    ready_rx
+        .await
+        .map_err(|_| anyhow!("Java language server worker terminated during init"))??;
+
     crate::send_msg(common::WorkerLSResponse::Started);
-    std::future::pending::<()>().await;
+
+    let mut done_rx = done_rx.fuse();
+    let mut content_length = 0usize;
+    let mut line = Vec::new();
+    loop {
+        select! {
+            res = done_rx => {
+                return res.unwrap_or(Ok(()));
+            }
+            _ = stdin.read_until(b'\n', &mut line).fuse() => {
+                if line.is_empty() {
+                    break;
+                }
+                if line.starts_with(b"Content-Length: ")
+                    && let Some(len) = std::str::from_utf8(&line[16..])
+                        .ok()
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                {
+                    content_length = len;
+                }
+                if line == b"\r\n" {
+                    let mut body = vec![0u8; content_length];
+                    if stdin.read_exact(&mut body).await.is_err() {
+                        break;
+                    }
+                    if let Ok(json) = String::from_utf8(body) {
+                        let req = Object::new();
+                        Reflect::set(&req, &"kind".into(), &"msg".into()).unwrap();
+                        Reflect::set(&req, &"data".into(), &json.into()).unwrap();
+                        guard
+                            .worker
+                            .post_message(&req)
+                            .map_err(|e| anyhow!("Failed sending LSP message to Java LS worker: {e:?}"))?;
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
