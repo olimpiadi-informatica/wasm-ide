@@ -476,8 +476,9 @@ fn App(initial_workspace: Option<String>) -> impl IntoView {
                         .get_untracked()
                         .or_else(|| backend::languages().first().map(|l| l.name.clone()))
                         .unwrap_or_else(|| "C++".to_owned());
+                    let config = app_config.clone();
                     spawn_local(async move {
-                        if let Err(err) = ensure_contest_workspaces(&api, &lang).await {
+                        if let Err(err) = ensure_contest_workspaces(&api, &config, &lang).await {
                             warn!("Failed to auto-init contest workspaces: {err:?}");
                             return;
                         }
@@ -1095,7 +1096,7 @@ fn StartupErrorView(#[prop(into)] err: String) -> impl IntoView {
 async fn initialize_initial_workspaces(config: &Config, default_lang: &str) -> Option<String> {
     if let Some(api) = contest_api::get() {
         if config.auto_init_contest_tasks
-            && let Err(err) = ensure_contest_workspaces(&api, default_lang).await
+            && let Err(err) = ensure_contest_workspaces(&api, config, default_lang).await
         {
             warn!("Failed to auto-init contest workspaces: {err:?}");
         }

@@ -84,13 +84,7 @@ impl ContestAPI for Cms {
             try_join(fetch_files(code_names), fetch_files(stdin_names)).await?;
 
         let code: WorkspaceDir = code_entries.into_iter().collect();
-        let mut stdin: WorkspaceDir = stdin_entries.into_iter().collect();
-        if stdin.is_empty() {
-            stdin.insert("input.txt".to_string(), String::new().into());
-        }
-        if stdin.is_empty() {
-            stdin.insert("input.txt".to_string(), String::new().into());
-        }
+        let stdin: WorkspaceDir = stdin_entries.into_iter().collect();
 
         Ok(Workspace { code, stdin })
     }
