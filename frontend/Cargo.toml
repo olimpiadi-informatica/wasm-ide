@@ -21,7 +21,7 @@ leptos_i18n = "0.6.2"
 tracing = { version = "0.1.44" }
 js-sys = "0.3.82"
 send_wrapper = "0.6.0"
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 futures-util = "0.3.31"
 gloo-net = "0.7.0"
 gloo-utils = "0.3.0"
