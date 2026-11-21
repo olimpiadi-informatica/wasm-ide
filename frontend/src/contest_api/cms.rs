@@ -108,12 +108,10 @@ impl ContestAPI for Cms {
 
     async fn statement_url(&self, task: &str, locale: &str) -> Result<Option<String>> {
         let task_info = self.task_info(task).await?;
-        Ok(select_statement_lang(
-            &task_info.statements,
-            &task_info.primary_statements,
-            locale,
+        Ok(
+            select_statement_lang(&task_info.statements, &task_info.primary_statements, locale)
+                .map(|lang_code| build_statement_url(&self.path, task, lang_code)),
         )
-        .map(|lang_code| build_statement_url(&self.path, task, lang_code)))
     }
 
     async fn submit(
