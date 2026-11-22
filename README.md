@@ -100,9 +100,9 @@ contest system can be configured at a time.
 
 ## Evaluation backends
 
-By default, wasm-ide compiles and runs C, C++, Python, Rust, and JavaScript
-locally in the browser. Additional languages can be made available through a
-remote evaluator by setting `remote_eval` in `config.json`.
+By default, wasm-ide compiles and runs C, C++, Python, Rust, Java, and
+JavaScript locally in the browser. Additional languages can be made available
+through a remote evaluator by setting `remote_eval` in `config.json`.
 
 The recommended remote evaluator is `eval-server` from
 [`olimpiadi-informatica/task-maker-rust`](https://github.com/olimpiadi-informatica/task-maker-rust).

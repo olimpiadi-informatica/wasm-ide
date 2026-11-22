@@ -31,6 +31,17 @@ int main() {
 }
 "#;
 
+const JAVA_SOURCE: &str = r#"import java.io.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        int value = Integer.parseInt(br.readLine().trim());
+        System.out.println(value + 1);
+    }
+}
+"#;
+
 #[wasm_bindgen(inline_js = r#"
 const workerFrames = new WeakMap();
 
@@ -250,6 +261,206 @@ async fn compile_and_run() {
     );
 }
 
+#[wasm_bindgen_test]
+async fn compile_and_run_java() {
+    let mut worker = TestWorker::start().await;
+    worker.expect_language("Java").await;
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content: JAVA_SOURCE.as_bytes().to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(b"41\n".to_vec()),
+        config: ExecConfig::default(),
+    });
+
+    let expected_statuses = [
+        WorkerExecStatus::FetchingCompiler,
+        WorkerExecStatus::Compiling,
+        WorkerExecStatus::Running,
+    ];
+    let mut status_index = 0;
+    let mut saw_fetch_progress = false;
+    let mut saw_fetch_done = false;
+    let mut succeeded = false;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut compiler_output = Vec::new();
+
+    while !(succeeded
+        && saw_fetch_done
+        && status_index == expected_statuses.len()
+        && stdout.len() >= b"42\n".len())
+    {
+        let response: WorkerResponse = worker.receive().await;
+        match response {
+            WorkerResponse::FetchingCompiler(name, _) => {
+                assert_eq!(name, "java");
+                saw_fetch_progress = true;
+            }
+            WorkerResponse::CompilerFetchDone(name) => {
+                assert_eq!(name, "java");
+                saw_fetch_done = true;
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(status)) => {
+                let expected = expected_statuses
+                    .get(status_index)
+                    .expect("received an unexpected extra execution status");
+                assert_eq!(
+                    std::mem::discriminant(expected),
+                    std::mem::discriminant(&status),
+                    "execution statuses arrived out of order"
+                );
+                status_index += 1;
+            }
+            WorkerResponse::Execution(WorkerExecResponse::CompilationMessageChunk(chunk)) => {
+                compiler_output.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::StdoutChunk(chunk)) => {
+                stdout.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::StderrChunk(chunk)) => {
+                stderr.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Success) => succeeded = true,
+            WorkerResponse::Execution(WorkerExecResponse::Error(error)) => {
+                panic!(
+                    "Java compile-and-run failed: {error}\ncompiler output: {}\nstderr: {}",
+                    String::from_utf8_lossy(&compiler_output),
+                    String::from_utf8_lossy(&stderr)
+                );
+            }
+            WorkerResponse::LS(_) => panic!("unexpected language-server response"),
+        }
+    }
+
+    assert!(
+        saw_fetch_progress,
+        "compiler download did not report progress"
+    );
+    assert_eq!(stdout, b"42\n", "unexpected program output");
+    assert!(
+        stderr.is_empty(),
+        "unexpected stderr: {}",
+        String::from_utf8_lossy(&stderr)
+    );
+
+    // Run #2: verify compile error diagnostics are reported cleanly.
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content:
+                b"public class Main { public static void main(String[] a) { int x = \"bad\"; } }"
+                    .to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(Vec::new()),
+        config: ExecConfig::default(),
+    });
+    let mut err_compiler_out = Vec::new();
+    let mut saw_compile_error = false;
+    while !saw_compile_error {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::Execution(WorkerExecResponse::CompilationMessageChunk(chunk)) => {
+                err_compiler_out.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Error(_)) => {
+                saw_compile_error = true;
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Success) => {
+                panic!("expected compilation error to fail");
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(_)) => {}
+            other => panic!("unexpected response during compile error test: {other:?}"),
+        }
+    }
+    let err_msg = String::from_utf8_lossy(&err_compiler_out);
+    assert!(
+        err_msg.contains("incompatible types"),
+        "expected javac diagnostic, got: {err_msg}"
+    );
+
+    // Run #3: Scanner + input.txt/output.txt redirection + Java 25 IO + stderr.
+    const JAVA_IO_SOURCE: &str = r#"import java.io.*;
+import java.util.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        Scanner sc = new Scanner(new File("input.txt"));
+        int a = sc.nextInt();
+        int b = sc.nextInt();
+        try (PrintWriter pw = new PrintWriter(new FileWriter("output.txt"))) {
+            pw.println(a + b);
+        }
+        IO.println("ok");
+        System.err.println("err-line");
+    }
+}
+"#;
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content: JAVA_IO_SOURCE.as_bytes().to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(b"19 23\n".to_vec()),
+        config: ExecConfig::default(),
+    });
+    stdout.clear();
+    stderr.clear();
+    let mut run3_ok = false;
+    while !run3_ok {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::Execution(WorkerExecResponse::StdoutChunk(chunk)) => {
+                stdout.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::StderrChunk(chunk)) => {
+                stderr.extend(chunk);
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Success) => run3_ok = true,
+            WorkerResponse::Execution(WorkerExecResponse::Error(err)) => {
+                panic!("warm Java I/O run failed: {err}");
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(_)) => {}
+            other => panic!("unexpected response during warm Java I/O run: {other:?}"),
+        }
+    }
+    assert_eq!(stdout, b"42\nok\n");
+    assert_eq!(stderr, b"err-line\n");
+
+    // Run #4: verify time_limit terminates an infinite loop cleanly.
+    worker.send(WorkerExecRequest::Run {
+        files: vec![File {
+            name: "Main.java".to_owned(),
+            content:
+                b"public class Main { public static void main(String[] a) { while (true) {} } }"
+                    .to_vec(),
+        }],
+        primary_file: "Main.java".to_owned(),
+        language: "Java".to_owned(),
+        input: Some(Vec::new()),
+        config: ExecConfig {
+            time_limit: Some(0.3),
+            mem_limit: None,
+        },
+    });
+    let mut saw_tle = false;
+    while !saw_tle {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::Execution(WorkerExecResponse::Error(_)) => saw_tle = true,
+            WorkerResponse::Execution(WorkerExecResponse::Success) => {
+                panic!("expected infinite loop to hit time limit");
+            }
+            WorkerResponse::Execution(WorkerExecResponse::Status(_)) => {}
+            other => panic!("unexpected response during TLE test: {other:?}"),
+        }
+    }
+}
+
 async fn receive_lsp_response(worker: &mut TestWorker, expected_id: u64) -> serde_json::Value {
     loop {
         match worker.receive::<WorkerResponse>().await {
@@ -418,6 +629,409 @@ async fn lsp() {
                 panic!("language server failed while stopping: {error}")
             }
             response => panic!("unexpected response while stopping language server: {response:?}"),
+        }
+    }
+
+    opfs.remove_entry(CODE_DIR, true).await;
+}
+
+async fn receive_lsp_diagnostics(worker: &mut TestWorker, expected_uri: &str) -> serde_json::Value {
+    loop {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::LS(WorkerLSResponse::Message(message)) => {
+                let message: serde_json::Value =
+                    serde_json::from_str(&message).expect("parse language-server notification");
+                if message.get("method").and_then(serde_json::Value::as_str)
+                    == Some("textDocument/publishDiagnostics")
+                    && message
+                        .pointer("/params/uri")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(expected_uri)
+                {
+                    return message;
+                }
+            }
+            WorkerResponse::LS(WorkerLSResponse::Error(error)) => {
+                panic!("language server failed while waiting for diagnostics: {error}")
+            }
+            WorkerResponse::LS(WorkerLSResponse::Stopped) => {
+                panic!("language server stopped before publishing diagnostics for {expected_uri}")
+            }
+            WorkerResponse::LS(_)
+            | WorkerResponse::FetchingCompiler(_, _)
+            | WorkerResponse::CompilerFetchDone(_) => {}
+            WorkerResponse::Execution(_) => panic!("unexpected execution response"),
+        }
+    }
+}
+
+#[wasm_bindgen_test]
+async fn java_lsp() {
+    const CODE_DIR: &str = "worker-java-lsp-test";
+    const HELPER_SOURCE: &str = "public class Helper {\n    public static int computeSum(int a, int b) {\n        return a + b;\n    }\n}\n";
+    const GOOD_MAIN: &str = "import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        ArrayList<String> list = new ArrayList<>();\n        list.add(\"hello\");\n        String s = list.get(0);\n        int total = Helper.computeSum(10, 20);\n        System.out.println(s + total);\n    }\n}\n";
+
+    let opfs = common::opfs::root().await;
+    if opfs.contains_dir(CODE_DIR).await {
+        opfs.remove_entry(CODE_DIR, true).await;
+    }
+    let code_dir = opfs.open_dir(CODE_DIR, true).await;
+    code_dir
+        .open_file("Helper.java", true)
+        .await
+        .write(HELPER_SOURCE.as_bytes())
+        .await;
+    code_dir
+        .open_file("Main.java", true)
+        .await
+        .write(GOOD_MAIN.as_bytes())
+        .await;
+
+    let mut worker = TestWorker::start().await;
+    worker.expect_language("Java").await;
+    worker.send(WorkerLSRequest::Start {
+        language: "Java".to_owned(),
+        code_dir: CODE_DIR.to_owned(),
+    });
+
+    loop {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::FetchingCompiler(name, _) | WorkerResponse::CompilerFetchDone(name) => {
+                assert_eq!(name, "java");
+            }
+            WorkerResponse::LS(WorkerLSResponse::Started) => break,
+            WorkerResponse::LS(WorkerLSResponse::FetchingCompiler) => {}
+            WorkerResponse::LS(WorkerLSResponse::Error(error)) => {
+                panic!("Java language server failed to start: {error}")
+            }
+            WorkerResponse::LS(response) => {
+                panic!("unexpected Java LS startup response: {response:?}")
+            }
+            WorkerResponse::Execution(_) => panic!("unexpected execution response"),
+        }
+    }
+
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": "file:///workdir",
+                "capabilities": {}
+            }
+        })
+        .to_string(),
+    ));
+    let init = receive_lsp_response(&mut worker, 1).await;
+    assert!(
+        init.pointer("/result/capabilities/completionProvider")
+            .is_some()
+    );
+    assert_eq!(
+        init.pointer("/result/capabilities/documentFormattingProvider"),
+        Some(&serde_json::Value::Bool(true))
+    );
+
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        })
+        .to_string(),
+    ));
+
+    // Open Main.java with a type error and verify publishDiagnostics
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": "file:///workdir/Main.java",
+                    "languageId": "java",
+                    "version": 1,
+                    "text": "public class Main { public static void main(String[] args) { int x = \"bad\"; } }\n"
+                }
+            }
+        })
+        .to_string(),
+    ));
+    let err_diag = loop {
+        let d = receive_lsp_diagnostics(&mut worker, "file:///workdir/Main.java").await;
+        if d.pointer("/params/diagnostics")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|a| !a.is_empty())
+        {
+            break d;
+        }
+    };
+    let msg = err_diag
+        .pointer("/params/diagnostics/0/message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    assert!(
+        msg.contains("incompatible types"),
+        "expected incompatible types diagnostic, got: {err_diag}"
+    );
+
+    // Fix Main.java -> diagnostics cleared
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java", "version": 2 },
+                "contentChanges": [{ "text": GOOD_MAIN }]
+            }
+        })
+        .to_string(),
+    ));
+    let clean_diag = receive_lsp_diagnostics(&mut worker, "file:///workdir/Main.java").await;
+    assert!(
+        clean_diag
+            .pointer("/params/diagnostics")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(Vec::is_empty),
+        "expected empty diagnostics after fix, got: {clean_diag}"
+    );
+
+    // Hover on list.get(0)
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "position": { "line": 5, "character": 25 }
+            }
+        })
+        .to_string(),
+    ));
+    let hover = receive_lsp_response(&mut worker, 2).await;
+    let hover_val = hover
+        .pointer("/result/contents/value")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    assert!(
+        hover_val.contains("String") && hover_val.contains("get(int index)"),
+        "unexpected hover: {hover}"
+    );
+
+    // Cross-file definition, references, and rename on Helper.computeSum
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "position": { "line": 6, "character": 30 }
+            }
+        })
+        .to_string(),
+    ));
+    let def = receive_lsp_response(&mut worker, 3).await;
+    assert_eq!(
+        def.pointer("/result/uri")
+            .and_then(serde_json::Value::as_str),
+        Some("file:///workdir/Helper.java"),
+        "unexpected definition: {def}"
+    );
+
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "position": { "line": 6, "character": 30 },
+                "context": { "includeDeclaration": true }
+            }
+        })
+        .to_string(),
+    ));
+    let refs = receive_lsp_response(&mut worker, 4).await;
+    assert_eq!(
+        refs.pointer("/result")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(2),
+        "expected 2 references across Helper.java and Main.java: {refs}"
+    );
+
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "position": { "line": 6, "character": 30 },
+                "newName": "addNumbers"
+            }
+        })
+        .to_string(),
+    ));
+    let rename = receive_lsp_response(&mut worker, 5).await;
+    assert!(
+        rename
+            .pointer("/result/changes/file:~1~1~1workdir~1Helper.java")
+            .is_some()
+            && rename
+                .pointer("/result/changes/file:~1~1~1workdir~1Main.java")
+                .is_some(),
+        "expected rename edits in both files: {rename}"
+    );
+
+    // Member completion on `list.`
+    let dot_source = GOOD_MAIN.replace("list.add(\"hello\");", "list.");
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java", "version": 3 },
+                "contentChanges": [{ "text": dot_source }]
+            }
+        })
+        .to_string(),
+    ));
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "position": { "line": 4, "character": 13 }
+            }
+        })
+        .to_string(),
+    ));
+    let comp = receive_lsp_response(&mut worker, 6).await;
+    let items = comp
+        .pointer("/result/items")
+        .and_then(serde_json::Value::as_array)
+        .expect("completion items array");
+    assert!(
+        items.iter().any(|it| {
+            it.get("label").and_then(serde_json::Value::as_str) == Some("subList")
+                && it
+                    .get("detail")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|d| d.contains("fromIndex") && d.contains("toIndex"))
+        }),
+        "expected subList(int fromIndex, int toIndex) completion, got {} items",
+        items.len()
+    );
+
+    // Signature help on unfinished `list.subList(0, `
+    let sig_source = GOOD_MAIN.replace("list.add(\"hello\");", "list.subList(0, ");
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java", "version": 4 },
+                "contentChanges": [{ "text": sig_source }]
+            }
+        })
+        .to_string(),
+    ));
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "textDocument/signatureHelp",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "position": { "line": 4, "character": 24 }
+            }
+        })
+        .to_string(),
+    ));
+    let sig = receive_lsp_response(&mut worker, 7).await;
+    assert_eq!(
+        sig.pointer("/result/activeParameter")
+            .and_then(serde_json::Value::as_u64),
+        Some(1),
+        "unexpected signatureHelp: {sig}"
+    );
+    assert_eq!(
+        sig.pointer("/result/signatures")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(1),
+        "expected deduplicated single signature: {sig}"
+    );
+
+    // Formatting via google-java-format
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java", "version": 5 },
+                "contentChanges": [{ "text": "public class Main{public static void main(String[] args){int x=1+2;System.out.println(x);}}\n" }]
+            }
+        })
+        .to_string(),
+    ));
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "textDocument/formatting",
+            "params": {
+                "textDocument": { "uri": "file:///workdir/Main.java" },
+                "options": { "tabSize": 4, "insertSpaces": true }
+            }
+        })
+        .to_string(),
+    ));
+    let fmt = receive_lsp_response(&mut worker, 8).await;
+    let formatted = fmt
+        .pointer("/result/0/newText")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    assert!(
+        formatted.contains("    public static void main(String[] args) {\n        int x = 1 + 2;"),
+        "unexpected formatting result: {fmt}"
+    );
+
+    // Clean shutdown + exit
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "shutdown",
+            "params": null
+        })
+        .to_string(),
+    ));
+    let shutdown = receive_lsp_response(&mut worker, 9).await;
+    assert_eq!(shutdown.get("result"), Some(&serde_json::Value::Null));
+    worker.send(WorkerLSRequest::Message(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "exit",
+            "params": null
+        })
+        .to_string(),
+    ));
+    loop {
+        match worker.receive::<WorkerResponse>().await {
+            WorkerResponse::LS(WorkerLSResponse::Stopped) => break,
+            WorkerResponse::LS(WorkerLSResponse::Message(_)) => {}
+            WorkerResponse::LS(WorkerLSResponse::Error(error)) => {
+                panic!("Java LS failed while stopping: {error}")
+            }
+            response => panic!("unexpected response while stopping Java LS: {response:?}"),
         }
     }
 
