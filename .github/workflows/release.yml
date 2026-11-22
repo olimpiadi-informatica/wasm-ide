@@ -31,7 +31,7 @@ jobs:
           target: wasm32-unknown-unknown
 
       - name: Install Trunk
-        uses: jetli/trunk-action@69821d4eec12c308c4b811e459e37556cf920057 # v0.5.0
+        uses: jetli/trunk-action@1346cc09eace4beb84e403e199a471346d4684c9 # v0.5.1
 
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
